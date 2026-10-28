@@ -1,33 +1,3 @@
 //! Wrapped chip geometry diagnostic, no horizontal scroll area.
-use zapfast::{app::App, paths::AppDirs, settings::Settings, ui::widgets};
-fn main() {
-    let root = tempfile::tempdir().unwrap();
-    let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
-    let ctx = egui::Context::default();
-    app.attach(&ctx);
-    let mut rects = Vec::new();
-    let mut output = ctx.run_ui(
-        egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(220., 500.),
-            )),
-            ..Default::default()
-        },
-        |ui| {
-            widgets::chip_scroll_row(ui, "fixture", |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for i in 0..8 {
-                        rects.push(ui.button(format!("Filter {i}")).rect);
-                    }
-                });
-            });
-        },
-    );
-    output.textures_delta.clear();
-    assert_eq!(rects.len(), 8);
-    assert!(rects.last().unwrap().top() > rects[0].top());
-    assert!(rects.iter().all(|r| r.right() <= 220.));
-    app.backend.shutdown();
-    println!("PASS: eight controls wrap within220px");
-}
+use zapfast::{app::App,paths::AppDirs,settings::Settings,ui::widgets};
+fn main(){let root=tempfile::tempdir().unwrap();let(mut app,_)=App::headless(AppDirs::under(root.path()),Settings::default());let ctx=egui::Context::default();app.attach(&ctx);let mut rects=Vec::new();let mut output=ctx.run_ui(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(220.,500.))),..Default::default()},|ui|{widgets::chip_scroll_row(ui,"fixture",|ui|{ui.horizontal_wrapped(|ui|{for i in 0..8{rects.push(ui.button(format!("Filter {i}")).rect);}});});});output.textures_delta.clear();assert_eq!(rects.len(),8);assert!(rects.last().unwrap().top()>rects[0].top());assert!(rects.iter().all(|r|r.right()<=220.));app.backend.shutdown();println!("PASS: eight controls wrap within220px");}

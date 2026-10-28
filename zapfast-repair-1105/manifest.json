@@ -1,0 +1,54 @@
+{
+  "src/backend/beeper.rs": {
+    "before": "e5152434adfc51023351dc44edd1770bf92af5a2820a83f4af92e011c7231e2e",
+    "after": "4ddb1b37d284950b948e5a9f5888746c90e1869c8cc62b22f96c3f4278285ec8"
+  },
+  "src/app.rs": {
+    "before": "74e38c407ee186a0ac24069d288be3562371fe20cdc5732b9f962b8711f951d3",
+    "after": "313590c7bd3fa049b240b6009c33af52c9a94379d53b88c07dee028cd7c4acc1"
+  },
+  "src/ui/chats.rs": {
+    "before": "84250048c2a577bb7e6e1734a1cdf668ddd8c4ba7bca3748309e3c61db9fb74c",
+    "after": "878b3073248a8a9959a638fb7502c67c599e95ce2887084c1012b69575beaf6d"
+  },
+  "src/ui/widgets.rs": {
+    "before": "455af4020af3784390f286358001e0c0c226bac483ab41ff5a9abc5f526b943e",
+    "after": "d5bc0667ab5006e8af1847052b3d3fa9c3c0e2e2111770a7241dd7a1772650d9"
+  },
+  "src/ui/labels.rs": {
+    "before": "2a1ecc559074f7301037cc91ab29c8243a806ab519eafd4d9fc534ef85a2033a",
+    "after": "f495a72f04bb961794ee3c508201359c8a3099be335266f6611374f532d1f50d"
+  },
+  "src/ui/keys.rs": {
+    "before": "ffd71d62b3179a02cfa6dc5ec2bf3de21a7a88add0be5f8b7b6a725aa597e3d1",
+    "after": "0b8698ae85704993e8c2168293b767bd429a4d163d2435ca58509bc38810895f"
+  },
+  "src/ui/rail.rs": {
+    "before": "241f98857fec95879ce5711ea5c3916e0315a027c0d013b723b07e551fb25b53",
+    "after": "5c57f8b4dc84498f65f012e285b9575fb0f97e39c9876198801b754fa84b4836"
+  },
+  "src/ui/merged.rs": {
+    "before": "27f60018c1e9317c847e069e78d269f57ede4f7d9fdbaa3850d8152277783694",
+    "after": "9a8c4ecc84d3d8ad47f6af80ef8691d78079d5ce5326d7d791a80cd0fac8a3ea"
+  },
+  "examples/chip_scroll_checks.rs": {
+    "before": "6b01062eae77f311f6f1119a939ae92aca62d3a54be7231332df99c9266982ee",
+    "after": "0e0a83cbf4d0a773a3d79606b0ebdf78a4c62f33cd6ceee3faa44c5604f63e1e"
+  },
+  "examples/merged_checks.rs": {
+    "before": "5ed4b73c0e8ab4b7a001b623ebceaef207fcdc72acd7c8c83f996e5c4cb2263c",
+    "after": "550531c089f96aa873d576f4723b25b79024d4eeca579d9551f1bbd7d90432fd"
+  },
+  "examples/repair_checks.rs": {
+    "before": null,
+    "after": "9d3089c8793a13fa8673f68e3e6c197b824946facda7a9216027810a835f05d8"
+  },
+  "examples/README.md": {
+    "before": "306529824700acea1e7d332b8d15f26f17fd337f884ed14ad1593f2aac31daf9",
+    "after": "9f33534834a6db9290506c1efe40135e3845388307109f51cf45aea0b485171c"
+  },
+  "REPAIR-1105.md": {
+    "before": null,
+    "after": "3031a94f7e4302ea6657f44b6cc4d383c53927f8338179bd0cc1939142766161"
+  }
+}
