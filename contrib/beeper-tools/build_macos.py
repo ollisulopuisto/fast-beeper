@@ -41,7 +41,7 @@ def build(root, destination, spec):
             shutil.copy2(root / name, stage / name)
         (stage / 'build-info.json').write_text(json.dumps({'architecture': spec['target'], 'native_runtime_tested': False,
             'server_bundled': False, 'signing_notarization_verified': False}, indent=2) + '\n')
-        manifest = {str(path.relative_to(stage)): hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest = {path.relative_to(stage).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                     for path in sorted(stage.rglob('*')) if path.is_file()}
         (stage / 'checksums.json').write_text(json.dumps(manifest, indent=2) + '\n')
         stage.rename(destination)

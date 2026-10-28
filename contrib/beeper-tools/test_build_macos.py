@@ -15,7 +15,7 @@ class MacBuildTests(unittest.TestCase):
             plan = mac_build.plan(pathlib.Path('/fixture'),machine)
             self.assertEqual(plan['target'],target)
             self.assertIn('--locked',plan['build'])
-            self.assertEqual(plan['build'][plan['build'].index('--target-dir')+1],'/fixture/target')
+            self.assertEqual(plan['build'][plan['build'].index('--target-dir')+1],str(pathlib.Path('/fixture')/'target'))
         with self.assertRaises(ValueError): mac_build.plan(pathlib.Path('/fixture'),'unknown')
 
     def test_existing_output_refused_before_build(self):
