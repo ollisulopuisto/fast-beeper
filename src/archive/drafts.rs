@@ -53,21 +53,60 @@ mod tests {
     #[test]
     fn beeper_drafts_are_encrypted_durable_and_backend_isolated() {
         use crate::backend::beeper::{draft_namespace, stored_drafts};
-        let root = tempfile::tempdir().unwrap(); let path=root.path().join("drafts.db"); let key=[29;32];
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("drafts.db");
+        let key = [29; 32];
         {
-            let archive=Archive::open_with_key(&path,&key).unwrap();
-            archive.set_draft(&draft_namespace("http://127.0.0.1:23373","same-chat"),"private original",1).unwrap();
-            archive.set_draft(&draft_namespace("http://127.0.0.1:8077","same-chat"),"separate endpoint",2).unwrap();
+            let archive = Archive::open_with_key(&path, &key).unwrap();
+            archive
+                .set_draft(
+                    &draft_namespace("http://127.0.0.1:23373", "same-chat"),
+                    "private original",
+                    1,
+                )
+                .unwrap();
+            archive
+                .set_draft(
+                    &draft_namespace("http://127.0.0.1:8077", "same-chat"),
+                    "separate endpoint",
+                    2,
+                )
+                .unwrap();
         }
-        let bytes=std::fs::read(&path).unwrap();
-        assert!(!bytes.windows(b"private original".len()).any(|window| window == b"private original"));
-        assert_ne!(&bytes[..16],b"SQLite format 3\0");
-        let archive=Archive::open_with_key(&path,&key).unwrap();
-        assert_eq!(stored_drafts(&archive,"http://127.0.0.1:23373").unwrap(),vec![("same-chat".into(),"private original".into())]);
-        assert_eq!(stored_drafts(&archive,"http://127.0.0.1:8077").unwrap(),vec![("same-chat".into(),"separate endpoint".into())]);
-        archive.set_draft(&draft_namespace("http://127.0.0.1:23373","same-chat"),"",3).unwrap();
-        assert!(stored_drafts(&archive,"http://127.0.0.1:23373").unwrap().is_empty());
-        assert_eq!(stored_drafts(&archive,"http://127.0.0.1:8077").unwrap().len(),1);
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            !bytes
+                .windows(b"private original".len())
+                .any(|window| window == b"private original")
+        );
+        assert_ne!(&bytes[..16], b"SQLite format 3\0");
+        let archive = Archive::open_with_key(&path, &key).unwrap();
+        assert_eq!(
+            stored_drafts(&archive, "http://127.0.0.1:23373").unwrap(),
+            vec![("same-chat".into(), "private original".into())]
+        );
+        assert_eq!(
+            stored_drafts(&archive, "http://127.0.0.1:8077").unwrap(),
+            vec![("same-chat".into(), "separate endpoint".into())]
+        );
+        archive
+            .set_draft(
+                &draft_namespace("http://127.0.0.1:23373", "same-chat"),
+                "",
+                3,
+            )
+            .unwrap();
+        assert!(
+            stored_drafts(&archive, "http://127.0.0.1:23373")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            stored_drafts(&archive, "http://127.0.0.1:8077")
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

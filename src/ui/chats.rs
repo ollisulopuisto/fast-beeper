@@ -578,9 +578,6 @@ pub fn filter_chip_id(filter: ChatFilter) -> egui::Id {
     egui::Id::new(("chat-filter", filter as u8))
 }
 
-/// Width of the fade over the filter chips' right edge.
-pub(super) const CHIP_FADE: f32 = 16.0;
-
 /// Filter chips under the search field. Search lists every match, so the
 /// chips hide there.
 fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
@@ -593,8 +590,8 @@ fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     }
     let palette = app.palette;
     ui.add_space(8.0);
-    let output = widgets::chip_scroll_row(ui, "chat-filters", |ui| {
-        ui.horizontal(|ui| {
+    widgets::chip_scroll_row(ui, "chat-filters", |ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
             for filter in ChatFilter::EVERY {
                 let count = match filter {
@@ -648,22 +645,40 @@ fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 if chip.clicked() {
                     // A second click on the active chip returns to every chat.
                     let next = if selected { ChatFilter::All } else { filter };
+                    app.beeper_unreplied=false;app.beeper_reply_later_filter=false;
                     app.actions.push(Action::SetChatFilter(next));
+                }
+            }
+            if !app.beeper_browse_networks().is_empty() {
+                if widgets::filter_chip(ui, &palette, "Unreplied", 0, app.beeper_unreplied)
+                    .on_hover_text("Latest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R")
+                    .clicked()
+                {
+                    app.beeper_reply_later_filter = false;
+                    app.beeper_unreplied = !app.beeper_unreplied;
+                    app.actions.push(Action::SetChatFilter(ChatFilter::All));
+                }
+                if widgets::filter_chip(ui, &palette, "Reply later", 0, app.beeper_reply_later_filter)
+                    .on_hover_text("Local queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat.")
+                    .clicked()
+                {
+                    app.beeper_reply_later_filter = !app.beeper_reply_later_filter;
+                    app.beeper_unreplied = false;
+                    app.actions.push(Action::SetChatFilter(ChatFilter::All));
+                }
+                if let Some(chat) = app.current_chat() {
+                    let queued = app.reply_later_contains(chat);
+                    if ui.small_button(if queued { "Remove from later" } else { "Reply later +" })
+                        .on_hover_text("Cmd+Shift+L: toggle current chat in local queue")
+                        .clicked()
+                    {
+                        app.toggle_reply_later();
+                    }
                 }
             }
             ui.add_space(4.0);
         })
     });
-    // Chips cut off at the edge fade into the panel, which says the row
-    // scrolls on.
-    let hidden = output.content_size.x - output.state.offset.x - output.inner_rect.width();
-    if hidden > 0.5 {
-        // A translucent sidebar would show the fade as a band; the chips
-        // are only cut there.
-        if !palette.vibrant() {
-            widgets::fade_right(ui, output.inner_rect, CHIP_FADE, palette.panel);
-        }
-    }
     labels::chip_row(app, ui, &palette);
 }
 
@@ -898,33 +913,108 @@ fn starred_row(
 }
 
 /// Compact pins intentionally span network/account navigation in this profile.
-fn pinned_row(app:&mut App,ui:&mut egui::Ui) {
-    let pins=app.beeper_global_pins();if pins.is_empty(){return;}
-    let palette=app.palette;
-    ui.label(egui::RichText::new("Pinned · all networks").small().color(palette.secondary));
-    egui::ScrollArea::horizontal().id_salt("beeper-global-pins").auto_shrink([false,true]).show(ui,|ui| {
-        ui.horizontal(|ui| {
-            for chat in pins {
-                let title=app.chat_title(&chat);let identity=chat.network.as_deref().unwrap_or("Beeper");
-                let picture=app.avatar(&chat.id);
-                let (rect,response)=ui.allocate_exact_size(vec2(76.0,88.0),Sense::click());
-                if response.hovered() || app.open_chat.as_deref()==Some(&chat.id) {widgets::row_highlight(ui,&palette,rect,palette.surface_active);}
-                let avatar=Rect::from_center_size(rect.center_top()+vec2(0.0,23.0),Vec2::splat(38.0));
-                widgets::paint_avatar(ui,&palette,avatar,&title,&chat.id,picture.as_deref());
-                if chat.looks_unread() { widgets::unread_indicator(ui,&palette,avatar.right_top(),chat.unread.max(1),false,false); }
-                let name=if title.chars().count()>10 {format!("{}…",title.chars().take(9).collect::<String>())}else{title.clone()};
-                ui.painter().text(rect.center_top()+vec2(0.0,52.0),egui::Align2::CENTER_CENTER,name,theme::regular(11.0),palette.text);
-                let parts:Vec<_>=identity.split(" · ").collect();
-                let network=chat.backend_network.as_deref().unwrap_or("B");
-                let short=match network.to_lowercase().as_str(){"whatsapp"=>"WA".to_owned(),"signal"=>"Si".to_owned(),"telegram"=>"Tg".to_owned(),_=>network.chars().take(2).collect()};
-                let marker=format!("{short} · {}",parts.last().copied().unwrap_or(identity).chars().take(6).collect::<String>());
-                ui.painter().text(rect.center_top()+vec2(0.0,69.0),egui::Align2::CENTER_CENTER,marker,theme::regular(10.0),palette.secondary);
-                let response=response.on_hover_text(format!("{title}\n{identity}\nAccount: {}",chat.backend_account.as_deref().unwrap_or("")));
-                response.widget_info(||egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel,ui.is_enabled(),app.open_chat.as_deref()==Some(&chat.id),format!("Pinned {title}, {identity}")));
-                if response.clicked(){app.actions.push(Action::OpenChat(chat.id.clone()));}
-            }
+fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
+    let pins = app.beeper_global_pins();
+    if pins.is_empty() {
+        return;
+    }
+    let palette = app.palette;
+    ui.label(
+        egui::RichText::new("Pinned · all networks")
+            .small()
+            .color(palette.secondary),
+    );
+    egui::ScrollArea::vertical()
+        .id_salt("beeper-global-pins")
+        .max_height(190.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for chat in pins {
+                    let title = app.chat_title(&chat);
+                    let identity = chat.network.as_deref().unwrap_or("Beeper");
+                    let picture = app.avatar(&chat.id);
+                    let (rect, response) = ui.allocate_exact_size(vec2(76.0, 88.0), Sense::click());
+                    if response.hovered() || app.open_chat.as_deref() == Some(&chat.id) {
+                        widgets::row_highlight(ui, &palette, rect, palette.surface_active);
+                    }
+                    let avatar = Rect::from_center_size(
+                        rect.center_top() + vec2(0.0, 23.0),
+                        Vec2::splat(38.0),
+                    );
+                    widgets::paint_avatar(
+                        ui,
+                        &palette,
+                        avatar,
+                        &title,
+                        &chat.id,
+                        picture.as_deref(),
+                    );
+                    if chat.looks_unread() {
+                        widgets::unread_indicator(
+                            ui,
+                            &palette,
+                            avatar.right_top(),
+                            chat.unread.max(1),
+                            false,
+                            false,
+                        );
+                    }
+                    let name = if title.chars().count() > 10 {
+                        format!("{}…", title.chars().take(9).collect::<String>())
+                    } else {
+                        title.clone()
+                    };
+                    ui.painter().text(
+                        rect.center_top() + vec2(0.0, 52.0),
+                        egui::Align2::CENTER_CENTER,
+                        name,
+                        theme::regular(11.0),
+                        palette.text,
+                    );
+                    let parts: Vec<_> = identity.split(" · ").collect();
+                    let network = chat.backend_network.as_deref().unwrap_or("B");
+                    let short = match network.to_lowercase().as_str() {
+                        "whatsapp" => "WA".to_owned(),
+                        "signal" => "Si".to_owned(),
+                        "telegram" => "Tg".to_owned(),
+                        _ => network.chars().take(2).collect(),
+                    };
+                    let marker = format!(
+                        "{short} · {}",
+                        parts
+                            .last()
+                            .copied()
+                            .unwrap_or(identity)
+                            .chars()
+                            .take(6)
+                            .collect::<String>()
+                    );
+                    ui.painter().text(
+                        rect.center_top() + vec2(0.0, 69.0),
+                        egui::Align2::CENTER_CENTER,
+                        marker,
+                        theme::regular(10.0),
+                        palette.secondary,
+                    );
+                    let response = response.on_hover_text(format!(
+                        "{title}\n{identity}\nAccount: {}",
+                        chat.backend_account.as_deref().unwrap_or("")
+                    ));
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::SelectableLabel,
+                            ui.is_enabled(),
+                            app.open_chat.as_deref() == Some(&chat.id),
+                            format!("Pinned {title}, {identity}"),
+                        )
+                    });
+                    if response.clicked() {
+                        app.actions.push(Action::OpenChat(chat.id.clone()));
+                    }
+                }
+            });
         });
-    });
     ui.add_space(6.0);
 }
 
@@ -950,9 +1040,32 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
         results(app, ui);
         return;
     }
-    let global_pins = !app.show_archived && app.chats.iter().any(|c|c.backend_account.is_some());
-    if global_pins { pinned_row(app,ui); }
-    let chats: Vec<Chat> = app.visible_chats().into_iter().filter(|c| !global_pins || (!c.pinned&&!app.settings.beeper.people.iter().any(|p|p.members.iter().any(|m|m.matches(c))&&p.members.iter().any(|m|app.chats.iter().any(|known|m.matches(known)&&known.pinned&&!known.archived&&!known.locked))))).map(|c|app.beeper_person_preview(c)).collect();
+    let global_pins = !app.show_archived
+        && !app.beeper_reply_later_filter
+        && app.chats.iter().any(|c| c.backend_account.is_some());
+    if global_pins {
+        pinned_row(app, ui);
+    }
+    let chats: Vec<Chat> = app
+        .visible_chats()
+        .into_iter()
+        .filter(|c| {
+            !global_pins
+                || (!c.pinned
+                    && !app.settings.beeper.people.iter().any(|p| {
+                        p.members.iter().any(|m| m.matches(c))
+                            && p.members.iter().any(|m| {
+                                app.chats.iter().any(|known| {
+                                    m.matches(known)
+                                        && known.pinned
+                                        && !known.archived
+                                        && !known.locked
+                                })
+                            })
+                    }))
+        })
+        .map(|c| app.beeper_person_preview(c))
+        .collect();
     if chats.is_empty() {
         // The favorites title is translated, so it is bound here: the tuple
         // below borrows it for this frame, and every other arm stays a literal.
@@ -971,8 +1084,13 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
                 _ => "No groups",
             };
             (title, "Choose All to see every chat.")
-        } else if global_pins && (app.beeper_network_filter.is_some() || !app.beeper_global_pins().is_empty()) {
-            ("No other chats in this view", "Pinned chats stay available above. Choose Chats for all networks.")
+        } else if global_pins
+            && (app.beeper_network_filter.is_some() || !app.beeper_global_pins().is_empty())
+        {
+            (
+                "No other chats in this view",
+                "Pinned chats stay available above. Choose Chats for all networks.",
+            )
         } else if app.syncing {
             ("Loading your chats", "Receiving history from your phone.")
         } else {
@@ -986,7 +1104,11 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     }
     // Rows touch: one clickable surface from top to bottom, no gaps or rules.
     ui.spacing_mut().item_spacing.y = 0.0;
-    let row_height = if app.settings.beeper.compact_list { 56.0 } else { theme::ROW_HEIGHT };
+    let row_height = if app.settings.beeper.compact_list {
+        56.0
+    } else {
+        theme::ROW_HEIGHT
+    };
     let total = chats.len();
     let mut scroll_area = egui::ScrollArea::vertical()
         .id_salt("chat-list")
@@ -1212,15 +1334,31 @@ fn results(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let chats: Vec<Chat> = app.beeper_display_chats();
     let hits: Vec<Message> = app.scoped_search_hits();
-    if let Some((query,error,truncated)) = &app.beeper_search_state {
-        if query == app.search.trim() {
-            if let Some(error)=error {ui.add(egui::Label::new(egui::RichText::new(error).color(palette.warning)).wrap());}
-            else if *truncated {ui.add(egui::Label::new(egui::RichText::new("Message results are partial; only the first API search page is loaded.").color(palette.warning)).wrap());}
+    if let Some((query, error, truncated)) = &app.beeper_search_state
+        && query == app.search.trim()
+    {
+        if let Some(error) = error {
+            ui.add(egui::Label::new(egui::RichText::new(error).color(palette.warning)).wrap());
+        } else if *truncated {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
+                        "Message results are partial; only the first API search page is loaded.",
+                    )
+                    .color(palette.warning),
+                )
+                .wrap(),
+            );
         }
     }
-    let contacts: Vec<Contact> = if app.beeper_scope_is_active() { Vec::new() } else { app.matching_contacts().into_iter().cloned().collect() };
+    let contacts: Vec<Contact> = if app.beeper_scope_is_active() {
+        Vec::new()
+    } else {
+        app.matching_contacts().into_iter().cloned().collect()
+    };
     let needle = crate::util::search_key(app.search.trim());
-    let offer_self = !app.beeper_scope_is_active() && !needle.is_empty()
+    let offer_self = !app.beeper_scope_is_active()
+        && !needle.is_empty()
         && app.offers_self(&needle)
         && !chats
             .iter()
@@ -1230,7 +1368,15 @@ fn results(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             Icon::Search,
-            if app.beeper_search_state.as_ref().is_some_and(|(query,error,_)| query==app.search.trim() && error.is_some()) { "Message search failed" } else { "No results" },
+            if app
+                .beeper_search_state
+                .as_ref()
+                .is_some_and(|(query, error, _)| query == app.search.trim() && error.is_some())
+            {
+                "Message search failed"
+            } else {
+                "No results"
+            },
             "Try another name, number, or message text.",
         );
         return;
@@ -1321,7 +1467,12 @@ fn hit_row(app: &mut App, ui: &mut egui::Ui, hit: &Message) {
             theme::regular(11.5),
             palette.dim,
         );
-        let name_top = rect.top() + if app.settings.beeper.compact_list { 7.0 } else { 14.0 };
+        let name_top = rect.top()
+            + if app.settings.beeper.compact_list {
+                7.0
+            } else {
+                14.0
+            };
         ui.painter().galley(
             pos2(right - stamp_galley.size().x, name_top + 1.0),
             stamp_galley.clone(),
@@ -1331,7 +1482,12 @@ fn hit_row(app: &mut App, ui: &mut egui::Ui, hit: &Message) {
         let name = widgets::line(ui, &title, theme::medium(14.5), palette.text, name_width, 1);
         name.paint(ui, pos2(left, name_top), palette.text);
         // Show the sender for group messages.
-        let line_y = rect.top() + if app.settings.beeper.compact_list { 29.0 } else { 38.0 };
+        let line_y = rect.top()
+            + if app.settings.beeper.compact_list {
+                29.0
+            } else {
+                38.0
+            };
         let mut x = left;
         if hit.from_me {
             let who = widgets::line(
@@ -1506,7 +1662,14 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
     let now = crate::util::now();
     let muted = chat.muted(now);
     let (rect, response) = ui.allocate_exact_size(
-        vec2(ui.available_width(), if app.settings.beeper.compact_list { 56.0 } else { theme::ROW_HEIGHT }),
+        vec2(
+            ui.available_width(),
+            if app.settings.beeper.compact_list {
+                56.0
+            } else {
+                theme::ROW_HEIGHT
+            },
+        ),
         Sense::click(),
     );
     theme::reveal_focus(&response);
@@ -1580,7 +1743,11 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
                 ui,
                 &palette,
                 pos2(badge_right - 10.0, line_y + 8.0),
-                if app.settings.beeper.show_unread_counts { chat.unread } else { 0 },
+                if app.settings.beeper.show_unread_counts {
+                    chat.unread
+                } else {
+                    0
+                },
                 chat.marked_unread || !app.settings.beeper.show_unread_counts,
                 muted,
             );
@@ -1613,7 +1780,13 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         } else {
             palette.dim
         };
-        let preview = if !app.settings.beeper.show_previews || !app.settings.beeper.account(chat.backend_settings_key().as_deref()).previews {
+        let preview = if !app.settings.beeper.show_previews
+            || !app
+                .settings
+                .beeper
+                .account(chat.backend_settings_key().as_deref())
+                .previews
+        {
             widgets::line(ui, "", theme::regular(13.0), preview_color, 1.0, 1)
         } else if !typing.is_empty() {
             let who = if chat.is_group() {
@@ -1713,7 +1886,9 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let response = if let Some(network) = &chat.network {
         response.on_hover_text(format!("{}\n{}", app.chat_title(chat), network))
-    } else { response };
+    } else {
+        response
+    };
     if let Some((area, prefix, full)) = full_preview {
         full_preview_tooltip(app, ui, &chat.id, area, &prefix, &full);
     }
@@ -2138,15 +2313,33 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
             .push(Action::SetArchived(chat.id.clone(), !chat.archived));
     }
     if chat.backend_account.is_some() {
-        widgets::submenu(ui, palette, Icon::Bell, "Remind me", &["In 1 hour", "In 24 hours", "Clear reminder"], |ui| {
-            for (label, seconds) in [("In 1 hour", Some(3600)), ("In 24 hours", Some(86400)), ("Clear reminder", None)] {
-                if widgets::menu_item(ui, palette, None, label) {
-                    let at = seconds.and_then(|offset| jiff::Timestamp::from_second(crate::util::now() + offset).ok()).map(|stamp| stamp.to_string());
-                    app.actions.push(Action::SetBeeperReminder { chat: chat.id.clone(), at });
-                    ui.close();
+        widgets::submenu(
+            ui,
+            palette,
+            Icon::Bell,
+            "Remind me",
+            &["In 1 hour", "In 24 hours", "Clear reminder"],
+            |ui| {
+                for (label, seconds) in [
+                    ("In 1 hour", Some(3600)),
+                    ("In 24 hours", Some(86400)),
+                    ("Clear reminder", None),
+                ] {
+                    if widgets::menu_item(ui, palette, None, label) {
+                        let at = seconds
+                            .and_then(|offset| {
+                                jiff::Timestamp::from_second(crate::util::now() + offset).ok()
+                            })
+                            .map(|stamp| stamp.to_string());
+                        app.actions.push(Action::SetBeeperReminder {
+                            chat: chat.id.clone(),
+                            at,
+                        });
+                        ui.close();
+                    }
                 }
-            }
-        });
+            },
+        );
     }
     // Bound before the call so the translated text outlives the borrow.
     let leave_label = if chat.is_channel() {
@@ -2324,7 +2517,9 @@ fn sound_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette, chat: &Chat) 
 fn mute_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette, chat: &Chat, now: i64) {
     let locale = app.locale;
     if chat.backend_account.is_some() {
-        if widgets::menu_item(ui, palette, Some(Icon::BellOff), "Mute indefinitely") { app.actions.push(Action::SetMuted(chat.id.clone(), Some(0))); }
+        if widgets::menu_item(ui, palette, Some(Icon::BellOff), "Mute indefinitely") {
+            app.actions.push(Action::SetMuted(chat.id.clone(), Some(0)));
+        }
         return;
     }
     let options = [
@@ -2864,11 +3059,10 @@ mod tests {
         );
     }
 
-    /// Both chip rows overflow in a narrow window (#444). Their scroll bars
-    /// reserve a strip below the chips so labels and borders stay visible.
-    /// Dragging the bar scrolls the row, and so does a plain vertical wheel.
+    /// The user requested no horizontal scrollbars. Both rows wrap and keep
+    /// every filter/label reachable instead of retaining the old scrolling UI.
     #[test]
-    fn narrow_chip_rows_show_a_scroll_bar_on_hover_and_follow_the_wheel() {
+    fn narrow_chip_rows_wrap_within_the_viewport_without_horizontal_scrolling() {
         let directory = tempfile::tempdir().unwrap();
         let (mut app, _events) =
             App::headless(AppDirs::under(directory.path()), Settings::default());
@@ -2882,11 +3076,10 @@ mod tests {
             .collect();
         let ctx = egui::Context::default();
         app.attach(&ctx);
-        // Narrow enough that both rows scroll.
         let mut frame = |events| {
             let mut output = ctx.run_ui(
                 egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(220.0, 400.0))),
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(220.0, 600.0))),
                     events,
                     ..Default::default()
                 },
@@ -2895,117 +3088,48 @@ mod tests {
             output.textures_delta.clear();
             output.shapes
         };
+        let rects = || {
+            ctx.data(|data| {
+                ChatFilter::EVERY
+                    .into_iter()
+                    .map(|filter| data.get_temp::<Rect>(filter_chip_id(filter)).unwrap())
+                    .chain((0..8).map(|index| {
+                        data.get_temp::<Rect>(super::labels::chip_id(&index.to_string()))
+                            .unwrap()
+                    }))
+                    .collect::<Vec<_>>()
+            })
+        };
         frame(vec![]);
-        let all = |ctx: &egui::Context| {
-            ctx.data(|data| data.get_temp::<Rect>(filter_chip_id(ChatFilter::All)))
-                .expect("the filter chips are drawn")
-        };
-        let first_label = ctx
-            .data(|data| data.get_temp::<Rect>(super::labels::chip_id("0")))
-            .expect("the first label chip is drawn");
-
-        /// Collects every visible thin rectangle in `shape` into `bars`. A
-        /// scroll bar is a thin rectangle; chips are taller.
-        fn thin_rects(shape: &egui::Shape, bars: &mut Vec<Rect>) {
-            match shape {
-                egui::Shape::Vec(shapes) => {
-                    shapes.iter().for_each(|shape| thin_rects(shape, bars));
-                }
-                egui::Shape::Rect(rect)
-                    if rect.rect.height() < 12.0
-                        && rect.rect.width() > 12.0
-                        && rect.fill.a() > 0 =>
-                {
-                    bars.push(rect.rect);
-                }
-                _ => {}
-            }
+        let before = rects();
+        assert_eq!(before.len(), ChatFilter::EVERY.len() + 8);
+        for rect in &before {
+            assert!(
+                rect.is_positive() && rect.left() >= 0.0 && rect.right() <= 220.0,
+                "chip outside viewport: {rect:?}"
+            );
         }
-        let bars = |shapes: &[egui::epaint::ClippedShape]| {
-            let mut bars = Vec::new();
-            for clipped in shapes {
-                thin_rects(&clipped.shape, &mut bars);
-            }
-            bars
-        };
-
-        // At rest, away from the rows, neither shows a bar.
-        let mut shapes = Vec::new();
-        for _ in 0..5 {
-            shapes = frame(vec![egui::Event::PointerMoved(egui::pos2(110.0, 380.0))]);
-        }
-        let resting = bars(&shapes);
-        assert!(
-            resting.iter().all(|bar| bar.top() >= all(&ctx).bottom()),
-            "a resting scrollbar overlaps filter chips: {resting:?}"
-        );
-
-        let mut filter_bar = None;
-        for (row, pointer, chip) in [
-            ("filter", all(&ctx).center(), all(&ctx)),
-            ("label", first_label.center(), first_label),
-        ] {
-            let mut shapes = Vec::new();
+        assert!(before[ChatFilter::EVERY.len() - 1].top() > before[0].top());
+        assert!(before.last().unwrap().top() > before[ChatFilter::EVERY.len()].top());
+        for pointer in [before[0].center(), before[ChatFilter::EVERY.len()].center()] {
             for _ in 0..5 {
-                shapes = frame(vec![egui::Event::PointerMoved(pointer)]);
+                frame(vec![egui::Event::PointerMoved(pointer)]);
             }
-            let shown = bars(&shapes);
-            let bar = shown
-                .iter()
-                .copied()
-                .find(|bar| bar.top() >= chip.bottom())
-                .unwrap_or_else(|| {
-                    panic!("hovering the {row} row showed no bar below its chips: {shown:?}")
-                });
-            assert!(bar.top() >= chip.bottom(), "the {row} row's bar at {bar:?} overlaps chips at {chip:?}");
-            if row == "filter" {
-                filter_bar = Some(bar);
-            }
+            frame(vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -60.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ]);
+            assert_eq!(
+                before,
+                rects(),
+                "hover/wheel must not hide chips horizontally"
+            );
         }
-
-        // Dragging the handle to the right scrolls the chips to the left.
-        let bar = filter_bar.expect("the filter row has a scroll bar");
-        let grab = egui::pos2(bar.left() + 10.0, bar.center().y);
-        let before = all(&ctx).left();
-        let button = |pos, pressed| egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        };
-        frame(vec![egui::Event::PointerMoved(grab)]);
-        frame(vec![button(grab, true)]);
-        for step in 1..=4 {
-            frame(vec![egui::Event::PointerMoved(
-                grab + vec2(10.0 * step as f32, 0.0),
-            )]);
-        }
-        frame(vec![button(grab + vec2(40.0, 0.0), false)]);
-        frame(vec![]);
-        assert!(
-            all(&ctx).left() < before - 1.0,
-            "dragging the scroll bar left the filter chips at {before}, now {}",
-            all(&ctx).left()
-        );
-
-        let before = all(&ctx).left();
-        // The middle of the row; the All chip has scrolled out of view.
-        let pointer = egui::pos2(110.0, all(&ctx).center().y);
-        frame(vec![
-            egui::Event::PointerMoved(pointer),
-            egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: vec2(0.0, -60.0),
-                modifiers: egui::Modifiers::NONE,
-                phase: egui::TouchPhase::Move,
-            },
-        ]);
-        frame(vec![egui::Event::PointerMoved(pointer)]);
-        assert!(
-            all(&ctx).left() < before - 1.0,
-            "a vertical wheel left the filter chips at {before}, now {}",
-            all(&ctx).left()
-        );
     }
 
     /// An app with `count` chats, newest first, and a context to draw it in.

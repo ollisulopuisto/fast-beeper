@@ -18059,7 +18059,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_stay_on_one_line_and_locked_is_only_shown_when_needed() {
+    fn filters_wrap_within_sidebar_and_locked_is_only_shown_when_needed() {
         use crate::ui::rail::{Destination, destination_id};
         let mut app = app();
         for chat in &mut app.chats {
@@ -18094,9 +18094,18 @@ mod tests {
                 .unwrap()
             })
             .collect();
+        let sidebar = app.settings.sidebar_width;
         for rect in &chips {
-            assert!((rect.top() - chips[0].top()).abs() < 0.1);
+            assert!(rect.is_positive(), "filter must remain visible: {rect:?}");
+            assert!(
+                rect.left() >= chips[0].left() - 0.1 && rect.right() <= chips[0].left() + sidebar,
+                "filter must fit the sidebar: {rect:?}"
+            );
         }
+        assert!(
+            chips.last().unwrap().top() > chips[0].top(),
+            "narrow sidebar wraps filters"
+        );
     }
 
     #[test]

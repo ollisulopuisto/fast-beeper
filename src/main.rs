@@ -302,7 +302,8 @@ fn run() -> eframe::Result<()> {
     };
     // A demo's folders are throwaway; remove them when the run returns.
     let _demo_root = demo_root.map(RemoveOnDrop);
-    let beeper_mode = std::env::var("ZAPFAST_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("beeper"));
+    let beeper_mode =
+        std::env::var("ZAPFAST_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("beeper"));
     if !demo && !beeper_mode && std::env::var_os("ZAPFAST_PROFILE_ROOT").is_none() {
         dirs.adopt_previous_names()
             .map_err(|error| eframe::Error::AppCreation(error.into()))?;
@@ -327,7 +328,10 @@ fn run() -> eframe::Result<()> {
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     // Moving a single-account setup into its account folder needs the
     // keyring; when it cannot finish, the log says why.
-    if !demo && !beeper_mode && let Err(error) = dirs.adopt_single_account() {
+    if !demo
+        && !beeper_mode
+        && let Err(error) = dirs.adopt_single_account()
+    {
         log::error!("could not move the linked account into its folder: {error}");
         return Err(eframe::Error::AppCreation(error.into()));
     }

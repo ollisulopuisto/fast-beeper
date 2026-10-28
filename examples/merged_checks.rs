@@ -13,12 +13,14 @@ fn main() {
             command: true,
             mac_cmd: true,
             shift: true,
+            alt: true,
             ..Default::default()
         },
         egui::Modifiers {
             command: true,
             ctrl: true,
             shift: true,
+            alt: true,
             ..Default::default()
         },
     ] {
@@ -28,6 +30,7 @@ fn main() {
         !egui::Modifiers {
             ctrl: true,
             shift: true,
+            alt: true,
             ..Default::default()
         }
         .matches_logically(shortcut.modifiers)

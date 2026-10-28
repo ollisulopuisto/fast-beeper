@@ -338,18 +338,42 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
 
 /// Inventory is authoritative for identity/status; chat rows provide a fallback
 /// network label for older APIs that omit it. Never infer a connected status.
-fn beeper_account_rows(app: &App) -> std::collections::BTreeMap<String, (String, String, String, String)> {
+fn beeper_account_rows(
+    app: &App,
+) -> std::collections::BTreeMap<String, (String, String, String, String)> {
     let mut rows = std::collections::BTreeMap::new();
     for (origin, accounts) in &app.beeper_accounts {
         for account in accounts {
-            let key = serde_json::to_string(&(origin, &account.id)).expect("string pair serializes");
-            let network = if account.network.is_empty() { "Network not supplied" } else { &account.network };
-            rows.insert(key, (format!("{network} · {} [{}]", account.name, account.id), account.id.clone(), origin.clone(), account.status.clone()));
+            let key =
+                serde_json::to_string(&(origin, &account.id)).expect("string pair serializes");
+            let network = if account.network.is_empty() {
+                "Network not supplied"
+            } else {
+                &account.network
+            };
+            rows.insert(
+                key,
+                (
+                    format!("{network} · {} [{}]", account.name, account.id),
+                    account.id.clone(),
+                    origin.clone(),
+                    account.status.clone(),
+                ),
+            );
         }
     }
     for chat in &app.chats {
         if let Some(key) = chat.backend_settings_key() {
-            rows.entry(key).or_insert_with(|| (chat.network.clone().unwrap_or_else(|| "Network not supplied".into()), chat.backend_account.clone().unwrap_or_default(), chat.backend_origin.clone().unwrap_or_default(), "Not supplied".into()));
+            rows.entry(key).or_insert_with(|| {
+                (
+                    chat.network
+                        .clone()
+                        .unwrap_or_else(|| "Network not supplied".into()),
+                    chat.backend_account.clone().unwrap_or_default(),
+                    chat.backend_origin.clone().unwrap_or_default(),
+                    "Not supplied".into(),
+                )
+            });
         }
     }
     rows
@@ -362,11 +386,29 @@ fn sections(app: &App) -> Vec<Section> {
 
     let mut beeper = Section::new("Beeper view".into());
     beeper.toggle("Incognito mode", "Keep chats unread on automatic open/focus and suppress typing. Explicit Mark read still works.", |s| &mut s.beeper.incognito);
-    beeper.toggle("Compact chat list", "Use smaller chat rows.", |s| &mut s.beeper.compact_list);
-    beeper.toggle("Show message previews", "Show latest message text beneath each chat.", |s| &mut s.beeper.show_previews);
-    beeper.toggle("Show unread message counts", "Off keeps an unread dot without the number.", |s| &mut s.beeper.show_unread_counts);
-    beeper.toggle("Show network and account labels", "Full identity remains available in the conversation header.", |s| &mut s.beeper.show_network_labels);
-    beeper.toggle("Notify for focused chat", "Allow desktop notifications even while reading the chat.", |s| &mut s.beeper.notify_focused_chat);
+    beeper.toggle("Compact chat list", "Use smaller chat rows.", |s| {
+        &mut s.beeper.compact_list
+    });
+    beeper.toggle(
+        "Show message previews",
+        "Show latest message text beneath each chat.",
+        |s| &mut s.beeper.show_previews,
+    );
+    beeper.toggle(
+        "Show unread message counts",
+        "Off keeps an unread dot without the number.",
+        |s| &mut s.beeper.show_unread_counts,
+    );
+    beeper.toggle(
+        "Show network and account labels",
+        "Full identity remains available in the conversation header.",
+        |s| &mut s.beeper.show_network_labels,
+    );
+    beeper.toggle(
+        "Notify for focused chat",
+        "Allow desktop notifications even while reading the chat.",
+        |s| &mut s.beeper.notify_focused_chat,
+    );
     beeper.toggle("Notify for group messages", "Off suppresses ordinary group notifications. Mentions and replies to you can still notify.", |s| &mut s.beeper.notify_group_messages);
     beeper.block(vec!["Accounts".into(), "Inbox".into(), "Notifications".into()], |ui, app| {
         let accounts = beeper_account_rows(app);
@@ -917,7 +959,9 @@ fn sections(app: &App) -> Vec<Section> {
     files.block(
         vec![
             translated(locale, "Storage used"),
-            "Disposable".into(), "Cache limit".into(), "Budget".into(),
+            "Disposable".into(),
+            "Cache limit".into(),
+            "Budget".into(),
             translated(locale, "Media cache"),
             translated(locale, "Images"),
             translated(locale, "Videos and GIFs"),
@@ -966,7 +1010,9 @@ fn sections(app: &App) -> Vec<Section> {
         files,
         about_section,
     ];
-    if crate::backend::beeper::BeeperConfig::from_env().is_some() { sections.insert(0, beeper); }
+    if crate::backend::beeper::BeeperConfig::from_env().is_some() {
+        sections.insert(0, beeper);
+    }
     sections
 }
 
@@ -1016,7 +1062,7 @@ fn app_lock_rows(app: &App, privacy: &mut Section) {
             translated(locale, "Lock after"),
             keyed(translated(
                 locale,
-                "Time without using ZapFast, also counted while it is in the tray. Ctrl+Shift+L locks it at once.",
+                "Time without using ZapFast, also counted while it is in the tray. Ctrl+Shift+L locks it at once outside Beeper. In Beeper, add Alt (Option on Mac).",
             )),
             move |ui, app| {
                 let selected = app.settings.app_lock_after;
@@ -1536,13 +1582,21 @@ fn storage_usage(ui: &mut egui::Ui, app: &mut App) {
         let before = mib;
         ui.horizontal(|ui| {
             ui.label("Disposable Beeper media cache limit");
-            egui::ComboBox::from_id_salt("beeper-cache-budget").selected_text(format!("{mib} MiB")).show_ui(ui, |ui| {
-                for value in [16, 64, 128, 256, 512, 1024, 4096] { ui.selectable_value(&mut mib, value, format!("{value} MiB")); }
-            });
+            egui::ComboBox::from_id_salt("beeper-cache-budget")
+                .selected_text(format!("{mib} MiB"))
+                .show_ui(ui, |ui| {
+                    for value in [16, 64, 128, 256, 512, 1024, 4096] {
+                        ui.selectable_value(&mut mib, value, format!("{value} MiB"));
+                    }
+                });
         });
         if before != mib {
-            if let Err(e) = crate::backend::beeper::set_cache_budget(&dirs, mib) { app.toast(format!("Could not save cache limit: {e}")); }
-            app.backend.send(crate::backend::Command::LoadStorageStats { token: app.storage_token });
+            if let Err(e) = crate::backend::beeper::set_cache_budget(&dirs, mib) {
+                app.toast(format!("Could not save cache limit: {e}"));
+            }
+            app.backend.send(crate::backend::Command::LoadStorageStats {
+                token: app.storage_token,
+            });
         }
         ui.label("Oldest disposable files are evicted automatically. Saved downloads, message history and backend storage are not included or deleted. Refetch works only while upstream still has the original.");
         ui.add_space(10.0);
@@ -2195,11 +2249,20 @@ mod tests {
     #[test]
     fn beeper_inventory_settings_include_chatless_accounts_and_isolate_origins() {
         let directory = tempfile::tempdir().unwrap();
-        let (mut app, _) = App::headless(crate::paths::AppDirs::under(directory.path()), crate::settings::Settings::default());
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            crate::settings::Settings::default(),
+        );
         for origin in ["http://127.0.0.1:23373", "http://127.0.0.1:8077"] {
-            app.beeper_accounts.insert(origin.into(), vec![crate::backend::BeeperAccountInfo {
-                id: "same-id".into(), name: "Work".into(), network: "Signal".into(), status: "disconnected".into(),
-            }]);
+            app.beeper_accounts.insert(
+                origin.into(),
+                vec![crate::backend::BeeperAccountInfo {
+                    id: "same-id".into(),
+                    name: "Work".into(),
+                    network: "Signal".into(),
+                    status: "disconnected".into(),
+                }],
+            );
         }
         assert!(app.chats.is_empty());
         let rows = beeper_account_rows(&app);
@@ -2208,11 +2271,17 @@ mod tests {
         let second = serde_json::to_string(&("http://127.0.0.1:8077", "same-id")).unwrap();
         assert_eq!(rows[&first].3, "disconnected");
         assert!(rows[&first].0.contains("Work"));
-        app.settings.beeper.accounts.entry(first.clone()).or_default().notifications = false;
+        app.settings
+            .beeper
+            .accounts
+            .entry(first.clone())
+            .or_default()
+            .notifications = false;
         assert!(app.settings.beeper.account(Some(&second)).notifications);
         // New authoritative inventory replaces old entries; persisted preference
         // choices are kept in case the account returns. No remote effect.
-        app.beeper_accounts.insert("http://127.0.0.1:23373".into(), vec![]);
+        app.beeper_accounts
+            .insert("http://127.0.0.1:23373".into(), vec![]);
         assert!(!beeper_account_rows(&app).contains_key(&first));
         assert!(app.settings.beeper.accounts.contains_key(&first));
     }

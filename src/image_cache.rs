@@ -103,7 +103,11 @@ pub fn sweep(ctx: &egui::Context) {
     let stale: Vec<String> = {
         let registry = registry(ctx);
         let mut entries = registry.0.lock().unwrap_or_else(|p| p.into_inner());
-        let resident = if crate::backend::beeper::BeeperConfig::from_env().is_some() { 24 } else { RESIDENT };
+        let resident = if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
+            24
+        } else {
+            RESIDENT
+        };
         let over = entries.len().saturating_sub(resident);
         if over == 0 {
             return;

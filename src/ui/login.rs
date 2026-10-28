@@ -14,7 +14,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app,
         ui,
         "login",
-        &crate::i18n::gettext(app.locale, if beeper { "One client for your Beeper accounts." } else { "A native WhatsApp client." }),
+        &crate::i18n::gettext(
+            app.locale,
+            if beeper {
+                "One client for your Beeper accounts."
+            } else {
+                "A native WhatsApp client."
+            },
+        ),
         body,
     );
 }
@@ -91,17 +98,39 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
             busy(
                 ui,
                 palette.accent,
-                &if beeper { app.link.connection_copy(true) } else { crate::i18n::gettext(locale, "Connecting to WhatsApp…").into_owned() },
+                &if beeper {
+                    app.link.connection_copy(true)
+                } else {
+                    crate::i18n::gettext(locale, "Connecting to WhatsApp…").into_owned()
+                },
             );
         }
         LinkStatus::Connected => {
-            busy(ui, palette.accent, &if beeper { app.link.connection_copy(true) } else { crate::i18n::gettext(locale, "Linked. Waiting for your chats…").into_owned() });
+            busy(
+                ui,
+                palette.accent,
+                &if beeper {
+                    app.link.connection_copy(true)
+                } else {
+                    crate::i18n::gettext(locale, "Linked. Waiting for your chats…").into_owned()
+                },
+            );
         }
         LinkStatus::Disconnected { .. } if beeper => {
             theme::icon(ui, Icon::WifiOff, 28.0, palette.warning);
-            theme::paragraph(ui, app.link.connection_copy(true), theme::regular(13.5), palette.text);
+            theme::paragraph(
+                ui,
+                app.link.connection_copy(true),
+                theme::regular(13.5),
+                palette.text,
+            );
             ui.add_space(8.0);
-            theme::paragraph(ui, "ZapFast will keep checking this existing endpoint. No messages are queued for automatic sending.", theme::regular(12.0), palette.secondary);
+            theme::paragraph(
+                ui,
+                "ZapFast will keep checking this existing endpoint. No messages are queued for automatic sending.",
+                theme::regular(12.0),
+                palette.secondary,
+            );
         }
         LinkStatus::Disconnected { .. } => {
             busy(ui, palette.accent, &app.link.connection_copy(false));
@@ -137,7 +166,12 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
             );
             ui.add_space(12.0);
             if beeper {
-                theme::paragraph(ui, "Check the existing API endpoint and local token, then relaunch ZapFast. No accounts were linked or migrated.", theme::regular(13.0), palette.secondary);
+                theme::paragraph(
+                    ui,
+                    "Check the existing API endpoint and local token, then relaunch ZapFast. No accounts were linked or migrated.",
+                    theme::regular(13.0),
+                    palette.secondary,
+                );
                 return;
             }
             ui.horizontal(|ui| {
@@ -187,7 +221,9 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     }
-    if beeper { return; }
+    if beeper {
+        return;
+    }
     super::accounts::login_choices(app, ui);
     ui.add_space(18.0);
     theme::paragraph(
