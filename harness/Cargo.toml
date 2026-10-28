@@ -1,0 +1,33 @@
+[package]
+name = "zapfast-harness"
+version = "0.0.0"
+edition = "2024"
+
+# Test harness for zapfast's Beeper adapter: compiles the REAL model.rs,
+# backend.rs and backend/beeper.rs (symlinked) plus only the leaf modules
+# they reference, so the mock integration tests run without compiling the
+# WhatsApp stack (waproto's generated 475k lines do not fit this CI box's
+# per-command time slice; the full tree compiles on a normal machine).
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+base64 = "0.23"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+directories = "6"
+jiff = "0.2"
+fastframe_shell = { path = "stubs/fastframe_shell" }
+whatsapp_rust = { path = "stubs/whatsapp_rust" }
+log = "0.4"
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2" }
+egui = { path = "stubs/egui" }
+eframe = { path = "stubs/eframe" }
+fastframe_file = { path = "stubs/fastframe_file" }
+
+[build-dependencies]
+fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2", features = ["build"] }
+
+[dev-dependencies]
+tempfile = "3"
