@@ -1535,6 +1535,7 @@ mod giphy_tests {
 #[serde(default)]
 pub struct BeeperPreferences {
     pub people:Vec<crate::merged::Person>,
+    pub reply_later:Vec<crate::merged::Member>,
     pub incognito: bool,
     pub compact_list: bool,
     pub show_previews: bool,
@@ -1549,7 +1550,7 @@ pub struct BeeperPreferences {
     pub accounts: std::collections::HashMap<String, BeeperAccountPreferences>,
 }
 impl Default for BeeperPreferences {
-    fn default() -> Self { Self { people:Vec::new(), incognito: false, compact_list: false, show_previews: true, show_unread_counts: true, show_network_labels: true, notify_focused_chat: false, notify_group_messages: true, local_ai_endpoint: "http://127.0.0.1:8080".into(), local_ai_model: String::new(), local_ai_language: "Finnish".into(), local_ai_allow_lan: false, accounts: Default::default() } }
+    fn default() -> Self { Self { people:Vec::new(), reply_later:Vec::new(), incognito: false, compact_list: false, show_previews: true, show_unread_counts: true, show_network_labels: true, notify_focused_chat: false, notify_group_messages: true, local_ai_endpoint: "http://127.0.0.1:8080".into(), local_ai_model: String::new(), local_ai_language: "Finnish".into(), local_ai_allow_lan: false, accounts: Default::default() } }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

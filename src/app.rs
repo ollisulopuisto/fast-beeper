@@ -380,6 +380,8 @@ pub struct UnreadDivider {
 
 pub struct App {
     pub beeper_network_filter: Option<String>,
+    pub beeper_unreplied: bool,
+    pub beeper_reply_later_filter: bool,
     /// Origin+account tuple, never just a display name or network.
     pub beeper_account_filter: Option<String>,
     pub beeper_accounts: std::collections::BTreeMap<String, Vec<crate::backend::BeeperAccountInfo>>,
@@ -1361,6 +1363,8 @@ impl App {
         let tray_lockable = settings.app_lock_hash.is_some();
         let mut app = Self {
             beeper_network_filter: None,
+            beeper_unreplied: false,
+            beeper_reply_later_filter: false,
             beeper_account_filter: None,
             beeper_accounts: Default::default(),
             local_ai: Default::default(),
@@ -2972,6 +2976,26 @@ impl App {
         self.show_starred=false;
     }
 
+    /// Local person-level triage, scoped to the exact configured members.
+    fn reply_later_members(&self,member:&crate::merged::Member)->Vec<crate::merged::Member> {
+        self.settings.beeper.people.iter().find(|person|person.members.contains(member))
+            .map(|person|person.members.clone()).unwrap_or_else(||vec![member.clone()])
+    }
+    pub fn toggle_reply_later(&mut self) {
+        let Some(chat)=self.current_chat() else {return;};
+        let Some(member)=crate::merged::Member::of(chat) else {return;};
+        let members=self.reply_later_members(&member);
+        if self.settings.beeper.reply_later.iter().any(|saved|members.contains(saved)) {
+            self.settings.beeper.reply_later.retain(|saved|!members.contains(saved));
+        } else {self.settings.beeper.reply_later.push(member);}
+        self.mark_settings_dirty();
+    }
+    pub fn reply_later_contains(&self,chat:&Chat)->bool {
+        let Some(member)=crate::merged::Member::of(chat) else {return false;};
+        let members=self.reply_later_members(&member);
+        self.settings.beeper.reply_later.iter().any(|saved|members.contains(saved))
+    }
+
     pub fn beeper_global_pins(&self) -> Vec<Chat> {
         let mut pins:Vec<_>=self.chats.iter().filter(|c| c.backend_account.is_some() && c.pinned && !c.locked && !c.archived).cloned().collect();
         pins.sort_by(|a,b|b.pinned_at.cmp(&a.pinned_at).then_with(||b.last_activity.cmp(&a.last_activity)).then(a.id.cmp(&b.id)));
@@ -3051,11 +3075,13 @@ impl App {
             .iter()
             .filter(|chat| self.beeper_network_filter.as_ref().is_none_or(|network| chat.backend_network.as_ref() == Some(network)))
             .filter(|chat| self.beeper_account_filter.as_ref().is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key)))
-            .filter(|chat| !needle.is_empty() || self.show_archived || match self.settings.beeper.account(chat.backend_settings_key().as_deref()).inbox {
+            .filter(|chat| self.beeper_reply_later_filter || !needle.is_empty() || self.show_archived || match self.settings.beeper.account(chat.backend_settings_key().as_deref()).inbox {
                 crate::settings::BeeperInbox::All => true,
                 crate::settings::BeeperInbox::Unread => chat.looks_unread(),
                 crate::settings::BeeperInbox::None => false,
             })
+            .filter(|chat| !self.beeper_reply_later_filter || self.reply_later_contains(chat))
+            .filter(|chat| !self.beeper_unreplied || chat.last.as_ref().is_some_and(|last| !last.from_me && !last.sender.is_empty() && !last.labelled && !last.summary.is_empty()))
             .filter(|chat| chat.locked == locked)
             .filter(|chat| locked || chat.archived == self.show_archived || !needle.is_empty())
             // Searching still finds people never written to, and one being
@@ -3063,6 +3089,7 @@ impl App {
             .filter(|chat| {
                 !needle.is_empty()
                     || self.open_chat.as_deref() == Some(chat.id.as_str())
+                    || self.reply_later_contains(chat)
                     || !self.unlisted_stranger(chat)
             })
             .filter(|chat| match &self.label_filter {
@@ -4425,6 +4452,14 @@ impl App {
             Event::BeeperHistoryState{chat,error}=>{
                 if let Some(error)=error{self.beeper_history_errors.insert(chat.clone(),error);if let Some(history)=self.conversations.get_mut(&chat){history.requested=false;history.loading_older=false;}}
                 else{self.beeper_history_errors.remove(&chat);}
+            }
+            Event::BeeperSendConfirmed {origin,account,chat} => {
+                let member=crate::merged::Member{origin,account,chat};
+                let members=self.reply_later_members(&member);
+                if self.settings.beeper.reply_later.iter().any(|saved|members.contains(saved)) {
+                    self.settings.beeper.reply_later.retain(|saved|!members.contains(saved));
+                    self.mark_settings_dirty();
+                }
             }
             Event::BeeperSendUncertain { chat, text, message } => {
                 let recovery = self.restore_beeper_text(&chat, text);
