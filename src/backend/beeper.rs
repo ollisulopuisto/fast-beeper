@@ -39,12 +39,23 @@ pub struct BeeperConfig {
     pub token: String,
 }
 
+static BEEPER_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
 impl BeeperConfig {
+    /// Returns whether ZapFast was launched with `ZAPFAST_BACKEND=beeper`.
+    /// Cached so it can be called on UI frames without environment lookup overhead.
+    pub fn is_beeper_mode() -> bool {
+        *BEEPER_MODE.get_or_init(|| {
+            std::env::var("ZAPFAST_BACKEND")
+                .map(|v| v.eq_ignore_ascii_case("beeper"))
+                .unwrap_or(false)
+        })
+    }
+
     /// The demo runs when `ZAPFAST_BACKEND=beeper`; without it ZapFast starts
     /// its normal WhatsApp worker, untouched.
     pub fn from_env() -> Option<Self> {
-        let which = std::env::var("ZAPFAST_BACKEND").ok()?;
-        if !which.eq_ignore_ascii_case("beeper") {
+        if !Self::is_beeper_mode() {
             return None;
         }
         let base_url = std::env::var("BEEPER_DESKTOP_BASE_URL")
@@ -136,6 +147,7 @@ struct BeeperMessage {
     #[serde(default)]
     sender_name: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     sort_key: String,
     #[serde(default)]
     timestamp: String,
