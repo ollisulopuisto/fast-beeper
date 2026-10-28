@@ -277,19 +277,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
 /// Text badges are deliberately network initials, not invented vendor logos.
 /// Every network is directly reachable; accounts expand under the active one.
 fn beeper_networks(app: &mut App, ui: &mut egui::Ui, palette: &Palette, networks: &[String]) {
-    for network in networks {
+    for (index, network) in networks.iter().enumerate() {
         let lit = app.page == Page::Chats && app.beeper_network_filter.as_ref() == Some(network);
         let badge = network_badge(network);
+        let name = if network.is_empty() {
+            "Network not supplied"
+        } else {
+            network
+        };
+        let label = if index < 10 {
+            format!(
+                "{name} ({})",
+                super::keys::label(&format!("Ctrl+{}", (index + 1) % 10))
+            )
+        } else {
+            name.to_owned()
+        };
         if scope_badge(
             ui,
             palette,
             format!("network:{network}"),
             &badge,
-            if network.is_empty() {
-                "Network not supplied"
-            } else {
-                network
-            },
+            &label,
             lit,
             CELL,
         ) {

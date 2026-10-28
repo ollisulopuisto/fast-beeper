@@ -1546,6 +1546,7 @@ mod giphy_tests {
 #[serde(default)]
 pub struct BeeperPreferences {
     pub people: Vec<crate::merged::Person>,
+    pub reply_later: Vec<crate::merged::Member>,
     pub incognito: bool,
     pub compact_list: bool,
     pub show_previews: bool,
@@ -1563,6 +1564,7 @@ impl Default for BeeperPreferences {
     fn default() -> Self {
         Self {
             people: Vec::new(),
+            reply_later: Vec::new(),
             incognito: false,
             compact_list: false,
             show_previews: true,

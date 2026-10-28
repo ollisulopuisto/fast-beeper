@@ -20,7 +20,7 @@ struct State {
 /// Command maps to Cmd on macOS and Ctrl elsewhere, matching the rest of the app.
 pub fn latest_reply_shortcut() -> egui::KeyboardShortcut {
     egui::KeyboardShortcut::new(
-        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT | egui::Modifiers::ALT,
         egui::Key::R,
     )
 }

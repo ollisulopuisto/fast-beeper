@@ -1149,26 +1149,14 @@ fn vertical_fade(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
     ui.painter().add(egui::Shape::mesh(mesh));
 }
 
-/// A horizontal row of chips that scrolls when it overflows. The scroll bar
-/// reserves a strip below the chips when the row overflows, so hovering or
-/// dragging it cannot obscure chip labels or borders.
-/// A plain mouse wheel scrolls the row too, since most mice have no sideways
-/// wheel.
+/// Bounded chip content: callers use horizontal_wrapped so every chip stays
+/// reachable without horizontal scrolling or a hidden scrollbar.
 pub fn chip_scroll_row<R>(
     ui: &mut Ui,
     id_salt: &str,
     add_contents: impl FnOnce(&mut Ui) -> R,
-) -> egui::scroll_area::ScrollAreaOutput<R> {
-    ui.scope(|ui| {
-        ui.style_mut().always_scroll_the_only_direction = true;
-        ui.style_mut().spacing.scroll.floating = false;
-        egui::ScrollArea::horizontal()
-            .id_salt(id_salt)
-            .animated(false)
-            .auto_shrink([false, true])
-            .show(ui, add_contents)
-    })
-    .inner
+) -> egui::InnerResponse<R> {
+    ui.push_id(id_salt, add_contents)
 }
 
 /// How far the shadow of a bar or panel reaches over the content beside it.

@@ -579,7 +579,6 @@ pub fn filter_chip_id(filter: ChatFilter) -> egui::Id {
 }
 
 /// Width of the fade over the filter chips' right edge.
-pub(super) const CHIP_FADE: f32 = 16.0;
 
 /// Filter chips under the search field. Search lists every match, so the
 /// chips hide there.
@@ -593,8 +592,8 @@ fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     }
     let palette = app.palette;
     ui.add_space(8.0);
-    let output = widgets::chip_scroll_row(ui, "chat-filters", |ui| {
-        ui.horizontal(|ui| {
+    widgets::chip_scroll_row(ui, "chat-filters", |ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
             for filter in ChatFilter::EVERY {
                 let count = match filter {
@@ -648,22 +647,20 @@ fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 if chip.clicked() {
                     // A second click on the active chip returns to every chat.
                     let next = if selected { ChatFilter::All } else { filter };
+                    app.beeper_unreplied=false;app.beeper_reply_later_filter=false;
                     app.actions.push(Action::SetChatFilter(next));
                 }
+            }
+            if !app.beeper_browse_networks().is_empty() {
+                if widgets::filter_chip(ui,&palette,"Unreplied",0,app.beeper_unreplied).on_hover_text("Latest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R").clicked() {app.beeper_reply_later_filter=false;app.beeper_unreplied=!app.beeper_unreplied;app.actions.push(Action::SetChatFilter(ChatFilter::All));}
+            }
+            if !app.beeper_browse_networks().is_empty() {
+                if widgets::filter_chip(ui,&palette,"Reply later",0,app.beeper_reply_later_filter).on_hover_text("Local queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat.").clicked() {app.beeper_reply_later_filter=!app.beeper_reply_later_filter;app.beeper_unreplied=false;app.actions.push(Action::SetChatFilter(ChatFilter::All));}
+                if let Some(chat)=app.current_chat() {let queued=app.reply_later_contains(chat);if ui.small_button(if queued {"Remove from later"}else{"Reply later +"}).on_hover_text("Cmd+Shift+L: toggle current chat in local queue").clicked(){app.toggle_reply_later();}}
             }
             ui.add_space(4.0);
         })
     });
-    // Chips cut off at the edge fade into the panel, which says the row
-    // scrolls on.
-    let hidden = output.content_size.x - output.state.offset.x - output.inner_rect.width();
-    if hidden > 0.5 {
-        // A translucent sidebar would show the fade as a band; the chips
-        // are only cut there.
-        if !palette.vibrant() {
-            widgets::fade_right(ui, output.inner_rect, CHIP_FADE, palette.panel);
-        }
-    }
     labels::chip_row(app, ui, &palette);
 }
 
@@ -909,11 +906,12 @@ fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
             .small()
             .color(palette.secondary),
     );
-    egui::ScrollArea::horizontal()
+    egui::ScrollArea::vertical()
         .id_salt("beeper-global-pins")
+        .max_height(190.0)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for chat in pins {
                     let title = app.chat_title(&chat);
                     let identity = chat.network.as_deref().unwrap_or("Beeper");
@@ -1024,7 +1022,9 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
         results(app, ui);
         return;
     }
-    let global_pins = !app.show_archived && app.chats.iter().any(|c| c.backend_account.is_some());
+    let global_pins = !app.show_archived
+        && !app.beeper_reply_later_filter
+        && app.chats.iter().any(|c| c.backend_account.is_some());
     if global_pins {
         pinned_row(app, ui);
     }

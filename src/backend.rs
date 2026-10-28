@@ -1493,6 +1493,11 @@ pub enum Event {
         until: Option<i64>,
         error: String,
     },
+    BeeperSendConfirmed {
+        origin: String,
+        account: String,
+        chat: ChatId,
+    },
     BeeperSendUncertain {
         chat: ChatId,
         text: String,

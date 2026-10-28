@@ -158,7 +158,7 @@ struct BeeperMessage {
     #[serde(rename = "type", default)]
     message_type: Option<String>,
     #[serde(default)]
-    is_sender: bool,
+    is_sender: Option<bool>,
     #[serde(default)]
     is_hidden: bool,
     #[serde(default)]
@@ -485,6 +485,62 @@ fn bounded_json_body(response: reqwest::blocking::Response) -> Result<String, St
         return Err("Beeper JSON response exceeds 16 MB".into());
     }
     String::from_utf8(bytes).map_err(|_| "Beeper JSON response was not UTF-8".into())
+}
+
+fn safe_send_error(response: reqwest::blocking::Response) -> String {
+    let status = response.status();
+    let body = bounded_json_body(response)
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok());
+    let mut hints = Vec::new();
+    fn visit(value: &serde_json::Value, hints: &mut Vec<String>, depth: usize) {
+        if depth > 6 || hints.len() >= 8 {
+            return;
+        }
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(path) = map.get("path").and_then(|v| v.as_array()) {
+                    let fields: Vec<_> = path
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .filter(|s| {
+                            matches!(
+                                *s,
+                                "text" | "replyToMessageID" | "attachment" | "uploadID" | "chatID"
+                            )
+                        })
+                        .collect();
+                    if !fields.is_empty() {
+                        hints.push(format!("invalid field {}", fields.join(".")));
+                    }
+                }
+                for (key, value) in map {
+                    if key != "message" && key != "input" && key != "received" {
+                        visit(value, hints, depth + 1);
+                    }
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values.iter().take(16) {
+                    visit(value, hints, depth + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(body) = body {
+        visit(&body, &mut hints, 0);
+    }
+    hints.sort();
+    hints.dedup();
+    format!(
+        "Beeper send returned {status}{}. Server response values are withheld for privacy",
+        if hints.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", hints.join(", "))
+        }
+    )
 }
 
 fn check_chat_inventory_bounds(rows: usize, pages: usize) -> Result<(), String> {
@@ -1014,6 +1070,10 @@ impl Api {
         if self.read_only {
             return Err("Beeper read-only mode: no changes were sent".into());
         }
+        let mut payload = serde_json::json!({"text":text});
+        if let Some(reply) = reply {
+            payload["replyToMessageID"] = reply.into();
+        }
         let response = self
             .http
             .post(format!(
@@ -1022,11 +1082,11 @@ impl Api {
                 encode_segment(chat)
             ))
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(serde_json::json!({ "text": text, "replyToMessageID": reply }).to_string())
+            .body(payload.to_string())
             .send()
             .map_err(|_| "Send request outcome unknown; check history before retrying")?;
         if !response.status().is_success() {
-            return Err(format!("Beeper send returned {}", response.status()));
+            return Err(safe_send_error(response));
         }
         let body = bounded_json_body(response)
             .map_err(|e| format!("{e}; send outcome unknown, check history before retrying"))?;
@@ -1198,34 +1258,111 @@ fn readable_name(value: &Option<String>) -> Option<String> {
 /// Conservative rich-text fallback. Never executes markup, loads assets or
 /// interprets CSS. Only an explicitly HTML-looking body is converted; ordinary
 /// angle-bracket text is left alone. Unknown entities remain literal.
+fn safe_html_href(tag: &str) -> Option<String> {
+    let mut attrs = tag
+        .splitn(2, char::is_whitespace)
+        .nth(1)
+        .unwrap_or("")
+        .trim();
+    while !attrs.is_empty() {
+        let key_end = attrs
+            .find(|c: char| c.is_whitespace() || c == '=')
+            .unwrap_or(attrs.len());
+        let key = &attrs[..key_end];
+        attrs = attrs[key_end..].trim_start();
+        if !attrs.starts_with('=') {
+            if key_end == 0 {
+                attrs = &attrs[1..];
+            }
+            continue;
+        }
+        attrs = attrs[1..].trim_start();
+        let (value, remaining) =
+            if let Some(q) = attrs.chars().next().filter(|ch| *ch == '\'' || *ch == '"') {
+                let tail = &attrs[q.len_utf8()..];
+                let end = tail.find(q)?;
+                (&tail[..end], &tail[end + q.len_utf8()..])
+            } else {
+                let end = attrs.find(char::is_whitespace).unwrap_or(attrs.len());
+                (&attrs[..end], &attrs[end..])
+            };
+        attrs = remaining.trim_start();
+        if key.eq_ignore_ascii_case("href") {
+            let value = value.replace("&amp;", "&");
+            let url = reqwest::Url::parse(&value).ok()?;
+            if matches!(url.scheme(), "https" | "http" | "mailto")
+                && url.username().is_empty()
+                && url.password().is_none()
+            {
+                return Some(value);
+            }
+            return None;
+        }
+    }
+    None
+}
+
 fn plain_rich_text(raw: &str) -> String {
-    let lower = raw.trim_start().to_ascii_lowercase();
-    if ![
-        "<p>",
-        "<p ",
-        "<div>",
-        "<div ",
-        "<br",
-        "<html",
-        "<span",
-        "<a ",
-        "<strong",
-        "<b>",
-        "<ul",
-        "<ol",
-        "<blockquote",
-    ]
-    .iter()
-    .any(|tag| lower.starts_with(tag))
-    {
+    let lower = raw.to_ascii_lowercase();
+    let known = [
+        "p",
+        "div",
+        "br",
+        "html",
+        "span",
+        "a",
+        "strong",
+        "b",
+        "ul",
+        "ol",
+        "li",
+        "blockquote",
+        "script",
+        "style",
+        "iframe",
+        "object",
+        "em",
+        "i",
+        "img",
+        "h1",
+        "h2",
+        "h3",
+        "tr",
+    ];
+    let looks_html = lower.match_indices('<').any(|(start, _)| {
+        let tail = lower[start + 1..].trim_start_matches('/');
+        known.iter().any(|name| {
+            tail.strip_prefix(name).is_some_and(|rest| {
+                rest.starts_with('>')
+                    || rest.starts_with('/')
+                    || rest.starts_with(char::is_whitespace)
+            })
+        })
+    });
+    if !looks_html {
         return raw.to_owned();
     }
     let mut out = String::new();
     let mut rest = raw;
     let mut blocked: Option<String> = None;
+    let mut link: Option<String> = None;
     while !rest.is_empty() {
         if rest.starts_with('<') {
-            if let Some(end) = rest.find('>') {
+            // A quoted > is an attribute value, not the end of a tag.
+            let mut quote = None;
+            let end = rest.char_indices().skip(1).find_map(|(index, ch)| {
+                if let Some(q) = quote {
+                    if ch == q {
+                        quote = None;
+                    }
+                } else if ch == '\'' || ch == '"' {
+                    quote = Some(ch);
+                } else if ch == '>' {
+                    return Some(index);
+                }
+                None
+            });
+            if let Some(end) = end {
                 let tag = rest[1..end].trim();
                 let name = tag
                     .trim_start_matches('/')
@@ -1234,6 +1371,11 @@ fn plain_rich_text(raw: &str) -> String {
                     .unwrap_or("")
                     .to_ascii_lowercase();
                 let closing = tag.starts_with('/');
+                if !known.contains(&name.as_str()) && blocked.is_none() {
+                    out.push('<');
+                    rest = &rest[1..];
+                    continue;
+                }
                 if matches!(name.as_str(), "script" | "style" | "iframe" | "object") {
                     if closing {
                         if blocked.as_deref() == Some(&name) {
@@ -1242,17 +1384,28 @@ fn plain_rich_text(raw: &str) -> String {
                     } else {
                         blocked = Some(name);
                     }
-                } else if blocked.is_none()
-                    && matches!(
+                } else if blocked.is_none() {
+                    if name == "a" {
+                        if closing {
+                            if let Some(url) = link.take() {
+                                out.push_str(" (");
+                                out.push_str(&url);
+                                out.push(')');
+                            }
+                        } else {
+                            link = safe_html_href(tag);
+                        }
+                    }
+                    if matches!(
                         name.as_str(),
                         "br" | "p" | "div" | "li" | "blockquote" | "tr" | "h1" | "h2" | "h3"
-                    )
-                {
-                    if !out.ends_with('\n') {
-                        out.push('\n');
-                    }
-                    if name == "li" && !closing {
-                        out.push_str("• ");
+                    ) {
+                        if !out.ends_with('\n') {
+                            out.push('\n');
+                        }
+                        if name == "li" && !closing {
+                            out.push_str("• ");
+                        }
                     }
                 }
                 rest = &rest[end + 1..];
@@ -1341,7 +1494,11 @@ fn attachment_content(m: &BeeperMessage) -> Option<Content> {
         path: None,
         state: Default::default(),
     };
-    let caption = m.text.clone().filter(|t| !t.is_empty());
+    let caption = m
+        .text
+        .as_ref()
+        .map(|text| plain_rich_text(text))
+        .filter(|t| !t.is_empty());
     let seconds = a.duration.map(|d| d.max(0.0).min(u32::MAX as f64) as u32);
     Some(match a.kind.as_deref().unwrap_or("") {
         "img" if a.is_sticker => Content::Sticker {
@@ -1376,7 +1533,7 @@ fn attachment_content(m: &BeeperMessage) -> Option<Content> {
 }
 
 fn delivery_of(m: &BeeperMessage) -> Delivery {
-    if !m.is_sender {
+    if !m.is_sender.unwrap_or(false) {
         return Delivery::None;
     }
     if m.seen.as_ref().is_some_and(|v| {
@@ -1407,7 +1564,7 @@ fn map_message(m: &BeeperMessage, fallback_chat: &str) -> Message {
         sender: m.sender_id.clone(),
         sender_name: readable_name(&m.sender_name)
             .or_else(|| opaque_identity(&m.sender_id).then(|| "Contact (name unavailable)".into())),
-        from_me: m.is_sender,
+        from_me: m.is_sender.unwrap_or(false),
         timestamp: unix(&Some(m.timestamp.clone())),
         history_order: None,
         content: attachment_content(m).unwrap_or(Content::Text {
@@ -1484,23 +1641,35 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
     chat.network = Some(network_label(c));
     chat.backend_account = Some(c.account_id.clone());
     chat.backend_network = Some(c.network.clone());
-    chat.last = c.preview.as_ref().map(|p| {
-        let (body, labelled) = body_of(p);
-        Chat::last_preview(p, body, labelled)
-    });
+    chat.last = c
+        .preview
+        .as_ref()
+        .filter(|p| {
+            p.is_sender.is_some()
+                && !p.is_hidden
+                && !p.is_deleted
+                && !matches!(
+                    p.message_type.as_deref(),
+                    Some("SYSTEM" | "NOTICE" | "EVENT")
+                )
+        })
+        .map(|p| {
+            let (body, labelled) = body_of(p);
+            Chat::last_preview(p, body, labelled)
+        });
     chat
 }
 
 impl Chat {
     fn last_preview(p: &BeeperMessage, body: String, labelled: bool) -> LastMessage {
         LastMessage {
-            from_me: p.is_sender,
+            from_me: p.is_sender.unwrap_or(false),
             sender: p.sender_id.clone(),
             sender_name: readable_name(&p.sender_name),
             summary: body.lines().next().unwrap_or("").to_string(),
             full: body,
             labelled,
-            status: if p.is_sender {
+            status: if p.is_sender.unwrap_or(false) {
                 Delivery::Sent
             } else {
                 Delivery::None
@@ -2525,8 +2694,22 @@ fn poll_pending_send(
     let message: Result<BeeperMessage, String> = api.get_message(chat, pending_id);
     match message {
         Ok(m) => {
+            let explicit_success = m.id == pending_id
+                && m.chat_id == *chat
+                && m.is_sender == Some(true)
+                && m.send_status.as_ref().is_some_and(|s| {
+                    s.status == "SUCCESS"
+                        || (!s.status.starts_with("FAIL_") && !s.delivered_to_users.is_empty())
+                });
+            if explicit_success && !m.account_id.is_empty() {
+                emit(Event::BeeperSendConfirmed {
+                    origin: api.base_url.clone(),
+                    account: m.account_id.clone(),
+                    chat: chat.clone(),
+                });
+            }
             let mapped = api.map_message(&m, chat);
-            let complete = !matches!(mapped.status, Delivery::Pending);
+            let complete = explicit_success || matches!(mapped.status, Delivery::Failed);
             if matches!(mapped.status, Delivery::Failed) {
                 emit(Event::Info(
                     "Beeper reports that a message failed to send".into(),
@@ -2589,25 +2772,17 @@ fn poll_newer(
             Ok(page) => {
                 let more = page.has_more;
                 let next = page.newest_cursor.clone();
-                if more
+                let stalled = more
                     && newest.is_some()
-                    && next.as_ref().is_none_or(|cursor| seen.contains(cursor))
-                {
+                    && next.as_ref().is_none_or(|cursor| seen.contains(cursor));
+                if !stalled {
                     emit(Event::BeeperLiveState {
                         chat: chat.clone(),
-                        error: Some(
-                            "Live pagination cursor did not advance; some updates may be missing"
-                                .into(),
-                        ),
+                        error: None,
                     });
-                    break;
-                }
-                emit(Event::BeeperLiveState {
-                    chat: chat.clone(),
-                    error: None,
-                });
-                if let Some(c) = cursors.get_mut(chat) {
-                    c.newest = next.clone().or(c.newest.clone());
+                    if let Some(c) = cursors.get_mut(chat) {
+                        c.newest = next.clone().or(c.newest.clone());
+                    }
                 }
                 let mut messages: Vec<Message> = page
                     .items
@@ -2637,6 +2812,11 @@ fn poll_newer(
                             message: Box::new(message),
                         });
                     }
+                }
+                // A bad continuation cursor must not discard valid messages on this page.
+                if stalled {
+                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Live pagination cursor did not advance; received page kept, further updates may be missing".into())});
+                    break;
                 }
                 if !more || newest.is_none() {
                     break;
@@ -2673,6 +2853,107 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn queue_confirmation_requires_explicit_success_not_pending_failure_or_sparse_echo() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for status in [
+                None,
+                Some("PENDING"),
+                Some("FAIL_PERMANENT"),
+                Some("SUCCESS"),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request);
+                let mut body = serde_json::json!({"id":"fixture","chatID":"chat","accountID":"work","isSender":true});
+                if let Some(status) = status {
+                    body["sendStatus"] = serde_json::json!({"status":status});
+                }
+                let body = body.to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        for confirmed in [false, false, false, true] {
+            let events = Mutex::new(Vec::new());
+            poll_pending_send(
+                &api,
+                &"chat".into(),
+                "fixture",
+                Duration::from_secs(1),
+                &|e| events.lock().unwrap().push(e),
+            );
+            assert_eq!(
+                events
+                    .into_inner()
+                    .unwrap()
+                    .iter()
+                    .any(|e| matches!(e,Event::BeeperSendConfirmed{account,..} if account=="work")),
+                confirmed
+            );
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn ordinary_send_omits_optional_reply_instead_of_json_null() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0u8; 8192];
+            let n = stream.read(&mut bytes).unwrap();
+            let request = String::from_utf8_lossy(&bytes[..n]);
+            let body: serde_json::Value =
+                serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            let status = if body.get("replyToMessageID").is_some() {
+                400
+            } else {
+                200
+            };
+            let response = r#"{"pendingMessageID":"fixture"}"#;
+            write!(stream,"HTTP/1.1 {status} Status\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).unwrap();
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let result = api.send_text("fixture", "hello", None);
+        server.join().unwrap();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn inline_html_keeps_link_labels_destinations_and_breaks() {
+        assert_eq!(plain_rich_text("Hello<br>next"), "Hello\nnext");
+        assert_eq!(
+            plain_rich_text(
+                r#"Hello <a href="https://matrix.to/#/@fixture:example.org" rel="noreferrer">Fixture Name</a>!"#
+            ),
+            "Hello Fixture Name (https://matrix.to/#/@fixture:example.org)!"
+        );
+        assert_eq!(
+            plain_rich_text(r#"Before <a href="javascript:alert(1)">safe label</a> after"#),
+            "Before safe label after"
+        );
+        assert_eq!(
+            plain_rich_text("ordinary < comparison > text"),
+            "ordinary < comparison > text"
+        );
+    }
 
     #[test]
     fn dropped_command_channel_stops_connected_control_worker() {
@@ -3166,9 +3447,7 @@ mod tests {
                     if let Ok((mut stream, _)) = listener.accept() {
                         let mut request = [0u8; 4096];
                         let _ = stream.read(&mut request);
-                        let body =
-                            serde_json::json!({"items":[],"hasMore":true,"newestCursor":next})
-                                .to_string();
+                        let body=serde_json::json!({"items":[{"id":"arrived","text":"fixture","isSender":false}],"hasMore":true,"newestCursor":next}).to_string();
                         write!(stream,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
                     } else {
                         std::thread::sleep(Duration::from_millis(1));
@@ -3195,8 +3474,10 @@ mod tests {
                 events.lock().unwrap().push(event)
             });
             assert_eq!(cursors[&chat].newest.as_deref(), Some("seed"));
+            let events = events.into_inner().unwrap();
+            assert!(events.iter().any(|event|matches!(event,Event::Messages{messages,..} if messages.iter().any(|m|m.id=="arrived"))));
             assert!(
-                matches!(events.into_inner().unwrap().last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("cursor"))
+                matches!(events.last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("cursor"))
             );
             worker.join().unwrap();
         }

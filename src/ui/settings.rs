@@ -1062,7 +1062,7 @@ fn app_lock_rows(app: &App, privacy: &mut Section) {
             translated(locale, "Lock after"),
             keyed(translated(
                 locale,
-                "Time without using ZapFast, also counted while it is in the tray. Ctrl+Shift+L locks it at once.",
+                "Time without using ZapFast, also counted while it is in the tray. Ctrl+Shift+L locks it at once outside Beeper. In Beeper, add Alt (Option on Mac).",
             )),
             move |ui, app| {
                 let selected = app.settings.app_lock_after;
