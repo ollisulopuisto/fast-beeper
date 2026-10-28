@@ -1,0 +1,25 @@
+Fast Beeper automatic binary builds
+
+Prepared against main 720e3def612c4867f672ec308643f88b8dc75d18 (28 October 2026).
+
+Copy all four files into the repository at these exact paths:
+.github/workflows/trial-binaries.yml
+BINARY-BUILDS.md
+contrib/beeper-tools/package_binary.py
+contrib/beeper-tools/test_package_binary.py
+
+The YAML calls package_binary.py and the package includes BINARY-BUILDS.md.
+Do not add only the YAML without those companion files. Existing launcher and
+licence files are already present on main. Commit the four files together.
+The standalone trial-binaries.yml attachment is identical to the archive copy.
+
+The workflow builds Apple Silicon and Intel Mac, Linux x64 and Windows x64.
+It uses real release source, no diagnostic stubs, no signing, and no shared caches.
+Uploads are OFF unless repository variable FAST_BEEPER_UPLOAD_ARTIFACTS=true.
+With the variable unset, builds run but no downloadable artifacts are uploaded.
+Enable only after checking storage allowance and no-spend/budget settings.
+This handoff does not enable the variable or change account settings.
+
+28 launcher/packaging tests pass locally. Workflow syntax was checked with
+actionlint. The four-platform workflow itself has not run yet. A completed build
+will not prove native sign-in, sending, keychain, Gatekeeper or restart behavior.
