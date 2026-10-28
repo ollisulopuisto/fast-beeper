@@ -3059,11 +3059,10 @@ mod tests {
         );
     }
 
-    /// Both chip rows overflow in a narrow window (#444). Their scroll bars
-    /// reserve a strip below the chips so labels and borders stay visible.
-    /// Dragging the bar scrolls the row, and so does a plain vertical wheel.
+    /// The user requested no horizontal scrollbars. Both rows wrap and keep
+    /// every filter/label reachable instead of retaining the old scrolling UI.
     #[test]
-    fn narrow_chip_rows_show_a_scroll_bar_on_hover_and_follow_the_wheel() {
+    fn narrow_chip_rows_wrap_within_the_viewport_without_horizontal_scrolling() {
         let directory = tempfile::tempdir().unwrap();
         let (mut app, _events) =
             App::headless(AppDirs::under(directory.path()), Settings::default());
@@ -3077,11 +3076,10 @@ mod tests {
             .collect();
         let ctx = egui::Context::default();
         app.attach(&ctx);
-        // Narrow enough that both rows scroll.
         let mut frame = |events| {
             let mut output = ctx.run_ui(
                 egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(220.0, 400.0))),
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(220.0, 600.0))),
                     events,
                     ..Default::default()
                 },
@@ -3090,120 +3088,48 @@ mod tests {
             output.textures_delta.clear();
             output.shapes
         };
+        let rects = || {
+            ctx.data(|data| {
+                ChatFilter::EVERY
+                    .into_iter()
+                    .map(|filter| data.get_temp::<Rect>(filter_chip_id(filter)).unwrap())
+                    .chain((0..8).map(|index| {
+                        data.get_temp::<Rect>(super::labels::chip_id(&index.to_string()))
+                            .unwrap()
+                    }))
+                    .collect::<Vec<_>>()
+            })
+        };
         frame(vec![]);
-        let all = |ctx: &egui::Context| {
-            ctx.data(|data| data.get_temp::<Rect>(filter_chip_id(ChatFilter::All)))
-                .expect("the filter chips are drawn")
-        };
-        let first_label = ctx
-            .data(|data| data.get_temp::<Rect>(super::labels::chip_id("0")))
-            .expect("the first label chip is drawn");
-
-        /// Collects every visible thin rectangle in `shape` into `bars`. A
-        /// scroll bar is a thin rectangle; chips are taller.
-        fn thin_rects(shape: &egui::Shape, bars: &mut Vec<Rect>) {
-            match shape {
-                egui::Shape::Vec(shapes) => {
-                    shapes.iter().for_each(|shape| thin_rects(shape, bars));
-                }
-                egui::Shape::Rect(rect)
-                    if rect.rect.height() < 12.0
-                        && rect.rect.width() > 12.0
-                        && rect.fill.a() > 0 =>
-                {
-                    bars.push(rect.rect);
-                }
-                _ => {}
-            }
-        }
-        let bars = |shapes: &[egui::epaint::ClippedShape]| {
-            let mut bars = Vec::new();
-            for clipped in shapes {
-                thin_rects(&clipped.shape, &mut bars);
-            }
-            bars
-        };
-
-        // At rest, away from the rows, neither shows a bar.
-        let mut shapes = Vec::new();
-        for _ in 0..5 {
-            shapes = frame(vec![egui::Event::PointerMoved(egui::pos2(110.0, 380.0))]);
-        }
-        let resting = bars(&shapes);
-        assert!(
-            resting.iter().all(|bar| bar.top() >= all(&ctx).bottom()),
-            "a resting scrollbar overlaps filter chips: {resting:?}"
-        );
-
-        let mut filter_bar = None;
-        for (row, pointer, chip) in [
-            ("filter", all(&ctx).center(), all(&ctx)),
-            ("label", first_label.center(), first_label),
-        ] {
-            let mut shapes = Vec::new();
-            for _ in 0..5 {
-                shapes = frame(vec![egui::Event::PointerMoved(pointer)]);
-            }
-            let shown = bars(&shapes);
-            let bar = shown
-                .iter()
-                .copied()
-                .find(|bar| bar.top() >= chip.bottom())
-                .unwrap_or_else(|| {
-                    panic!("hovering the {row} row showed no bar below its chips: {shown:?}")
-                });
+        let before = rects();
+        assert_eq!(before.len(), ChatFilter::EVERY.len() + 8);
+        for rect in &before {
             assert!(
-                bar.top() >= chip.bottom(),
-                "the {row} row's bar at {bar:?} overlaps chips at {chip:?}"
+                rect.is_positive() && rect.left() >= 0.0 && rect.right() <= 220.0,
+                "chip outside viewport: {rect:?}"
             );
-            if row == "filter" {
-                filter_bar = Some(bar);
+        }
+        assert!(before[ChatFilter::EVERY.len() - 1].top() > before[0].top());
+        assert!(before.last().unwrap().top() > before[ChatFilter::EVERY.len()].top());
+        for pointer in [before[0].center(), before[ChatFilter::EVERY.len()].center()] {
+            for _ in 0..5 {
+                frame(vec![egui::Event::PointerMoved(pointer)]);
             }
+            frame(vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -60.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ]);
+            assert_eq!(
+                before,
+                rects(),
+                "hover/wheel must not hide chips horizontally"
+            );
         }
-
-        // Dragging the handle to the right scrolls the chips to the left.
-        let bar = filter_bar.expect("the filter row has a scroll bar");
-        let grab = egui::pos2(bar.left() + 10.0, bar.center().y);
-        let before = all(&ctx).left();
-        let button = |pos, pressed| egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        };
-        frame(vec![egui::Event::PointerMoved(grab)]);
-        frame(vec![button(grab, true)]);
-        for step in 1..=4 {
-            frame(vec![egui::Event::PointerMoved(
-                grab + vec2(10.0 * step as f32, 0.0),
-            )]);
-        }
-        frame(vec![button(grab + vec2(40.0, 0.0), false)]);
-        frame(vec![]);
-        assert!(
-            all(&ctx).left() < before - 1.0,
-            "dragging the scroll bar left the filter chips at {before}, now {}",
-            all(&ctx).left()
-        );
-
-        let before = all(&ctx).left();
-        // The middle of the row; the All chip has scrolled out of view.
-        let pointer = egui::pos2(110.0, all(&ctx).center().y);
-        frame(vec![
-            egui::Event::PointerMoved(pointer),
-            egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: vec2(0.0, -60.0),
-                modifiers: egui::Modifiers::NONE,
-                phase: egui::TouchPhase::Move,
-            },
-        ]);
-        frame(vec![egui::Event::PointerMoved(pointer)]);
-        assert!(
-            all(&ctx).left() < before - 1.0,
-            "a vertical wheel left the filter chips at {before}, now {}",
-            all(&ctx).left()
-        );
     }
 
     /// An app with `count` chats, newest first, and a context to draw it in.
