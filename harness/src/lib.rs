@@ -1,4 +1,4 @@
-//! Test harness crate: real zapfast sources (symlinked) + minimal stubs for
+//! Test harness crate: zapfast sources (staged from current src/ by check-source.sh) + minimal stubs for
 //! leaf modules outside the Beeper adapter's reach. See Cargo.toml.
 pub mod account;
 pub mod app;

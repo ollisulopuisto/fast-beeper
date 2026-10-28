@@ -27,7 +27,7 @@ endpoint is used. Local links do not alter the user's Beeper account.
 
 ## Validation and limits
 
-163 adapter/model tests and 26 launcher/diagnostic/build-helper tests pass. Targeted real GUI-library
+Portable adapter/model and launcher/diagnostic/build-helper checks are available below. Targeted real GUI-library
 assertions and Linux visual fixtures pass. The adapter harness deliberately
 stubs unrelated native transport and encrypted archive leaves. GUI diagnostics
 used unrelated transport/native-call stubs. Neither is a native Mac acceptance test.
@@ -41,6 +41,11 @@ benchmark limits. The upstream README is historical, not this fork's test report
 ## Local checks
 
     ./contrib/beeper-tools/check-source.sh
+
+This command stages current adapter/model sources into a temporary harness and
+retains the explicit unrelated leaf stubs. Running Cargo directly in `harness/`
+only tests the saved snapshot, not current app sources. Neither route is a full
+native GUI or real-account acceptance test.
 
 To build the full app on a suitably provisioned Mac, use the repository's Cargo
 manifest. This source contains no Beeper token. Do not add tokens to tracked files.
