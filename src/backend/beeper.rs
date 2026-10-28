@@ -3185,9 +3185,7 @@ mod tests {
             mentions: vec![],
             quoting: Some(reply.clone()),
         };
-        let event = refuse_unsupported_payload(command)
-            .err()
-            .expect("payload not returned");
+        let event = refuse_unsupported_payload(command).expect_err("payload not returned");
         let Event::SendRefused {
             chat,
             quoting,
