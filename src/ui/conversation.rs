@@ -6612,10 +6612,9 @@ fn context_menu(
     }
     if view.chat.backend_account.is_some()
         && let Content::Text { text, .. } = &message.content
+        && widgets::menu_item(ui, &palette, Some(Icon::Copy), "Translate locally...")
     {
-        if widgets::menu_item(ui, &palette, Some(Icon::Copy), "Translate locally...") {
-            actions.push(Action::TranslateLocally(text.clone()));
-        }
+        actions.push(Action::TranslateLocally(text.clone()));
     }
     let age = view.now - message.timestamp;
     let can_edit = message.from_me

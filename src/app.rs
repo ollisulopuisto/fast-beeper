@@ -3205,16 +3205,15 @@ impl App {
                 .beeper_network_filter
                 .as_ref()
                 .is_none_or(|network| chat.backend_network.as_ref() == Some(network))
+                && let Some(key) = chat.backend_settings_key()
             {
-                if let Some(key) = chat.backend_settings_key() {
-                    rows.entry(key).or_insert_with(|| {
-                        format!(
-                            "{} [{}]",
-                            chat.network.as_deref().unwrap_or("Network not supplied"),
-                            chat.backend_account.as_deref().unwrap_or("")
-                        )
-                    });
-                }
+                rows.entry(key).or_insert_with(|| {
+                    format!(
+                        "{} [{}]",
+                        chat.network.as_deref().unwrap_or("Network not supplied"),
+                        chat.backend_account.as_deref().unwrap_or("")
+                    )
+                });
             }
         }
         rows
@@ -4081,10 +4080,11 @@ impl App {
                     } else {
                         &mut self.avatars
                     };
-                    if cache.len() >= 2048 && !cache.contains_key(&id) {
-                        if let Some(key) = cache.keys().next().cloned() {
-                            cache.remove(&key);
-                        }
+                    if cache.len() >= 2048
+                        && !cache.contains_key(&id)
+                        && let Some(key) = cache.keys().next().cloned()
+                    {
+                        cache.remove(&key);
                     }
                 }
                 // A changed picture arrives under the file name of the one it
@@ -6182,10 +6182,9 @@ impl App {
         if self
             .chat(&id)
             .is_some_and(|chat| chat.unread > 0 || chat.marked_unread)
+            && !self.settings.beeper.incognito
         {
-            if !self.settings.beeper.incognito {
-                self.mark_read(&id);
-            }
+            self.mark_read(&id);
         }
         if self.settings.last_chat.as_deref() != Some(id.as_str()) {
             self.settings.last_chat = Some(id.clone());

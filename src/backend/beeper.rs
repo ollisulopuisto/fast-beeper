@@ -392,7 +392,7 @@ fn transport_error(error: &reqwest::Error) -> &'static str {
     }
 }
 
-fn refuse_unsupported_payload(command: Command) -> Result<Command, Event> {
+fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
     use super::{Refusal, Unsent};
     let (chat, quoting, unsent) = match command {
         Command::SendImage {
@@ -435,12 +435,12 @@ fn refuse_unsupported_payload(command: Command) -> Result<Command, Event> {
         ),
         other => return Ok(other),
     };
-    Err(Event::SendRefused {
+    Err(Box::new(Event::SendRefused {
         chat,
         quoting,
         unsent,
         reason: Refusal::UnsupportedBackend,
-    })
+    }))
 }
 
 struct StopUploads(std::sync::Arc<std::sync::atomic::AtomicBool>);
@@ -730,10 +730,10 @@ impl Api {
             .collect();
         if let Ok(mut sources) = self.avatar_sources.lock() {
             for account in &accounts {
-                if let Some(user) = &account.user {
-                    if let Some(url) = &user.image_url {
-                        remember_avatar(&mut sources, &user.id, url);
-                    }
+                if let Some(user) = &account.user
+                    && let Some(url) = &user.image_url
+                {
+                    remember_avatar(&mut sources, &user.id, url);
                 }
             }
         }
@@ -760,11 +760,11 @@ impl Api {
 
     fn map_message(&self, wire: &BeeperMessage, chat: &str) -> Message {
         let mut message = map_message(wire, chat);
-        if let Ok(ids) = self.own_ids.lock() {
-            if let Some(own) = ids.get(&wire.account_id) {
-                for reaction in &mut message.reactions {
-                    reaction.from_me = reaction.sender == *own;
-                }
+        if let Ok(ids) = self.own_ids.lock()
+            && let Some(own) = ids.get(&wire.account_id)
+        {
+            for reaction in &mut message.reactions {
+                reaction.from_me = reaction.sender == *own;
             }
         }
         message
@@ -1219,10 +1219,11 @@ fn remember_avatar(sources: &mut HashMap<String, String>, id: &str, url: &str) {
     if id.len() > 4096 || url.len() > 16384 {
         return;
     }
-    if sources.len() >= 4096 && !sources.contains_key(id) {
-        if let Some(key) = sources.keys().next().cloned() {
-            sources.remove(&key);
-        }
+    if sources.len() >= 4096
+        && !sources.contains_key(id)
+        && let Some(key) = sources.keys().next().cloned()
+    {
+        sources.remove(&key);
     }
     sources.insert(id.to_owned(), url.to_owned());
 }
@@ -1260,8 +1261,8 @@ fn readable_name(value: &Option<String>) -> Option<String> {
 /// angle-bracket text is left alone. Unknown entities remain literal.
 fn safe_html_href(tag: &str) -> Option<String> {
     let mut attrs = tag
-        .splitn(2, char::is_whitespace)
-        .nth(1)
+        .split_once(char::is_whitespace)
+        .map(|(_, attrs)| attrs)
         .unwrap_or("")
         .trim();
     while !attrs.is_empty() {
@@ -1453,10 +1454,10 @@ fn plain_rich_text(raw: &str) -> String {
 }
 
 fn body_of(m: &BeeperMessage) -> (String, bool) {
-    if let Some(t) = &m.text {
-        if !t.is_empty() {
-            return (plain_rich_text(t), false);
-        }
+    if let Some(t) = &m.text
+        && !t.is_empty()
+    {
+        return (plain_rich_text(t), false);
     }
     let kind = m.message_type.as_deref().unwrap_or("");
     let attachment = m
@@ -1921,7 +1922,7 @@ pub fn run(
                         chat, paths, documents, caption, message: "Beeper is not connected yet. Files retained; nothing was sent or queued for automatic retry.".into(),
                     }),
                     Ok(command) => match refuse_unsupported_payload(command) {
-                        Err(event)=>emit(event),
+                        Err(event)=>emit(*event),
                         Ok(_)=>emit(Event::Info("Beeper is not connected yet. Requested action was not performed; retry after connection recovers.".into())),
                     },
                     Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return,
@@ -1998,7 +1999,7 @@ pub fn run(
             let cmd = match refuse_unsupported_payload(cmd) {
                 Ok(cmd) => cmd,
                 Err(event) => {
-                    emit(event);
+                    emit(*event);
                     continue;
                 }
             };
@@ -2014,17 +2015,16 @@ pub fn run(
                             }
                         }
                     }
-                    if let Some(store) = &draft_store {
-                        if store
+                    if let Some(store) = &draft_store
+                        && store
                             .set_draft(
                                 &draft_namespace(&api.base_url, &chat),
                                 &text,
                                 jiff::Timestamp::now().as_second(),
                             )
                             .is_err()
-                        {
-                            emit(Event::Error("Draft not saved: encrypted local write failed. Keep the draft before closing.".into()));
-                        }
+                    {
+                        emit(Event::Error("Draft not saved: encrypted local write failed. Keep the draft before closing.".into()));
                     }
                 }
                 Command::LoadStorageStats { token } => pending_storage = Some((token, false)),
@@ -2409,17 +2409,17 @@ pub fn run(
                     if !receipts {
                         continue;
                     }
-                    if let Err(e) = api.mark_read(&chat) {
-                        if !api.read_only {
-                            emit(Event::Info(format!("Beeper read-state update failed: {e}")));
-                        }
+                    if let Err(e) = api.mark_read(&chat)
+                        && !api.read_only
+                    {
+                        emit(Event::Info(format!("Beeper read-state update failed: {e}")));
                     }
                 }
                 Command::MarkUnread(chat) => {
-                    if let Err(e) = api.mark_unread(&chat) {
-                        if !api.read_only {
-                            emit(Event::Info(format!("Beeper unread update failed: {e}")));
-                        }
+                    if let Err(e) = api.mark_unread(&chat)
+                        && !api.read_only
+                    {
+                        emit(Event::Info(format!("Beeper unread update failed: {e}")));
                     }
                 }
                 Command::Composing { chat, composing } => {
@@ -2520,19 +2520,19 @@ pub fn run(
             }
         }
 
-        if let Some((token, clear)) = pending_storage {
-            if let Ok(_guard) = api.cache_lock.try_lock() {
-                let result = trim_cache(&dirs, if clear { 0 } else { cache_budget(&dirs) });
-                if let Err(e) = &result {
-                    emit(Event::Info(format!("Cache cleanup failed: {e}")));
-                }
-                emit(Event::StorageStats {
-                    stats: measure_cache(&dirs).ok(),
-                    token,
-                    cleared: clear && result.is_ok(),
-                });
-                pending_storage = None;
+        if let Some((token, clear)) = pending_storage
+            && let Ok(_guard) = api.cache_lock.try_lock()
+        {
+            let result = trim_cache(&dirs, if clear { 0 } else { cache_budget(&dirs) });
+            if let Err(e) = &result {
+                emit(Event::Info(format!("Cache cleanup failed: {e}")));
             }
+            emit(Event::StorageStats {
+                stats: measure_cache(&dirs).ok(),
+                token,
+                cleared: clear && result.is_ok(),
+            });
+            pending_storage = None;
         }
 
         while let Ok((chat, pending_id)) = accepted_rx.try_recv() {
@@ -3185,12 +3185,15 @@ mod tests {
             mentions: vec![],
             quoting: Some(reply.clone()),
         };
-        let Err(Event::SendRefused {
+        let event = refuse_unsupported_payload(command)
+            .err()
+            .expect("payload not returned");
+        let Event::SendRefused {
             chat,
             quoting,
             unsent: super::super::Unsent::Image { rgba, caption, .. },
             ..
-        }) = refuse_unsupported_payload(command)
+        } = *event
         else {
             panic!("payload not returned")
         };
@@ -3907,21 +3910,20 @@ mod tests {
                                 Ok(0) => break,
                                 Ok(n) => {
                                     buf.extend_from_slice(&chunk[..n]);
-                                    if !headers_done {
-                                        if let Some(pos) =
+                                    if !headers_done
+                                        && let Some(pos) =
                                             buf.windows(4).position(|w| w == b"\r\n\r\n")
-                                        {
-                                            headers_done = true;
-                                            let head = String::from_utf8_lossy(&buf[..pos]);
-                                            body_len = head
-                                                .lines()
-                                                .find(|l| {
-                                                    l.to_ascii_lowercase()
-                                                        .starts_with("content-length:")
-                                                })
-                                                .and_then(|l| l[15..].trim().parse().ok())
-                                                .unwrap_or(0);
-                                        }
+                                    {
+                                        headers_done = true;
+                                        let head = String::from_utf8_lossy(&buf[..pos]);
+                                        body_len = head
+                                            .lines()
+                                            .find(|l| {
+                                                l.to_ascii_lowercase()
+                                                    .starts_with("content-length:")
+                                            })
+                                            .and_then(|l| l[15..].trim().parse().ok())
+                                            .unwrap_or(0);
                                     }
                                     if headers_done {
                                         let head_end =
@@ -3946,10 +3948,7 @@ mod tests {
                         reqs.lock()
                             .unwrap()
                             .push((method.clone(), path.clone(), body));
-                        let (base, query) = path
-                            .split_once('?')
-                            .map(|(b, q)| (b, q))
-                            .unwrap_or((path.as_str(), ""));
+                        let (base, query) = path.split_once('?').unwrap_or((path.as_str(), ""));
                         let payload = match (method.as_str(), base) {
                         ("GET", "/v1/accounts") => ACCOUNTS_JSON.to_string(),
                         ("GET", "/v1/chats") => CHATS_JSON.to_string(),
@@ -3957,8 +3956,6 @@ mod tests {
                         ("GET", p) if p.ends_with("/messages") => {
                             if query.contains("direction=before") {
                                 OLDER_JSON.to_string()
-                            } else if query.contains("direction=after") {
-                                HISTORY_JSON.to_string()
                             } else {
                                 HISTORY_JSON.to_string()
                             }
@@ -5150,7 +5147,7 @@ mod tests {
             })
             .expect("messages");
         assert_eq!(messages.len(), 3);
-        assert!(messages[2].from_me == false);
+        assert!(!messages[2].from_me);
         // The image renders as a labelled text placeholder in this demo.
         match &messages.iter().find(|m| m.id == "m3").unwrap().content {
             Content::Text { text, .. } => assert_eq!(text, "[image: cake.jpg]"),

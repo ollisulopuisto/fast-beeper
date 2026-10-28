@@ -331,11 +331,12 @@ impl Account {
                 self.avatars.remove(id);
                 self.avatar_checks.remove(id);
             }
-            if self.avatar_checks.len() >= 2048 && !self.avatar_checks.contains_key(id) {
-                if let Some(key) = self.avatar_checks.keys().next().cloned() {
-                    self.avatar_checks.remove(&key);
-                    self.avatars.remove(&key);
-                }
+            if self.avatar_checks.len() >= 2048
+                && !self.avatar_checks.contains_key(id)
+                && let Some(key) = self.avatar_checks.keys().next().cloned()
+            {
+                self.avatar_checks.remove(&key);
+                self.avatars.remove(&key);
             }
         }
         if let Some(known) = self.avatars.get(id) {

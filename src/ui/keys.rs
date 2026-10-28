@@ -62,26 +62,23 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             Some(0)
                         } else if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::ALT) {
                             Some(1)
-                        } else if cfg!(target_os = "macos")
+                        } else if (cfg!(target_os = "macos")
                             && modifiers.command
                             && modifiers.ctrl
                             && !modifiers.alt
-                            && !modifiers.shift
-                        {
-                            Some(2)
-                        } else if !cfg!(target_os = "macos")
-                            && modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT)
+                            && !modifiers.shift)
+                            || (!cfg!(target_os = "macos")
+                                && modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT))
                         {
                             Some(2)
                         } else {
                             None
                         };
-                        if let Some(mode) = mode {
-                            if let Some(index) = keys.iter().position(|candidate| candidate == key)
-                            {
-                                found = Some((mode, index));
-                                return false;
-                            }
+                        if let Some(mode) = mode
+                            && let Some(index) = keys.iter().position(|candidate| candidate == key)
+                        {
+                            found = Some((mode, index));
+                            return false;
                         }
                         if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT)
                             && *key == Key::U

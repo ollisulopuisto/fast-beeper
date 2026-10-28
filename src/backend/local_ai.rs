@@ -34,10 +34,10 @@ pub fn endpoint(raw: &str, allow_lan: bool) -> Result<reqwest::Url, String> {
     if !local {
         return Err("Public API hosts are refused. A private LAN IP requires explicit local-network approval".into());
     }
-    if let IpAddr::V6(ip) = ip {
-        if ip.to_ipv4_mapped().is_some() {
-            return Err("IPv4-mapped IPv6 addresses are refused".into());
-        }
+    if let IpAddr::V6(ip) = ip
+        && ip.to_ipv4_mapped().is_some()
+    {
+        return Err("IPv4-mapped IPv6 addresses are refused".into());
     }
     if !matches!(url.path(), "" | "/" | "/v1" | "/v1/") {
         return Err("Enter the server root or /v1, not a custom route".into());
@@ -116,8 +116,10 @@ mod tests {
     use std::net::Ipv4Addr;
     #[test]
     fn idle_and_invalid_jobs_never_start_network_work() {
-        let mut state = State::default();
-        state.input = "explicit fixture".into();
+        let mut state = State {
+            input: "explicit fixture".into(),
+            ..Default::default()
+        };
         state.poll();
         assert!(!state.busy());
         state.start(
