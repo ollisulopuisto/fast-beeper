@@ -31,3 +31,5 @@ One run per case, not a statistical benchmark. RSS includes the source fixture a
 `late_send_checks` uses real App event handling to check late Beeper text/caption failures retain copyable content when a newer current or parked draft exists, without overwriting it. Empty composers still restore normally. Retention uses the existing dismissible error list, not a durable recovery archive; errors can be evicted by later errors. This check is not UI pixel or native Mac validation.
 
 `repair_checks` checks network slots1/10, unchanged plain digits, exact pinned/list modifier separation, missing-slot no-op and unreplied toggling using real App/UI code. Mac hardware keyboard remains user-trial work.
+
+`cargo run --locked --example queue_checks`: synthetic App diagnostic for local Reply later persistence, exact origin/account confirmation, linked-person clearing and queue filtering. No live-account writes.
