@@ -26,6 +26,44 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         sticker_view_keys(app, ctx);
         return;
     }
+    if app.page == Page::Chats && app.dialog.is_none() && !app.show_update && app.picker.is_none() && app.reaction_target.is_none() && app.recording.is_none() && !egui::Popup::is_any_open(ctx) {
+        let networks=app.beeper_browse_networks();
+        if !networks.is_empty() {
+            let shortcut=ctx.input_mut(|input| {
+                let keys=[Key::Num1,Key::Num2,Key::Num3,Key::Num4,Key::Num5,Key::Num6,Key::Num7,Key::Num8,Key::Num9,Key::Num0];
+                let mut found=None;
+                input.events.retain(|event| {
+                    if let egui::Event::Key{key,pressed:true,modifiers,..}=event {
+                        let mode=if modifiers.matches_exact(Modifiers::COMMAND) {Some(0)}
+                            else if modifiers.matches_exact(Modifiers::COMMAND|Modifiers::ALT) {Some(1)}
+                            else if cfg!(target_os="macos") && modifiers.command && modifiers.ctrl && !modifiers.alt && !modifiers.shift {Some(2)}
+                            else if !cfg!(target_os="macos") && modifiers.matches_exact(Modifiers::COMMAND|Modifiers::SHIFT) {Some(2)} else {None};
+                        if let Some(mode)=mode {
+                            if let Some(index)=keys.iter().position(|candidate|candidate==key) {found=Some((mode,index));return false;}
+                        }
+                        if modifiers.matches_exact(Modifiers::COMMAND|Modifiers::SHIFT) && *key==Key::U {found=Some((3,0));return false;}
+                        if modifiers.matches_exact(Modifiers::COMMAND|Modifiers::SHIFT) && *key==Key::R {found=Some((4,0));return false;}
+                    }
+                    true
+                });found
+            });
+            if let Some((mode,index))=shortcut {
+                match mode {
+                    0=>if let Some(network)=networks.get(index) {app.select_beeper_scope(Some(network.clone()),None);},
+                    1=>if let Some(chat)=app.beeper_global_pins().get(index) {app.actions.push(Action::OpenChat(chat.id.clone()));},
+                    2=>{
+                        let pins=app.beeper_global_pins();
+                        let ids:Vec<_>=app.visible_chats().into_iter().filter(|chat|!pins.iter().any(|pin|pin.id==chat.id)).map(|chat|chat.id.clone()).collect();
+                        if let Some(id)=ids.get(index) {app.actions.push(Action::OpenChat(id.clone()));}
+                    },
+                    3=>{app.beeper_unreplied=false;app.actions.push(Action::SetChatFilter(if app.chat_filter==crate::model::ChatFilter::Unread {crate::model::ChatFilter::All}else{crate::model::ChatFilter::Unread}));},
+                    4=>{app.beeper_unreplied=!app.beeper_unreplied;app.actions.push(Action::SetChatFilter(crate::model::ChatFilter::All));},
+                    _=>{},
+                }
+                return;
+            }
+        }
+    }
     let editing_text = ctx.text_edit_focused();
     let find = find_action(app);
     let archive = archive_action(app);

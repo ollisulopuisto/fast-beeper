@@ -22,10 +22,12 @@ Linux debug build, 512 repeats of `fixture ` per message, separate processes:
 
 One run per case, not a statistical benchmark. RSS includes the source fixture and process, not an incremental allocation measurement. This demonstrates the avoided payload copy in ordering only, not whole-app memory, Beeper Server resources, UI rendering performance or Mac performance.
 
-`chip_scroll_checks` is a targeted real GUI-library diagnostic: verifies overflow scrollbar geometry below chips, handle dragging, and vertical-wheel horizontal scrolling. It does not stand in for the full GUI unit suite or native Mac interaction checks.
+`chip_scroll_checks` now checks wrapped controls within220px; the previous horizontal-scroll behavior is superseded.
 
 `search_state_checks` uses real App event handling to check stale query/chat errors are ignored, a current failure ends the pending state, and a successful response clears the error. Separate native GUI fixtures verify HTTP503-to-success rendering. These are targeted diagnostics, not the full GUI suite.
 
 `refusal_state_checks` verifies real App handling restores unsupported image pixels, caption and quote. It uses no live transport and does not claim UI pixel or native Mac validation. Some diagnostics start optional background helpers that are terminated on exit.
 
 `late_send_checks` uses real App event handling to check late Beeper text/caption failures retain copyable content when a newer current or parked draft exists, without overwriting it. Empty composers still restore normally. Retention uses the existing dismissible error list, not a durable recovery archive; errors can be evicted by later errors. This check is not UI pixel or native Mac validation.
+
+`repair_checks` checks network slots1/10, unchanged plain digits, exact pinned/list modifier separation, missing-slot no-op and unreplied toggling using real App/UI code. Mac hardware keyboard remains user-trial work.

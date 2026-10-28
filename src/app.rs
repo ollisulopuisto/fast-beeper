@@ -380,6 +380,7 @@ pub struct UnreadDivider {
 
 pub struct App {
     pub beeper_network_filter: Option<String>,
+    pub beeper_unreplied: bool,
     /// Origin+account tuple, never just a display name or network.
     pub beeper_account_filter: Option<String>,
     pub beeper_accounts: std::collections::BTreeMap<String, Vec<crate::backend::BeeperAccountInfo>>,
@@ -1361,6 +1362,7 @@ impl App {
         let tray_lockable = settings.app_lock_hash.is_some();
         let mut app = Self {
             beeper_network_filter: None,
+            beeper_unreplied: false,
             beeper_account_filter: None,
             beeper_accounts: Default::default(),
             local_ai: Default::default(),
@@ -3056,6 +3058,7 @@ impl App {
                 crate::settings::BeeperInbox::Unread => chat.looks_unread(),
                 crate::settings::BeeperInbox::None => false,
             })
+            .filter(|chat| !self.beeper_unreplied || chat.last.as_ref().is_some_and(|last| !last.from_me && !last.sender.is_empty() && !last.labelled && !last.summary.is_empty()))
             .filter(|chat| chat.locked == locked)
             .filter(|chat| locked || chat.archived == self.show_archived || !needle.is_empty())
             // Searching still finds people never written to, and one being
