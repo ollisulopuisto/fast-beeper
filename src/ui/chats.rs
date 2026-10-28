@@ -898,33 +898,107 @@ fn starred_row(
 }
 
 /// Compact pins intentionally span network/account navigation in this profile.
-fn pinned_row(app:&mut App,ui:&mut egui::Ui) {
-    let pins=app.beeper_global_pins();if pins.is_empty(){return;}
-    let palette=app.palette;
-    ui.label(egui::RichText::new("Pinned · all networks").small().color(palette.secondary));
-    egui::ScrollArea::horizontal().id_salt("beeper-global-pins").auto_shrink([false,true]).show(ui,|ui| {
-        ui.horizontal(|ui| {
-            for chat in pins {
-                let title=app.chat_title(&chat);let identity=chat.network.as_deref().unwrap_or("Beeper");
-                let picture=app.avatar(&chat.id);
-                let (rect,response)=ui.allocate_exact_size(vec2(76.0,88.0),Sense::click());
-                if response.hovered() || app.open_chat.as_deref()==Some(&chat.id) {widgets::row_highlight(ui,&palette,rect,palette.surface_active);}
-                let avatar=Rect::from_center_size(rect.center_top()+vec2(0.0,23.0),Vec2::splat(38.0));
-                widgets::paint_avatar(ui,&palette,avatar,&title,&chat.id,picture.as_deref());
-                if chat.looks_unread() { widgets::unread_indicator(ui,&palette,avatar.right_top(),chat.unread.max(1),false,false); }
-                let name=if title.chars().count()>10 {format!("{}…",title.chars().take(9).collect::<String>())}else{title.clone()};
-                ui.painter().text(rect.center_top()+vec2(0.0,52.0),egui::Align2::CENTER_CENTER,name,theme::regular(11.0),palette.text);
-                let parts:Vec<_>=identity.split(" · ").collect();
-                let network=chat.backend_network.as_deref().unwrap_or("B");
-                let short=match network.to_lowercase().as_str(){"whatsapp"=>"WA".to_owned(),"signal"=>"Si".to_owned(),"telegram"=>"Tg".to_owned(),_=>network.chars().take(2).collect()};
-                let marker=format!("{short} · {}",parts.last().copied().unwrap_or(identity).chars().take(6).collect::<String>());
-                ui.painter().text(rect.center_top()+vec2(0.0,69.0),egui::Align2::CENTER_CENTER,marker,theme::regular(10.0),palette.secondary);
-                let response=response.on_hover_text(format!("{title}\n{identity}\nAccount: {}",chat.backend_account.as_deref().unwrap_or("")));
-                response.widget_info(||egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel,ui.is_enabled(),app.open_chat.as_deref()==Some(&chat.id),format!("Pinned {title}, {identity}")));
-                if response.clicked(){app.actions.push(Action::OpenChat(chat.id.clone()));}
-            }
+fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
+    let pins = app.beeper_global_pins();
+    if pins.is_empty() {
+        return;
+    }
+    let palette = app.palette;
+    ui.label(
+        egui::RichText::new("Pinned · all networks")
+            .small()
+            .color(palette.secondary),
+    );
+    egui::ScrollArea::horizontal()
+        .id_salt("beeper-global-pins")
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for chat in pins {
+                    let title = app.chat_title(&chat);
+                    let identity = chat.network.as_deref().unwrap_or("Beeper");
+                    let picture = app.avatar(&chat.id);
+                    let (rect, response) = ui.allocate_exact_size(vec2(76.0, 88.0), Sense::click());
+                    if response.hovered() || app.open_chat.as_deref() == Some(&chat.id) {
+                        widgets::row_highlight(ui, &palette, rect, palette.surface_active);
+                    }
+                    let avatar = Rect::from_center_size(
+                        rect.center_top() + vec2(0.0, 23.0),
+                        Vec2::splat(38.0),
+                    );
+                    widgets::paint_avatar(
+                        ui,
+                        &palette,
+                        avatar,
+                        &title,
+                        &chat.id,
+                        picture.as_deref(),
+                    );
+                    if chat.looks_unread() {
+                        widgets::unread_indicator(
+                            ui,
+                            &palette,
+                            avatar.right_top(),
+                            chat.unread.max(1),
+                            false,
+                            false,
+                        );
+                    }
+                    let name = if title.chars().count() > 10 {
+                        format!("{}…", title.chars().take(9).collect::<String>())
+                    } else {
+                        title.clone()
+                    };
+                    ui.painter().text(
+                        rect.center_top() + vec2(0.0, 52.0),
+                        egui::Align2::CENTER_CENTER,
+                        name,
+                        theme::regular(11.0),
+                        palette.text,
+                    );
+                    let parts: Vec<_> = identity.split(" · ").collect();
+                    let network = chat.backend_network.as_deref().unwrap_or("B");
+                    let short = match network.to_lowercase().as_str() {
+                        "whatsapp" => "WA".to_owned(),
+                        "signal" => "Si".to_owned(),
+                        "telegram" => "Tg".to_owned(),
+                        _ => network.chars().take(2).collect(),
+                    };
+                    let marker = format!(
+                        "{short} · {}",
+                        parts
+                            .last()
+                            .copied()
+                            .unwrap_or(identity)
+                            .chars()
+                            .take(6)
+                            .collect::<String>()
+                    );
+                    ui.painter().text(
+                        rect.center_top() + vec2(0.0, 69.0),
+                        egui::Align2::CENTER_CENTER,
+                        marker,
+                        theme::regular(10.0),
+                        palette.secondary,
+                    );
+                    let response = response.on_hover_text(format!(
+                        "{title}\n{identity}\nAccount: {}",
+                        chat.backend_account.as_deref().unwrap_or("")
+                    ));
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::SelectableLabel,
+                            ui.is_enabled(),
+                            app.open_chat.as_deref() == Some(&chat.id),
+                            format!("Pinned {title}, {identity}"),
+                        )
+                    });
+                    if response.clicked() {
+                        app.actions.push(Action::OpenChat(chat.id.clone()));
+                    }
+                }
+            });
         });
-    });
     ui.add_space(6.0);
 }
 
@@ -950,9 +1024,30 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
         results(app, ui);
         return;
     }
-    let global_pins = !app.show_archived && app.chats.iter().any(|c|c.backend_account.is_some());
-    if global_pins { pinned_row(app,ui); }
-    let chats: Vec<Chat> = app.visible_chats().into_iter().filter(|c| !global_pins || (!c.pinned&&!app.settings.beeper.people.iter().any(|p|p.members.iter().any(|m|m.matches(c))&&p.members.iter().any(|m|app.chats.iter().any(|known|m.matches(known)&&known.pinned&&!known.archived&&!known.locked))))).map(|c|app.beeper_person_preview(c)).collect();
+    let global_pins = !app.show_archived && app.chats.iter().any(|c| c.backend_account.is_some());
+    if global_pins {
+        pinned_row(app, ui);
+    }
+    let chats: Vec<Chat> = app
+        .visible_chats()
+        .into_iter()
+        .filter(|c| {
+            !global_pins
+                || (!c.pinned
+                    && !app.settings.beeper.people.iter().any(|p| {
+                        p.members.iter().any(|m| m.matches(c))
+                            && p.members.iter().any(|m| {
+                                app.chats.iter().any(|known| {
+                                    m.matches(known)
+                                        && known.pinned
+                                        && !known.archived
+                                        && !known.locked
+                                })
+                            })
+                    }))
+        })
+        .map(|c| app.beeper_person_preview(c))
+        .collect();
     if chats.is_empty() {
         // The favorites title is translated, so it is bound here: the tuple
         // below borrows it for this frame, and every other arm stays a literal.
@@ -971,8 +1066,13 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
                 _ => "No groups",
             };
             (title, "Choose All to see every chat.")
-        } else if global_pins && (app.beeper_network_filter.is_some() || !app.beeper_global_pins().is_empty()) {
-            ("No other chats in this view", "Pinned chats stay available above. Choose Chats for all networks.")
+        } else if global_pins
+            && (app.beeper_network_filter.is_some() || !app.beeper_global_pins().is_empty())
+        {
+            (
+                "No other chats in this view",
+                "Pinned chats stay available above. Choose Chats for all networks.",
+            )
         } else if app.syncing {
             ("Loading your chats", "Receiving history from your phone.")
         } else {
@@ -986,7 +1086,11 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     }
     // Rows touch: one clickable surface from top to bottom, no gaps or rules.
     ui.spacing_mut().item_spacing.y = 0.0;
-    let row_height = if app.settings.beeper.compact_list { 56.0 } else { theme::ROW_HEIGHT };
+    let row_height = if app.settings.beeper.compact_list {
+        56.0
+    } else {
+        theme::ROW_HEIGHT
+    };
     let total = chats.len();
     let mut scroll_area = egui::ScrollArea::vertical()
         .id_salt("chat-list")
@@ -1212,15 +1316,23 @@ fn results(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let chats: Vec<Chat> = app.beeper_display_chats();
     let hits: Vec<Message> = app.scoped_search_hits();
-    if let Some((query,error,truncated)) = &app.beeper_search_state {
+    if let Some((query, error, truncated)) = &app.beeper_search_state {
         if query == app.search.trim() {
-            if let Some(error)=error {ui.add(egui::Label::new(egui::RichText::new(error).color(palette.warning)).wrap());}
-            else if *truncated {ui.add(egui::Label::new(egui::RichText::new("Message results are partial; only the first API search page is loaded.").color(palette.warning)).wrap());}
+            if let Some(error) = error {
+                ui.add(egui::Label::new(egui::RichText::new(error).color(palette.warning)).wrap());
+            } else if *truncated {
+                ui.add(egui::Label::new(egui::RichText::new("Message results are partial; only the first API search page is loaded.").color(palette.warning)).wrap());
+            }
         }
     }
-    let contacts: Vec<Contact> = if app.beeper_scope_is_active() { Vec::new() } else { app.matching_contacts().into_iter().cloned().collect() };
+    let contacts: Vec<Contact> = if app.beeper_scope_is_active() {
+        Vec::new()
+    } else {
+        app.matching_contacts().into_iter().cloned().collect()
+    };
     let needle = crate::util::search_key(app.search.trim());
-    let offer_self = !app.beeper_scope_is_active() && !needle.is_empty()
+    let offer_self = !app.beeper_scope_is_active()
+        && !needle.is_empty()
         && app.offers_self(&needle)
         && !chats
             .iter()
@@ -1230,7 +1342,15 @@ fn results(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             Icon::Search,
-            if app.beeper_search_state.as_ref().is_some_and(|(query,error,_)| query==app.search.trim() && error.is_some()) { "Message search failed" } else { "No results" },
+            if app
+                .beeper_search_state
+                .as_ref()
+                .is_some_and(|(query, error, _)| query == app.search.trim() && error.is_some())
+            {
+                "Message search failed"
+            } else {
+                "No results"
+            },
             "Try another name, number, or message text.",
         );
         return;
@@ -1321,7 +1441,12 @@ fn hit_row(app: &mut App, ui: &mut egui::Ui, hit: &Message) {
             theme::regular(11.5),
             palette.dim,
         );
-        let name_top = rect.top() + if app.settings.beeper.compact_list { 7.0 } else { 14.0 };
+        let name_top = rect.top()
+            + if app.settings.beeper.compact_list {
+                7.0
+            } else {
+                14.0
+            };
         ui.painter().galley(
             pos2(right - stamp_galley.size().x, name_top + 1.0),
             stamp_galley.clone(),
@@ -1331,7 +1456,12 @@ fn hit_row(app: &mut App, ui: &mut egui::Ui, hit: &Message) {
         let name = widgets::line(ui, &title, theme::medium(14.5), palette.text, name_width, 1);
         name.paint(ui, pos2(left, name_top), palette.text);
         // Show the sender for group messages.
-        let line_y = rect.top() + if app.settings.beeper.compact_list { 29.0 } else { 38.0 };
+        let line_y = rect.top()
+            + if app.settings.beeper.compact_list {
+                29.0
+            } else {
+                38.0
+            };
         let mut x = left;
         if hit.from_me {
             let who = widgets::line(
@@ -1506,7 +1636,14 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
     let now = crate::util::now();
     let muted = chat.muted(now);
     let (rect, response) = ui.allocate_exact_size(
-        vec2(ui.available_width(), if app.settings.beeper.compact_list { 56.0 } else { theme::ROW_HEIGHT }),
+        vec2(
+            ui.available_width(),
+            if app.settings.beeper.compact_list {
+                56.0
+            } else {
+                theme::ROW_HEIGHT
+            },
+        ),
         Sense::click(),
     );
     theme::reveal_focus(&response);
@@ -1580,7 +1717,11 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
                 ui,
                 &palette,
                 pos2(badge_right - 10.0, line_y + 8.0),
-                if app.settings.beeper.show_unread_counts { chat.unread } else { 0 },
+                if app.settings.beeper.show_unread_counts {
+                    chat.unread
+                } else {
+                    0
+                },
                 chat.marked_unread || !app.settings.beeper.show_unread_counts,
                 muted,
             );
@@ -1613,7 +1754,13 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         } else {
             palette.dim
         };
-        let preview = if !app.settings.beeper.show_previews || !app.settings.beeper.account(chat.backend_settings_key().as_deref()).previews {
+        let preview = if !app.settings.beeper.show_previews
+            || !app
+                .settings
+                .beeper
+                .account(chat.backend_settings_key().as_deref())
+                .previews
+        {
             widgets::line(ui, "", theme::regular(13.0), preview_color, 1.0, 1)
         } else if !typing.is_empty() {
             let who = if chat.is_group() {
@@ -1713,7 +1860,9 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let response = if let Some(network) = &chat.network {
         response.on_hover_text(format!("{}\n{}", app.chat_title(chat), network))
-    } else { response };
+    } else {
+        response
+    };
     if let Some((area, prefix, full)) = full_preview {
         full_preview_tooltip(app, ui, &chat.id, area, &prefix, &full);
     }
@@ -2138,15 +2287,33 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
             .push(Action::SetArchived(chat.id.clone(), !chat.archived));
     }
     if chat.backend_account.is_some() {
-        widgets::submenu(ui, palette, Icon::Bell, "Remind me", &["In 1 hour", "In 24 hours", "Clear reminder"], |ui| {
-            for (label, seconds) in [("In 1 hour", Some(3600)), ("In 24 hours", Some(86400)), ("Clear reminder", None)] {
-                if widgets::menu_item(ui, palette, None, label) {
-                    let at = seconds.and_then(|offset| jiff::Timestamp::from_second(crate::util::now() + offset).ok()).map(|stamp| stamp.to_string());
-                    app.actions.push(Action::SetBeeperReminder { chat: chat.id.clone(), at });
-                    ui.close();
+        widgets::submenu(
+            ui,
+            palette,
+            Icon::Bell,
+            "Remind me",
+            &["In 1 hour", "In 24 hours", "Clear reminder"],
+            |ui| {
+                for (label, seconds) in [
+                    ("In 1 hour", Some(3600)),
+                    ("In 24 hours", Some(86400)),
+                    ("Clear reminder", None),
+                ] {
+                    if widgets::menu_item(ui, palette, None, label) {
+                        let at = seconds
+                            .and_then(|offset| {
+                                jiff::Timestamp::from_second(crate::util::now() + offset).ok()
+                            })
+                            .map(|stamp| stamp.to_string());
+                        app.actions.push(Action::SetBeeperReminder {
+                            chat: chat.id.clone(),
+                            at,
+                        });
+                        ui.close();
+                    }
                 }
-            }
-        });
+            },
+        );
     }
     // Bound before the call so the translated text outlives the borrow.
     let leave_label = if chat.is_channel() {
@@ -2324,7 +2491,9 @@ fn sound_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette, chat: &Chat) 
 fn mute_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette, chat: &Chat, now: i64) {
     let locale = app.locale;
     if chat.backend_account.is_some() {
-        if widgets::menu_item(ui, palette, Some(Icon::BellOff), "Mute indefinitely") { app.actions.push(Action::SetMuted(chat.id.clone(), Some(0))); }
+        if widgets::menu_item(ui, palette, Some(Icon::BellOff), "Mute indefinitely") {
+            app.actions.push(Action::SetMuted(chat.id.clone(), Some(0)));
+        }
         return;
     }
     let options = [
@@ -2957,7 +3126,10 @@ mod tests {
                 .unwrap_or_else(|| {
                     panic!("hovering the {row} row showed no bar below its chips: {shown:?}")
                 });
-            assert!(bar.top() >= chip.bottom(), "the {row} row's bar at {bar:?} overlaps chips at {chip:?}");
+            assert!(
+                bar.top() >= chip.bottom(),
+                "the {row} row's bar at {bar:?} overlaps chips at {chip:?}"
+            );
             if row == "filter" {
                 filter_bar = Some(bar);
             }

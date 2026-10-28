@@ -61,8 +61,19 @@ const NOT_SENT_HINT: &str =
 
 pub(super) fn beeper_live_warning(app: &App, ui: &mut egui::Ui, chat: &str) {
     if let Some(error) = app.beeper_live_errors.get(chat) {
-        let source = app.chat(chat).map(|c| c.network.as_deref().unwrap_or(&c.name)).unwrap_or("Chat");
-        ui.add(egui::Label::new(egui::RichText::new(format!("{source}: {error}. Loaded messages may be stale; retrying automatically.")).color(app.palette.warning)).wrap());
+        let source = app
+            .chat(chat)
+            .map(|c| c.network.as_deref().unwrap_or(&c.name))
+            .unwrap_or("Chat");
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!(
+                    "{source}: {error}. Loaded messages may be stale; retrying automatically."
+                ))
+                .color(app.palette.warning),
+            )
+            .wrap(),
+        );
     }
 }
 
@@ -74,7 +85,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         empty(app, ui);
         return;
     };
-    if super::merged::show(app,ui,&chat) {return;}
+    if super::merged::show(app, ui, &chat) {
+        return;
+    }
     wallpaper::paint(ui, &app.wallpaper());
     // On a vibrant window the messages scroll on under the header, as in
     // Messages: the header and any banner go on a layer above them.
@@ -1360,7 +1373,12 @@ fn mention_picker(app: &mut App, ui: &mut egui::Ui, chat: &Chat, field: egui::Id
 pub(crate) fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
     composer_with_capabilities(app, ui, chat, true);
 }
-pub(crate) fn composer_with_capabilities(app: &mut App, ui: &mut egui::Ui, chat: &Chat, attachments: bool) {
+pub(crate) fn composer_with_capabilities(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    chat: &Chat,
+    attachments: bool,
+) {
     let palette = app.palette;
     let shown = egui::Panel::bottom("composer")
         .show_separator_line(false)
@@ -3906,7 +3924,11 @@ fn top_of_history(
                 theme::spinner(ui, 16.0, palette.accent);
                 theme::text(
                     ui,
-                    if _chat.network.is_some() { "Loading older messages from Beeper…" } else { "Loading older messages from your phone…" },
+                    if _chat.network.is_some() {
+                        "Loading older messages from Beeper…"
+                    } else {
+                        "Loading older messages from your phone…"
+                    },
                     theme::regular(12.5),
                     palette.secondary,
                 );
@@ -6186,7 +6208,13 @@ pub(crate) fn linked_estimated_height(message: &Message, width: f32) -> f32 {
     estimated_height(message, width, false, 0) + 42.0
 }
 /// Linked timelines use the very same bubble/media renderer as ordinary chats.
-pub(crate) fn linked_bubble(app:&App,ui:&mut egui::Ui,chat:&Chat,message:&Message,actions:&mut Vec<Action>){
+pub(crate) fn linked_bubble(
+    app: &App,
+    ui: &mut egui::Ui,
+    chat: &Chat,
+    message: &Message,
+    actions: &mut Vec<Action>,
+) {
     let names_or = |id: &str, hint: Option<&str>| app.display_name_or(id, hint);
     let mention_names = |id: &str| app.mention_name(id);
     let avatars = HashMap::new();
@@ -6225,7 +6253,18 @@ pub(crate) fn linked_bubble(app:&App,ui:&mut egui::Ui,chat:&Chat,message:&Messag
         pins: app.pins.get(&message.chat),
         pin_notices: &[],
     };
-    bubble(ui,&view,message,None,RunPlace{show_sender:false,show_avatar:false,tailed:true},actions);
+    bubble(
+        ui,
+        &view,
+        message,
+        None,
+        RunPlace {
+            show_sender: false,
+            show_avatar: false,
+            tailed: true,
+        },
+        actions,
+    );
 }
 
 /// Quick reactions plus our current reaction when needed.
@@ -6571,7 +6610,9 @@ fn context_menu(
         let mentions = mentions_of(view, message);
         actions.push(Action::CopyText(markup::plain(&text, &mentions)));
     }
-    if view.chat.backend_account.is_some() && let Content::Text { text, .. } = &message.content {
+    if view.chat.backend_account.is_some()
+        && let Content::Text { text, .. } = &message.content
+    {
         if widgets::menu_item(ui, &palette, Some(Icon::Copy), "Translate locally...") {
             actions.push(Action::TranslateLocally(text.clone()));
         }

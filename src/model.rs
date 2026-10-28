@@ -2925,7 +2925,10 @@ pub enum Action {
         emoji: String,
     },
     SetArchived(ChatId, bool),
-    SetBeeperReminder { chat: ChatId, at: Option<String> },
+    SetBeeperReminder {
+        chat: ChatId,
+        at: Option<String>,
+    },
     /// Leaves a group or a channel. `archive` also hides the chat in Archived.
     LeaveGroup {
         chat: ChatId,

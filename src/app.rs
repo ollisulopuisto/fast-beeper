@@ -421,9 +421,9 @@ pub struct App {
     /// on screen, and a chat's picture keeps one file name across changes.
     stale_images: Vec<String>,
     pub composer: String,
-    watched_beeper_chats:Vec<ChatId>,
-    pub beeper_history_errors:HashMap<ChatId,String>,
-    pub beeper_live_errors:HashMap<ChatId,String>,
+    watched_beeper_chats: Vec<ChatId>,
+    pub beeper_history_errors: HashMap<ChatId, String>,
+    pub beeper_live_errors: HashMap<ChatId, String>,
     pub beeper_search_state: Option<(String, Option<String>, bool)>,
     composer_mentions: Vec<ComposerMention>,
     /// Byte offset of the `:` starting the active emoji query.
@@ -453,7 +453,7 @@ pub struct App {
     pub chat_search_truncated: bool,
     /// Whether an answer for the current query and day is still due.
     pub chat_search_pending: bool,
-    pub beeper_chat_search_error:Option<String>,
+    pub beeper_chat_search_error: Option<String>,
     /// The result the arrow keys have reached, if any.
     pub chat_search_selected: Option<usize>,
     /// Local day the in-chat search is limited to, if any.
@@ -1386,10 +1386,10 @@ impl App {
             scroll_chats_to_top: false,
             stale_images: Vec::new(),
             composer: String::new(),
-            watched_beeper_chats:Vec::new(),
-            beeper_history_errors:HashMap::new(),
-            beeper_live_errors:HashMap::new(),
-            beeper_search_state:None,
+            watched_beeper_chats: Vec::new(),
+            beeper_history_errors: HashMap::new(),
+            beeper_live_errors: HashMap::new(),
+            beeper_search_state: None,
             composer_mentions: Vec::new(),
             emoji_start: None,
             emoji_selected: 0,
@@ -1417,7 +1417,7 @@ impl App {
             chat_search_hits: Vec::new(),
             chat_search_truncated: false,
             chat_search_pending: false,
-            beeper_chat_search_error:None,
+            beeper_chat_search_error: None,
             chat_search_selected: None,
             chat_search_day: None,
             chat_search_month: crate::util::today(),
@@ -1765,7 +1765,7 @@ impl App {
         // The info panel shows the previous account's chat and its listing.
         self.close_info();
         self.chat_search_open = false;
-        self.beeper_chat_search_error=None;
+        self.beeper_chat_search_error = None;
         self.chat_search.clear();
         self.chat_search_hits.clear();
         self.chat_search_selected = None;
@@ -2138,8 +2138,13 @@ impl App {
         let Some(chat) = self.chat(chat_id) else {
             return;
         };
-        let preferences = self.settings.beeper.account(chat.backend_settings_key().as_deref());
-        if !preferences.notifications { return; }
+        let preferences = self
+            .settings
+            .beeper
+            .account(chat.backend_settings_key().as_deref());
+        if !preferences.notifications {
+            return;
+        }
         let now = crate::util::now();
         if !notification_eligible(chat, now, message.timestamp) {
             return;
@@ -2155,7 +2160,9 @@ impl App {
         // A limited chat notifies once, then waits; opening it ends the wait.
         // A mention of us or a reply to us always notifies and leaves the wait alone.
         let for_us = chat.is_group() && self.addresses_us(message);
-        if chat.is_group() && !for_us && !self.settings.beeper.notify_group_messages { return; }
+        if chat.is_group() && !for_us && !self.settings.beeper.notify_group_messages {
+            return;
+        }
         let limited = !for_us
             && self
                 .account()
@@ -2172,7 +2179,8 @@ impl App {
         let Some(chat) = self.chat(chat_id) else {
             return;
         };
-        if self.app_lock.is_locked() || !self.settings.notification_content || !preferences.previews {
+        if self.app_lock.is_locked() || !self.settings.notification_content || !preferences.previews
+        {
             self.notify_without_content(chat_id, chat.is_group(), &message.id, limited);
             return;
         }
@@ -2224,7 +2232,12 @@ impl App {
     ) {
         self.wants_attention = true;
         let (title, body) = crate::notify::locked_lines(self.locale);
-        let account_sound = self.chat(chat_id).and_then(|chat| self.settings.beeper.account(chat.backend_settings_key().as_deref()).sound);
+        let account_sound = self.chat(chat_id).and_then(|chat| {
+            self.settings
+                .beeper
+                .account(chat.backend_settings_key().as_deref())
+                .sound
+        });
         let sound = notification_sound(&self.settings, account_sound, is_group, false);
         let waker = self.waker.clone();
         self.notifications.show(
@@ -2626,7 +2639,15 @@ impl App {
 
     /// Resolves the chat-list title.
     pub fn chat_title(&self, chat: &Chat) -> String {
-        if let Some(person)=self.settings.beeper.people.iter().find(|p|p.members.iter().any(|m|m.matches(chat))){return format!("{} · linked",person.name);}
+        if let Some(person) = self
+            .settings
+            .beeper
+            .people
+            .iter()
+            .find(|p| p.members.iter().any(|m| m.matches(chat)))
+        {
+            return format!("{} · linked", person.name);
+        }
         if chat.is_group()
             && (chat.name.trim().is_empty() || (chat.name == "Group" && !chat.group_subject_known))
         {
@@ -2965,74 +2986,185 @@ impl App {
     /// Search and archive views stay inside the selected browsing scope.
     /// List-only navigation. Never changes open chat, composer or send target.
     pub fn select_beeper_scope(&mut self, network: Option<String>, account: Option<String>) {
-        self.beeper_network_filter=network;
-        self.beeper_account_filter=account;
-        self.search_selected=None;
-        if self.page != Page::Chats { self.page=Page::Chats; }
-        self.show_starred=false;
+        self.beeper_network_filter = network;
+        self.beeper_account_filter = account;
+        self.search_selected = None;
+        if self.page != Page::Chats {
+            self.page = Page::Chats;
+        }
+        self.show_starred = false;
     }
 
     pub fn beeper_global_pins(&self) -> Vec<Chat> {
-        let mut pins:Vec<_>=self.chats.iter().filter(|c| c.backend_account.is_some() && c.pinned && !c.locked && !c.archived).cloned().collect();
-        pins.sort_by(|a,b|b.pinned_at.cmp(&a.pinned_at).then_with(||b.last_activity.cmp(&a.last_activity)).then(a.id.cmp(&b.id)));
-        let mut people_seen=HashSet::new();pins.retain(|chat|self.settings.beeper.people.iter().position(|p|p.members.iter().any(|m|m.matches(chat))).is_none_or(|index|people_seen.insert(index)));
-        pins.into_iter().map(|chat|self.beeper_person_preview(&chat)).collect()
+        let mut pins: Vec<_> = self
+            .chats
+            .iter()
+            .filter(|c| c.backend_account.is_some() && c.pinned && !c.locked && !c.archived)
+            .cloned()
+            .collect();
+        pins.sort_by(|a, b| {
+            b.pinned_at
+                .cmp(&a.pinned_at)
+                .then_with(|| b.last_activity.cmp(&a.last_activity))
+                .then(a.id.cmp(&b.id))
+        });
+        let mut people_seen = HashSet::new();
+        pins.retain(|chat| {
+            self.settings
+                .beeper
+                .people
+                .iter()
+                .position(|p| p.members.iter().any(|m| m.matches(chat)))
+                .is_none_or(|index| people_seen.insert(index))
+        });
+        pins.into_iter()
+            .map(|chat| self.beeper_person_preview(&chat))
+            .collect()
     }
 
     /// Shared projection for normal/search rows; loaded linked activity wins over inventory.
     pub fn beeper_display_chats(&self) -> Vec<Chat> {
-        self.visible_chats().into_iter().map(|chat| self.beeper_person_preview(chat)).collect()
+        self.visible_chats()
+            .into_iter()
+            .map(|chat| self.beeper_person_preview(chat))
+            .collect()
     }
-    pub fn beeper_person_preview(&self,chat:&Chat)->Chat {
-        let mut display=chat.clone();
-        if let Some(person)=self.settings.beeper.people.iter().find(|p|p.members.iter().any(|m|m.matches(chat))){
-            let members:Vec<_>=self.chats.iter().filter(|c|!c.locked&&person.members.iter().any(|m|m.matches(c))).collect();
-            display.unread=members.iter().map(|c|c.unread).fold(0u32,u32::saturating_add);
-            display.marked_unread=members.iter().any(|c|c.marked_unread);
-            if let Some(latest)=members.iter().max_by_key(|c|c.last_activity){display.last_activity=latest.last_activity;display.last=latest.last.clone();}
-            let latest=members.iter().flat_map(|c|self.conversations.get(&c.id).into_iter().flat_map(|history|history.messages.iter())).max_by_key(|m|m.timestamp);
-            if let Some(message)=latest.filter(|m|m.timestamp>=display.last_activity){
-                display.last_activity=message.timestamp;display.last=Some(crate::model::LastMessage{from_me:message.from_me,sender:message.sender.clone(),sender_name:message.sender_name.clone(),summary:message.content.summary(),full:message.content.full_summary(),labelled:message.content.labelled(),status:message.status});
+    pub fn beeper_person_preview(&self, chat: &Chat) -> Chat {
+        let mut display = chat.clone();
+        if let Some(person) = self
+            .settings
+            .beeper
+            .people
+            .iter()
+            .find(|p| p.members.iter().any(|m| m.matches(chat)))
+        {
+            let members: Vec<_> = self
+                .chats
+                .iter()
+                .filter(|c| !c.locked && person.members.iter().any(|m| m.matches(c)))
+                .collect();
+            display.unread = members
+                .iter()
+                .map(|c| c.unread)
+                .fold(0u32, u32::saturating_add);
+            display.marked_unread = members.iter().any(|c| c.marked_unread);
+            if let Some(latest) = members.iter().max_by_key(|c| c.last_activity) {
+                display.last_activity = latest.last_activity;
+                display.last = latest.last.clone();
             }
-            display.network=Some(format!("{} networks · linked",members.len()));
-        }display
+            let latest = members
+                .iter()
+                .flat_map(|c| {
+                    self.conversations
+                        .get(&c.id)
+                        .into_iter()
+                        .flat_map(|history| history.messages.iter())
+                })
+                .max_by_key(|m| m.timestamp);
+            if let Some(message) = latest.filter(|m| m.timestamp >= display.last_activity) {
+                display.last_activity = message.timestamp;
+                display.last = Some(crate::model::LastMessage {
+                    from_me: message.from_me,
+                    sender: message.sender.clone(),
+                    sender_name: message.sender_name.clone(),
+                    summary: message.content.summary(),
+                    full: message.content.full_summary(),
+                    labelled: message.content.labelled(),
+                    status: message.status,
+                });
+            }
+            display.network = Some(format!("{} networks · linked", members.len()));
+        }
+        display
     }
 
     pub fn beeper_scope_matches(&self, chat: &Chat) -> bool {
-        self.beeper_network_filter.as_ref().is_none_or(|n| chat.backend_network.as_ref()==Some(n))
-            && self.beeper_account_filter.as_ref().is_none_or(|key| chat.backend_settings_key().as_ref()==Some(key))
+        self.beeper_network_filter
+            .as_ref()
+            .is_none_or(|n| chat.backend_network.as_ref() == Some(n))
+            && self
+                .beeper_account_filter
+                .as_ref()
+                .is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key))
     }
     pub fn beeper_scope_is_active(&self) -> bool {
         self.beeper_network_filter.is_some() || self.beeper_account_filter.is_some()
     }
     pub fn scoped_search_hits(&self) -> Vec<Message> {
-        self.search_hits.iter().filter(|message| !self.beeper_scope_is_active() || self.chat(&message.chat).is_some_and(|c| self.beeper_scope_matches(c))).cloned().collect()
+        self.search_hits
+            .iter()
+            .filter(|message| {
+                !self.beeper_scope_is_active()
+                    || self
+                        .chat(&message.chat)
+                        .is_some_and(|c| self.beeper_scope_matches(c))
+            })
+            .cloned()
+            .collect()
     }
 
     pub fn beeper_browse_networks(&self) -> Vec<String> {
         let mut networks = std::collections::BTreeSet::new();
-        for chat in &self.chats { if let Some(network) = &chat.backend_network { networks.insert(network.clone()); } }
-        for accounts in self.beeper_accounts.values() { for account in accounts { if !account.network.is_empty() { networks.insert(account.network.clone()); } } }
+        for chat in &self.chats {
+            if let Some(network) = &chat.backend_network {
+                networks.insert(network.clone());
+            }
+        }
+        for accounts in self.beeper_accounts.values() {
+            for account in accounts {
+                if !account.network.is_empty() {
+                    networks.insert(account.network.clone());
+                }
+            }
+        }
         networks.into_iter().collect()
     }
 
-    pub fn beeper_browse_accounts(&self) -> std::collections::BTreeMap<String,String> {
+    pub fn beeper_browse_accounts(&self) -> std::collections::BTreeMap<String, String> {
         let mut rows = std::collections::BTreeMap::new();
         for (origin, accounts) in &self.beeper_accounts {
             for account in accounts {
-                let key = serde_json::to_string(&(origin, &account.id)).expect("string pair serializes");
-                let matches = self.beeper_network_filter.as_ref().is_none_or(|network| &account.network == network || self.chats.iter().any(|c| c.backend_settings_key().as_ref()==Some(&key) && c.backend_network.as_ref()==Some(network)));
+                let key =
+                    serde_json::to_string(&(origin, &account.id)).expect("string pair serializes");
+                let matches = self.beeper_network_filter.as_ref().is_none_or(|network| {
+                    &account.network == network
+                        || self.chats.iter().any(|c| {
+                            c.backend_settings_key().as_ref() == Some(&key)
+                                && c.backend_network.as_ref() == Some(network)
+                        })
+                });
                 if matches {
                     let network = if account.network.is_empty() {
-                        self.chats.iter().find(|c| c.backend_settings_key().as_ref()==Some(&key)).and_then(|c| c.backend_network.as_deref()).unwrap_or("Network not supplied")
-                    } else { &account.network };
-                    rows.insert(key, format!("{network} · {} [{}]", account.name, account.id));
+                        self.chats
+                            .iter()
+                            .find(|c| c.backend_settings_key().as_ref() == Some(&key))
+                            .and_then(|c| c.backend_network.as_deref())
+                            .unwrap_or("Network not supplied")
+                    } else {
+                        &account.network
+                    };
+                    rows.insert(
+                        key,
+                        format!("{network} · {} [{}]", account.name, account.id),
+                    );
                 }
             }
         }
         for chat in &self.chats {
-            if self.beeper_network_filter.as_ref().is_none_or(|network| chat.backend_network.as_ref()==Some(network)) {
-                if let Some(key) = chat.backend_settings_key() { rows.entry(key).or_insert_with(|| format!("{} [{}]", chat.network.as_deref().unwrap_or("Network not supplied"), chat.backend_account.as_deref().unwrap_or(""))); }
+            if self
+                .beeper_network_filter
+                .as_ref()
+                .is_none_or(|network| chat.backend_network.as_ref() == Some(network))
+            {
+                if let Some(key) = chat.backend_settings_key() {
+                    rows.entry(key).or_insert_with(|| {
+                        format!(
+                            "{} [{}]",
+                            chat.network.as_deref().unwrap_or("Network not supplied"),
+                            chat.backend_account.as_deref().unwrap_or("")
+                        )
+                    });
+                }
             }
         }
         rows
@@ -3049,12 +3181,29 @@ impl App {
         let mut chats: Vec<&Chat> = self
             .chats
             .iter()
-            .filter(|chat| self.beeper_network_filter.as_ref().is_none_or(|network| chat.backend_network.as_ref() == Some(network)))
-            .filter(|chat| self.beeper_account_filter.as_ref().is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key)))
-            .filter(|chat| !needle.is_empty() || self.show_archived || match self.settings.beeper.account(chat.backend_settings_key().as_deref()).inbox {
-                crate::settings::BeeperInbox::All => true,
-                crate::settings::BeeperInbox::Unread => chat.looks_unread(),
-                crate::settings::BeeperInbox::None => false,
+            .filter(|chat| {
+                self.beeper_network_filter
+                    .as_ref()
+                    .is_none_or(|network| chat.backend_network.as_ref() == Some(network))
+            })
+            .filter(|chat| {
+                self.beeper_account_filter
+                    .as_ref()
+                    .is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key))
+            })
+            .filter(|chat| {
+                !needle.is_empty()
+                    || self.show_archived
+                    || match self
+                        .settings
+                        .beeper
+                        .account(chat.backend_settings_key().as_deref())
+                        .inbox
+                    {
+                        crate::settings::BeeperInbox::All => true,
+                        crate::settings::BeeperInbox::Unread => chat.looks_unread(),
+                        crate::settings::BeeperInbox::None => false,
+                    }
             })
             .filter(|chat| chat.locked == locked)
             .filter(|chat| locked || chat.archived == self.show_archived || !needle.is_empty())
@@ -3101,13 +3250,24 @@ impl App {
                 } else {
                     self.draft_priority(&b.id)
                         .cmp(&self.draft_priority(&a.id))
-                        .then_with(||self.beeper_person_preview(b).last_activity.cmp(&self.beeper_person_preview(a).last_activity))
+                        .then_with(|| {
+                            self.beeper_person_preview(b)
+                                .last_activity
+                                .cmp(&self.beeper_person_preview(a).last_activity)
+                        })
                         .then(a.id.cmp(&b.id))
                 }
             })
         });
-        let mut people_seen=HashSet::new();
-        chats.retain(|chat|self.settings.beeper.people.iter().position(|p|p.members.iter().any(|m|m.matches(chat))).is_none_or(|index|people_seen.insert(index)));
+        let mut people_seen = HashSet::new();
+        chats.retain(|chat| {
+            self.settings
+                .beeper
+                .people
+                .iter()
+                .position(|p| p.members.iter().any(|m| m.matches(chat)))
+                .is_none_or(|index| people_seen.insert(index))
+        });
         chats
     }
 
@@ -3170,9 +3330,18 @@ impl App {
         self.chats
             .iter()
             .filter(|chat| {
-                !chat.archived && !chat.locked && chat.looks_unread() && filter.matches(chat)
-                    && self.beeper_network_filter.as_ref().is_none_or(|n| chat.backend_network.as_ref()==Some(n))
-                    && self.beeper_account_filter.as_ref().is_none_or(|key| chat.backend_settings_key().as_ref()==Some(key))
+                !chat.archived
+                    && !chat.locked
+                    && chat.looks_unread()
+                    && filter.matches(chat)
+                    && self
+                        .beeper_network_filter
+                        .as_ref()
+                        .is_none_or(|n| chat.backend_network.as_ref() == Some(n))
+                    && self
+                        .beeper_account_filter
+                        .as_ref()
+                        .is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key))
             })
             .count()
     }
@@ -3337,7 +3506,9 @@ impl App {
 
     fn apply_backend_event(&mut self, event: Event, live: bool) {
         match event {
-            Event::BeeperAccounts { origin, accounts } => { self.beeper_accounts.insert(origin, accounts); }
+            Event::BeeperAccounts { origin, accounts } => {
+                self.beeper_accounts.insert(origin, accounts);
+            }
             Event::StorageStats {
                 stats,
                 token,
@@ -3652,7 +3823,7 @@ impl App {
                     && from == want_from
                     && until == want_until
                 {
-                    self.beeper_chat_search_error=None;
+                    self.beeper_chat_search_error = None;
                     self.chat_search_hits = messages;
                     self.chat_search_truncated = truncated;
                     self.chat_search_pending = false;
@@ -3842,9 +4013,17 @@ impl App {
                 self.presence.insert(id, Presence { online, last_seen });
             }
             Event::Avatar { id, full, path } => {
-                if self.chats.iter().any(|chat|chat.backend_account.is_some()) {
-                    let cache=if full {&mut self.avatars_full}else{&mut self.avatars};
-                    if cache.len()>=2048 && !cache.contains_key(&id) {if let Some(key)=cache.keys().next().cloned(){cache.remove(&key);}}
+                if self.chats.iter().any(|chat| chat.backend_account.is_some()) {
+                    let cache = if full {
+                        &mut self.avatars_full
+                    } else {
+                        &mut self.avatars
+                    };
+                    if cache.len() >= 2048 && !cache.contains_key(&id) {
+                        if let Some(key) = cache.keys().next().cloned() {
+                            cache.remove(&key);
+                        }
+                    }
                 }
                 // A changed picture arrives under the file name of the one it
                 // replaces, which egui would otherwise keep showing.
@@ -4388,18 +4567,55 @@ impl App {
                     self.group_saving.remove(&chat);
                 }
             }
-            Event::BeeperFilesUncertain { chat, paths, documents, caption, message } => {
+            Event::BeeperFilesUncertain {
+                chat,
+                paths,
+                documents,
+                caption,
+                message,
+            } => {
                 if self.open_chat.as_deref() == Some(chat.as_str()) {
-                    if documents { self.stage_documents(paths); } else { self.stage_files(paths); }
+                    if documents {
+                        self.stage_documents(paths);
+                    } else {
+                        self.stage_files(paths);
+                    }
                 } else {
-                    let staged: Vec<Staged> = paths.into_iter().map(|path| Staged { id: self.next_attachment_id(), item: if documents { Pending::Document(path) } else { Pending::File(path) } }).collect();
-                    self.attachment_drafts.entry(chat.clone()).or_default().pending.extend(staged);
+                    let staged: Vec<Staged> = paths
+                        .into_iter()
+                        .map(|path| Staged {
+                            id: self.next_attachment_id(),
+                            item: if documents {
+                                Pending::Document(path)
+                            } else {
+                                Pending::File(path)
+                            },
+                        })
+                        .collect();
+                    self.attachment_drafts
+                        .entry(chat.clone())
+                        .or_default()
+                        .pending
+                        .extend(staged);
                 }
                 let recovery = caption.and_then(|text| self.restore_beeper_text(&chat, text));
-                self.toast_error(if let Some(recovery) = recovery { format!("{message}\n{recovery}") } else { message });
+                self.toast_error(if let Some(recovery) = recovery {
+                    format!("{message}\n{recovery}")
+                } else {
+                    message
+                });
             }
-            Event::BeeperEditUncertain { chat, id, text, message } => {
-                if self.open_chat.as_deref() == Some(chat.as_str()) && self.composer.trim().is_empty() && self.editing.is_none() && !self.events_hidden {
+            Event::BeeperEditUncertain {
+                chat,
+                id,
+                text,
+                message,
+            } => {
+                if self.open_chat.as_deref() == Some(chat.as_str())
+                    && self.composer.trim().is_empty()
+                    && self.editing.is_none()
+                    && !self.events_hidden
+                {
                     self.composer = text;
                     self.editing = Some(id);
                     self.focus_composer = true;
@@ -4407,28 +4623,65 @@ impl App {
                 } else {
                     // Never overwrite a newer draft or turn it into an edit.
                     // The persistent error retains the failed proposal for copy.
-                    self.toast_error(format!("{message}\nProposed edit for message {id}:\n{text}"));
+                    self.toast_error(format!(
+                        "{message}\nProposed edit for message {id}:\n{text}"
+                    ));
                 }
             }
-            Event::BeeperChatSearchError{chat,query,from,until,error} => {
-                if live && self.open_chat.as_deref()==Some(&chat) && query==self.chat_search.trim() && (from,until)==self.chat_search_range() {
-                    self.chat_search_pending=false;self.beeper_chat_search_error=Some(error);
+            Event::BeeperChatSearchError {
+                chat,
+                query,
+                from,
+                until,
+                error,
+            } => {
+                if live
+                    && self.open_chat.as_deref() == Some(&chat)
+                    && query == self.chat_search.trim()
+                    && (from, until) == self.chat_search_range()
+                {
+                    self.chat_search_pending = false;
+                    self.beeper_chat_search_error = Some(error);
                 }
             }
-            Event::BeeperSearchState{query,error,truncated} => {
-                if query == self.search.trim() {self.beeper_search_state=Some((query,error,truncated));}
+            Event::BeeperSearchState {
+                query,
+                error,
+                truncated,
+            } => {
+                if query == self.search.trim() {
+                    self.beeper_search_state = Some((query, error, truncated));
+                }
             }
-            Event::BeeperLiveState {chat,error} => {
-                if let Some(error)=error {self.beeper_live_errors.insert(chat,error);}
-                else {self.beeper_live_errors.remove(&chat);}
+            Event::BeeperLiveState { chat, error } => {
+                if let Some(error) = error {
+                    self.beeper_live_errors.insert(chat, error);
+                } else {
+                    self.beeper_live_errors.remove(&chat);
+                }
             }
-            Event::BeeperHistoryState{chat,error}=>{
-                if let Some(error)=error{self.beeper_history_errors.insert(chat.clone(),error);if let Some(history)=self.conversations.get_mut(&chat){history.requested=false;history.loading_older=false;}}
-                else{self.beeper_history_errors.remove(&chat);}
+            Event::BeeperHistoryState { chat, error } => {
+                if let Some(error) = error {
+                    self.beeper_history_errors.insert(chat.clone(), error);
+                    if let Some(history) = self.conversations.get_mut(&chat) {
+                        history.requested = false;
+                        history.loading_older = false;
+                    }
+                } else {
+                    self.beeper_history_errors.remove(&chat);
+                }
             }
-            Event::BeeperSendUncertain { chat, text, message } => {
+            Event::BeeperSendUncertain {
+                chat,
+                text,
+                message,
+            } => {
                 let recovery = self.restore_beeper_text(&chat, text);
-                self.toast_error(if let Some(recovery) = recovery { format!("{message}\n{recovery}") } else { message });
+                self.toast_error(if let Some(recovery) = recovery {
+                    format!("{message}\n{recovery}")
+                } else {
+                    message
+                });
             }
             Event::Error(message) => {
                 self.sticker_import_pending = false;
@@ -5037,7 +5290,7 @@ impl App {
         // The earlier matches stay listed until the answer replaces them, so
         // the list does not blink empty on every keystroke.
         self.chat_search_pending = true;
-        self.beeper_chat_search_error=None;
+        self.beeper_chat_search_error = None;
         self.backend.send(Command::SearchChatMessages {
             chat,
             query,
@@ -5179,7 +5432,10 @@ impl App {
             Unsent::Sticker | Unsent::Gif => {}
         }
         let message = match reason {
-            Refusal::UnsupportedBackend => crate::i18n::gettext(self.locale,"Not sent: this content is not supported by the Beeper client. Your content was kept locally."),
+            Refusal::UnsupportedBackend => crate::i18n::gettext(
+                self.locale,
+                "Not sent: this content is not supported by the Beeper client. Your content was kept locally.",
+            ),
             Refusal::Offline => crate::i18n::gettext(
                 self.locale,
                 "Not sent: ZapFast is not connected to WhatsApp.",
@@ -5204,8 +5460,19 @@ impl App {
         quoting: Option<crate::model::ReplyTarget>,
         view_once: bool,
     ) {
-        let linked_open=self.open_chat.as_deref().is_some_and(|open|self.settings.beeper.people.iter().any(|person|person.members.iter().any(|m|m.chat==open&&self.chat(open).is_some_and(|c|m.matches(c)))&&person.members.iter().any(|m|m.chat==chat&&self.chat(chat).is_some_and(|c|m.matches(c)))));
-        if !self.events_hidden && (self.open_chat.as_deref() == Some(chat)||linked_open) {
+        let linked_open = self.open_chat.as_deref().is_some_and(|open| {
+            self.settings.beeper.people.iter().any(|person| {
+                person
+                    .members
+                    .iter()
+                    .any(|m| m.chat == open && self.chat(open).is_some_and(|c| m.matches(c)))
+                    && person
+                        .members
+                        .iter()
+                        .any(|m| m.chat == chat && self.chat(chat).is_some_and(|c| m.matches(c)))
+            })
+        });
+        if !self.events_hidden && (self.open_chat.as_deref() == Some(chat) || linked_open) {
             let preserve_view_once = self.pending_view_once || view_once;
             for item in pending {
                 self.stage(item);
@@ -5236,14 +5503,20 @@ impl App {
     /// A late Beeper failure must not overwrite a newer draft or discard the old text.
     /// Conflicts stay in the existing copyable, dismissible error surface.
     fn restore_beeper_text(&mut self, chat: &str, text: String) -> Option<String> {
-        if text.trim().is_empty() { return None; }
+        if text.trim().is_empty() {
+            return None;
+        }
         let conflict = if !self.events_hidden && self.open_chat.as_deref() == Some(chat) {
             !self.composer.trim().is_empty() || self.editing.is_some()
         } else {
-            self.drafts.get(chat).is_some_and(|draft| !draft.trim().is_empty())
+            self.drafts
+                .get(chat)
+                .is_some_and(|draft| !draft.trim().is_empty())
         };
         if conflict {
-            Some(format!("Newer draft kept. Earlier text retained here for copying (delivery may be unconfirmed):\n{text}"))
+            Some(format!(
+                "Newer draft kept. Earlier text retained here for copying (delivery may be unconfirmed):\n{text}"
+            ))
         } else {
             self.restore_text(chat, text);
             None
@@ -5449,11 +5722,23 @@ impl App {
         }
     }
 
-    pub fn retry_person_history(&mut self,chat:&str){self.beeper_history_errors.remove(chat);if let Some(history)=self.conversations.get_mut(chat){history.requested=false;}self.ensure_loaded(chat);}
-    pub fn ensure_person_loaded(&mut self,members:&[ChatId]) {
-        for member in members {if !self.beeper_history_errors.contains_key(member){self.ensure_loaded(member);}}
-        if self.watched_beeper_chats!=members {
-            self.watched_beeper_chats=members.to_vec();self.backend.send(Command::WatchBeeperChats(members.to_vec()));
+    pub fn retry_person_history(&mut self, chat: &str) {
+        self.beeper_history_errors.remove(chat);
+        if let Some(history) = self.conversations.get_mut(chat) {
+            history.requested = false;
+        }
+        self.ensure_loaded(chat);
+    }
+    pub fn ensure_person_loaded(&mut self, members: &[ChatId]) {
+        for member in members {
+            if !self.beeper_history_errors.contains_key(member) {
+                self.ensure_loaded(member);
+            }
+        }
+        if self.watched_beeper_chats != members {
+            self.watched_beeper_chats = members.to_vec();
+            self.backend
+                .send(Command::WatchBeeperChats(members.to_vec()));
         }
     }
     fn ensure_loaded(&mut self, chat: &str) {
@@ -5655,11 +5940,29 @@ impl App {
 
     /// Opens an eligible chat, parking the previous draft and restoring this chat's composer.
     fn open_chat(&mut self, id: ChatId) {
-        if self.chat(&id).is_some_and(|chat|chat.locked)&&!self.locked_folder_open(){return;}
+        if self.chat(&id).is_some_and(|chat| chat.locked) && !self.locked_folder_open() {
+            return;
+        }
         // Local person drafts use one stable real member as their encrypted key,
         // regardless of which network-scoped representative opened the person.
-        let id=self.settings.beeper.people.iter().find(|p|p.members.iter().any(|m|m.chat==id&&self.chat(&id).is_some_and(|c|m.matches(c))))
-            .and_then(|p|p.members.iter().find(|m|self.chat(&m.chat).is_some_and(|c|m.matches(c)&&!c.locked))).map(|m|m.chat.clone()).unwrap_or(id);
+        let id = self
+            .settings
+            .beeper
+            .people
+            .iter()
+            .find(|p| {
+                p.members
+                    .iter()
+                    .any(|m| m.chat == id && self.chat(&id).is_some_and(|c| m.matches(c)))
+            })
+            .and_then(|p| {
+                p.members.iter().find(|m| {
+                    self.chat(&m.chat)
+                        .is_some_and(|c| m.matches(c) && !c.locked)
+                })
+            })
+            .map(|m| m.chat.clone())
+            .unwrap_or(id);
         self.watched_beeper_chats.clear();
         self.backend.send(Command::WatchBeeperChats(Vec::new()));
         // Notifications and stale actions must not open a locked chat from
@@ -5745,12 +6048,19 @@ impl App {
         if crate::backend::beeper::BeeperConfig::from_env().is_some() {
             // Every reopened cached chat must reselect the backend's polling
             // target, even when its first page is already in memory.
-            if let Some(conversation) = self.conversations.get_mut(&id) { conversation.requested = false; }
+            if let Some(conversation) = self.conversations.get_mut(&id) {
+                conversation.requested = false;
+            }
             // Keep inactive transcript caches small. A revisited conversation
             // fetches its page again from Beeper; no remote history is deleted.
             let mut kept = 0usize;
             self.conversations.retain(|chat, _| {
-                if chat == &id { true } else { kept += 1; kept <= 5 }
+                if chat == &id {
+                    true
+                } else {
+                    kept += 1;
+                    kept <= 5
+                }
             });
             for (chat, conversation) in self.conversations.iter_mut() {
                 if chat != &id && conversation.messages.len() > 200 {
@@ -5786,7 +6096,9 @@ impl App {
             .chat(&id)
             .is_some_and(|chat| chat.unread > 0 || chat.marked_unread)
         {
-            if !self.settings.beeper.incognito { self.mark_read(&id); }
+            if !self.settings.beeper.incognito {
+                self.mark_read(&id);
+            }
         }
         if self.settings.last_chat.as_deref() != Some(id.as_str()) {
             self.settings.last_chat = Some(id.clone());
@@ -5962,11 +6274,14 @@ impl App {
         self.mention_start = None;
         self.stop_composing(&chat);
         if let Some(id) = self.editing.take() {
-            let beeper = self.chat(&chat).is_some_and(|chat| chat.backend_account.is_some());
-            if !beeper && let Some(message) = self
-                .conversations
-                .get_mut(&chat)
-                .and_then(|conversation| conversation.message_mut(&id))
+            let beeper = self
+                .chat(&chat)
+                .is_some_and(|chat| chat.backend_account.is_some());
+            if !beeper
+                && let Some(message) = self
+                    .conversations
+                    .get_mut(&chat)
+                    .and_then(|conversation| conversation.message_mut(&id))
             {
                 message.content = Content::text(text.clone());
                 message.edited = true;
@@ -5985,7 +6300,15 @@ impl App {
         }
         // The text is on its way, so there is nothing left to restore.
         self.store_draft(&chat, "");
-        if let Some(anchor)=self.open_chat.as_deref().filter(|open|*open!=chat&&self.settings.beeper.people.iter().any(|p|p.members.iter().any(|m|m.chat==*open)&&p.members.iter().any(|m|m.chat==chat))) {self.store_draft(anchor,"");}
+        if let Some(anchor) = self.open_chat.as_deref().filter(|open| {
+            *open != chat
+                && self.settings.beeper.people.iter().any(|p| {
+                    p.members.iter().any(|m| m.chat == *open)
+                        && p.members.iter().any(|m| m.chat == chat)
+                })
+        }) {
+            self.store_draft(anchor, "");
+        }
         self.backend.send(Command::SendText {
             chat,
             text,
@@ -6589,20 +6912,42 @@ impl App {
             }
             return;
         }
-        if self.open_chat.as_deref().is_some_and(|open|self.settings.beeper.people.iter().any(|p|p.members.iter().any(|m|m.chat==open&&self.chat(open).is_some_and(|c|m.matches(c)))))
-            && matches!(&action,Action::Attach{..}|Action::SendFiles(_)|Action::SendPending{..}|Action::PasteImage{..}|Action::StartRecording|Action::SendRecording){
-            self.toast("Linked chats currently support text sends only. Unlink to send attachments; nothing was sent.");return;
+        if self.open_chat.as_deref().is_some_and(|open| {
+            self.settings.beeper.people.iter().any(|p| {
+                p.members
+                    .iter()
+                    .any(|m| m.chat == open && self.chat(open).is_some_and(|c| m.matches(c)))
+            })
+        }) && matches!(
+            &action,
+            Action::Attach { .. }
+                | Action::SendFiles(_)
+                | Action::SendPending { .. }
+                | Action::PasteImage { .. }
+                | Action::StartRecording
+                | Action::SendRecording
+        ) {
+            self.toast("Linked chats currently support text sends only. Unlink to send attachments; nothing was sent.");
+            return;
         }
         // Refuse unsupported capture/call actions before creating local state.
         if crate::backend::beeper::BeeperConfig::from_env().is_some()
-            && matches!(&action,
-                Action::StartCall(_) | Action::StartVideoCall(_)
-                | Action::StartRecording | Action::SendRecording
-                | Action::PasteImage { .. }
-                | Action::SendGif(_) | Action::SendSticker(_)
-                | Action::MakeSticker { .. } | Action::SendLocation { .. })
+            && matches!(
+                &action,
+                Action::StartCall(_)
+                    | Action::StartVideoCall(_)
+                    | Action::StartRecording
+                    | Action::SendRecording
+                    | Action::PasteImage { .. }
+                    | Action::SendGif(_)
+                    | Action::SendSticker(_)
+                    | Action::MakeSticker { .. }
+                    | Action::SendLocation { .. }
+            )
         {
-            self.toast("Beeper: calls, recording, clipboard images and stickers are not supported yet");
+            self.toast(
+                "Beeper: calls, recording, clipboard images and stickers are not supported yet",
+            );
             return;
         }
         let Some(action) = self.apply_call_action(action, ctx) else {
@@ -6956,10 +7301,16 @@ impl App {
             }
             Action::Composing { chat, composing } => {
                 if composing {
-                    if self.settings.beeper.people.iter().any(|p|p.members.iter().any(|m|m.chat==chat&&self.chat(&chat).is_some_and(|c|m.matches(c)))) {
+                    if self.settings.beeper.people.iter().any(|p| {
+                        p.members.iter().any(|m| {
+                            m.chat == chat && self.chat(&chat).is_some_and(|c| m.matches(c))
+                        })
+                    }) {
                         // Multi-destination typing is off until its lifecycle is source-bound.
-                        self.last_keystroke=Some(Instant::now());
-                    }else{self.note_keystroke();}
+                        self.last_keystroke = Some(Instant::now());
+                    } else {
+                        self.note_keystroke();
+                    }
                 } else {
                     self.stop_composing(&chat);
                 }
@@ -7638,8 +7989,15 @@ impl App {
                     if crate::backend::beeper::BeeperConfig::from_env().is_some() {
                         let commands = self.backend.command_sender();
                         std::thread::spawn(move || {
-                            let paths = rfd::FileDialog::new().set_title("Attach to Beeper chat").pick_files().unwrap_or_default();
-                            let _ = commands.send(Command::Picked { chat, paths, documents });
+                            let paths = rfd::FileDialog::new()
+                                .set_title("Attach to Beeper chat")
+                                .pick_files()
+                                .unwrap_or_default();
+                            let _ = commands.send(Command::Picked {
+                                chat,
+                                paths,
+                                documents,
+                            });
                         });
                     } else {
                         self.backend.send(Command::PickFiles { chat, documents });
@@ -8178,14 +8536,19 @@ impl App {
                 self.backend.send(Command::LeaveGroup { chat, archive });
             }
             Action::TranslateLocally(text) => {
-                if self.local_ai.busy() { self.toast("Wait for the current local translation to finish"); return; }
-                self.local_ai.input=text;
+                if self.local_ai.busy() {
+                    self.toast("Wait for the current local translation to finish");
+                    return;
+                }
+                self.local_ai.input = text;
                 self.local_ai.output.clear();
                 self.local_ai.status="Review the selected text and local endpoint, then click Translate. Nothing sent yet.".into();
-                self.page=Page::Settings;
-                self.settings_search="Local AI".into();
+                self.page = Page::Settings;
+                self.settings_search = "Local AI".into();
             }
-            Action::SetBeeperReminder { chat, at } => self.backend.send(Command::SetBeeperReminder { chat, at }),
+            Action::SetBeeperReminder { chat, at } => {
+                self.backend.send(Command::SetBeeperReminder { chat, at })
+            }
             Action::SetArchived(chat, archived) => {
                 if let Some(known) = self.chat_mut(&chat) {
                     known.archived = archived;
@@ -10523,8 +10886,15 @@ impl App {
     /// Stages only detected attachments before drawing; queued view actions
     /// remain deferred until the frame ends.
     fn stage_clipboard(&mut self, ctx: &egui::Context, contents: ClipboardPaste) {
-        if self.open_chat.as_deref().is_some_and(|open|self.settings.beeper.people.iter().any(|p|p.members.iter().any(|m|m.chat==open))) {
-            self.toast("Files and pictures are not staged in linked chats yet; use an unlinked source chat.");return;
+        if self.open_chat.as_deref().is_some_and(|open| {
+            self.settings
+                .beeper
+                .people
+                .iter()
+                .any(|p| p.members.iter().any(|m| m.chat == open))
+        }) {
+            self.toast("Files and pictures are not staged in linked chats yet; use an unlinked source chat.");
+            return;
         }
         match contents {
             ClipboardPaste::Files(paths) => self.stage_files(paths),
@@ -11101,27 +11471,56 @@ mod tests {
     /// through the production composer, even with a stored checkpoint.
     #[test]
     fn beeper_browsing_separates_network_and_same_network_accounts() {
-        let root=tempfile::tempdir().unwrap(); let (mut app,_)=App::headless(AppDirs::under(root.path()),Settings::default());
-        for (id, network, account, origin) in [("wa-personal","WhatsApp","one","http://127.0.0.1:23373"),("wa-work","WhatsApp","two","http://127.0.0.1:23373"),("signal","Signal","one","http://127.0.0.1:23373"),("other-backend","WhatsApp","one","http://127.0.0.1:8077")] {
-            let mut chat=Chat::new(id.into(),"Shared title".into()); chat.backend_network=Some(network.into()); chat.backend_account=Some(account.into()); chat.backend_origin=Some(origin.into()); chat.unread=1; app.chats.push(chat);
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        for (id, network, account, origin) in [
+            ("wa-personal", "WhatsApp", "one", "http://127.0.0.1:23373"),
+            ("wa-work", "WhatsApp", "two", "http://127.0.0.1:23373"),
+            ("signal", "Signal", "one", "http://127.0.0.1:23373"),
+            ("other-backend", "WhatsApp", "one", "http://127.0.0.1:8077"),
+        ] {
+            let mut chat = Chat::new(id.into(), "Shared title".into());
+            chat.backend_network = Some(network.into());
+            chat.backend_account = Some(account.into());
+            chat.backend_origin = Some(origin.into());
+            chat.unread = 1;
+            app.chats.push(chat);
         }
-        assert_eq!(app.beeper_browse_networks(), vec!["Signal","WhatsApp"]);
-        app.beeper_network_filter=Some("WhatsApp".into());
-        assert_eq!(app.visible_chats().len(),3); assert_eq!(app.beeper_browse_accounts().len(),3);
-        app.beeper_account_filter=app.chats[0].backend_settings_key();
-        assert_eq!(app.visible_chats().iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),vec!["wa-personal"]);
-        app.search="Shared".into(); assert_eq!(app.visible_chats().len(),1);
-        app.beeper_account_filter=None; app.beeper_network_filter=Some("Signal".into()); assert_eq!(app.visible_chats()[0].id,"signal");
-        app.beeper_network_filter=None; assert_eq!(app.visible_chats().len(),4);
+        assert_eq!(app.beeper_browse_networks(), vec!["Signal", "WhatsApp"]);
+        app.beeper_network_filter = Some("WhatsApp".into());
+        assert_eq!(app.visible_chats().len(), 3);
+        assert_eq!(app.beeper_browse_accounts().len(), 3);
+        app.beeper_account_filter = app.chats[0].backend_settings_key();
+        assert_eq!(
+            app.visible_chats()
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["wa-personal"]
+        );
+        app.search = "Shared".into();
+        assert_eq!(app.visible_chats().len(), 1);
+        app.beeper_account_filter = None;
+        app.beeper_network_filter = Some("Signal".into());
+        assert_eq!(app.visible_chats()[0].id, "signal");
+        app.beeper_network_filter = None;
+        assert_eq!(app.visible_chats().len(), 4);
     }
 
     #[test]
     fn beeper_translate_action_only_stages_explicit_text_for_review() {
-        let root=tempfile::tempdir().unwrap(); let (mut app,_)=App::headless(AppDirs::under(root.path()),Settings::default());
-        let (backend,mut inbox)=Backend::recording(); app.backend=backend;
-        app.apply(Action::TranslateLocally("selected message only".into()),&egui::Context::default());
-        assert_eq!(app.local_ai.input,"selected message only"); assert!(!app.local_ai.busy());
-        assert_eq!(app.settings_search,"Local AI"); assert_eq!(app.page,Page::Settings);
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, mut inbox) = Backend::recording();
+        app.backend = backend;
+        app.apply(
+            Action::TranslateLocally("selected message only".into()),
+            &egui::Context::default(),
+        );
+        assert_eq!(app.local_ai.input, "selected message only");
+        assert!(!app.local_ai.busy());
+        assert_eq!(app.settings_search, "Local AI");
+        assert_eq!(app.page, Page::Settings);
         assert!(inbox.try_recv().is_err());
     }
 
@@ -11129,46 +11528,120 @@ mod tests {
     fn beeper_failed_edit_does_not_falsely_change_transcript_or_newer_draft() {
         let directory = tempfile::tempdir().unwrap();
         let (mut app, _) = App::headless(AppDirs::under(directory.path()), Settings::default());
-        let (backend, mut inbox) = Backend::recording(); app.backend = backend;
-        let mut chat = Chat::new("chat".into(),"Fixture".into()); chat.backend_account=Some("account".into()); app.chats.push(chat);
+        let (backend, mut inbox) = Backend::recording();
+        app.backend = backend;
+        let mut chat = Chat::new("chat".into(), "Fixture".into());
+        chat.backend_account = Some("account".into());
+        app.chats.push(chat);
         let wire: crate::model::Message = Message {
-            id:"message".into(), chat:"chat".into(), sender:"own".into(), sender_name:None, from_me:true,
-            timestamp:crate::util::now(), content:Content::text("original"), status:Delivery::Sent, delivered_at:None,read_at:None,
-            quoted:None,reactions:vec![],history_order:None,edited:false,mentions:vec![],forwarded:false,thumbnail:None,
+            id: "message".into(),
+            chat: "chat".into(),
+            sender: "own".into(),
+            sender_name: None,
+            from_me: true,
+            timestamp: crate::util::now(),
+            content: Content::text("original"),
+            status: Delivery::Sent,
+            delivered_at: None,
+            read_at: None,
+            quoted: None,
+            reactions: vec![],
+            history_order: None,
+            edited: false,
+            mentions: vec![],
+            forwarded: false,
+            thumbnail: None,
         };
-        app.conversations.entry("chat".into()).or_default().messages.push(wire);
-        app.open_chat=Some("chat".into()); app.editing=Some("message".into());
-        app.send_text("chat".into(),"proposed edit".into(),None);
-        assert_eq!(app.conversations["chat"].messages[0].content,Content::text("original"));
+        app.conversations
+            .entry("chat".into())
+            .or_default()
+            .messages
+            .push(wire);
+        app.open_chat = Some("chat".into());
+        app.editing = Some("message".into());
+        app.send_text("chat".into(), "proposed edit".into(), None);
+        assert_eq!(
+            app.conversations["chat"].messages[0].content,
+            Content::text("original")
+        );
         assert!(!app.conversations["chat"].messages[0].edited);
-        while let Ok(command)=inbox.try_recv() { if let Command::EditText { id,text,.. }=command { assert_eq!(id,"message"); assert_eq!(text,"proposed edit"); } }
-        app.apply_backend_event(Event::BeeperEditUncertain { chat:"chat".into(), id:"message".into(), text:"proposed edit".into(), message:"fixture failure".into() },true);
-        assert_eq!(app.composer,"proposed edit"); assert_eq!(app.editing.as_deref(),Some("message"));
-        app.composer="newer draft".into(); app.editing=None;
-        app.apply_backend_event(Event::BeeperEditUncertain { chat:"chat".into(), id:"message".into(), text:"failed proposal".into(), message:"fixture failure".into() },true);
-        assert_eq!(app.composer,"newer draft"); assert!(app.editing.is_none());
-        assert!(app.toasts.iter().any(|t| t.message.contains("failed proposal")));
+        while let Ok(command) = inbox.try_recv() {
+            if let Command::EditText { id, text, .. } = command {
+                assert_eq!(id, "message");
+                assert_eq!(text, "proposed edit");
+            }
+        }
+        app.apply_backend_event(
+            Event::BeeperEditUncertain {
+                chat: "chat".into(),
+                id: "message".into(),
+                text: "proposed edit".into(),
+                message: "fixture failure".into(),
+            },
+            true,
+        );
+        assert_eq!(app.composer, "proposed edit");
+        assert_eq!(app.editing.as_deref(), Some("message"));
+        app.composer = "newer draft".into();
+        app.editing = None;
+        app.apply_backend_event(
+            Event::BeeperEditUncertain {
+                chat: "chat".into(),
+                id: "message".into(),
+                text: "failed proposal".into(),
+                message: "fixture failure".into(),
+            },
+            true,
+        );
+        assert_eq!(app.composer, "newer draft");
+        assert!(app.editing.is_none());
+        assert!(
+            app.toasts
+                .iter()
+                .any(|t| t.message.contains("failed proposal"))
+        );
     }
 
     #[test]
     fn beeper_preferences_are_scoped_to_origin_and_stable_account() {
         let directory = tempfile::tempdir().unwrap();
-        let (mut app, _) = App::headless(crate::paths::AppDirs::under(directory.path()), Settings::default());
-        for (id, origin) in [("one", "http://127.0.0.1:23373"), ("two", "http://127.0.0.1:8077")] {
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            Settings::default(),
+        );
+        for (id, origin) in [
+            ("one", "http://127.0.0.1:23373"),
+            ("two", "http://127.0.0.1:8077"),
+        ] {
             let mut chat = Chat::new(id.into(), "Same".into());
-            chat.backend_account = Some("same-account-id".into()); chat.backend_origin = Some(origin.into()); chat.unread = 1;
+            chat.backend_account = Some("same-account-id".into());
+            chat.backend_origin = Some(origin.into());
+            chat.unread = 1;
             app.chats.push(chat);
         }
         let key = app.chats[0].backend_settings_key().unwrap();
-        app.settings.beeper.accounts.entry(key).or_default().inbox = crate::settings::BeeperInbox::None;
-        assert_eq!(app.visible_chats().iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["two"]);
-        assert_ne!(app.chats[0].backend_settings_key(), app.chats[1].backend_settings_key());
+        app.settings.beeper.accounts.entry(key).or_default().inbox =
+            crate::settings::BeeperInbox::None;
+        assert_eq!(
+            app.visible_chats()
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["two"]
+        );
+        assert_ne!(
+            app.chats[0].backend_settings_key(),
+            app.chats[1].backend_settings_key()
+        );
     }
 
     #[test]
     fn beeper_incognito_blocks_automatic_reads_and_typing_but_not_explicit_read() {
         let directory = tempfile::tempdir().unwrap();
-        let (mut app, _) = App::headless(crate::paths::AppDirs::under(directory.path()), Settings::default());
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            Settings::default(),
+        );
         let (backend, mut inbox) = Backend::recording();
         app.accounts[0].backend = backend;
         let mut chat = Chat::new("synthetic".into(), "Fixture".into());
@@ -11178,23 +11651,51 @@ mod tests {
         app.open_chat("synthetic".into());
         app.note_keystroke();
         assert_eq!(app.chats[0].unread, 4);
-        while let Ok(command) = inbox.try_recv() { assert!(!matches!(command, Command::MarkRead { .. } | Command::Composing { composing: true, .. })); }
+        while let Ok(command) = inbox.try_recv() {
+            assert!(!matches!(
+                command,
+                Command::MarkRead { .. }
+                    | Command::Composing {
+                        composing: true,
+                        ..
+                    }
+            ));
+        }
         app.mark_read("synthetic");
         assert_eq!(app.chats[0].unread, 0);
-        assert!(matches!(inbox.try_recv().unwrap(), Command::MarkRead { .. }));
+        assert!(matches!(
+            inbox.try_recv().unwrap(),
+            Command::MarkRead { .. }
+        ));
     }
 
     #[test]
     fn beeper_account_inbox_preferences_do_not_leak_to_same_network_account() {
         let directory = tempfile::tempdir().unwrap();
-        let (mut app, _) = App::headless(crate::paths::AppDirs::under(directory.path()), Settings::default());
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            Settings::default(),
+        );
         for (id, account) in [("one", "account-one"), ("two", "account-two")] {
             let mut chat = Chat::new(id.into(), "Same".into());
-            chat.backend_account = Some(account.into()); chat.network = Some("WhatsApp".into()); chat.unread = 1;
+            chat.backend_account = Some(account.into());
+            chat.network = Some("WhatsApp".into());
+            chat.unread = 1;
             app.chats.push(chat);
         }
-        app.settings.beeper.accounts.entry("account-one".into()).or_default().inbox = crate::settings::BeeperInbox::None;
-        assert_eq!(app.visible_chats().iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["two"]);
+        app.settings
+            .beeper
+            .accounts
+            .entry("account-one".into())
+            .or_default()
+            .inbox = crate::settings::BeeperInbox::None;
+        assert_eq!(
+            app.visible_chats()
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["two"]
+        );
         app.search = "Same".into();
         assert_eq!(app.visible_chats().len(), 2);
     }
@@ -23225,21 +23726,32 @@ mod app_lock_tests {
     fn beeper_focused_and_group_notification_preferences_work() {
         let mut app = unlocked_app();
         let message = incoming(&mut app);
-        app.window_hidden = false; app.window_focused = true; app.page = Page::Chats; app.open_chat = Some(CHAT.into());
+        app.window_hidden = false;
+        app.window_focused = true;
+        app.page = Page::Chats;
+        app.open_chat = Some(CHAT.into());
         app.maybe_notify(CHAT, &message);
         assert!(app.notifications.shown.is_empty());
         app.settings.beeper.notify_focused_chat = true;
         app.maybe_notify(CHAT, &message);
-        assert_eq!(app.notifications.shown.len(),1);
+        assert_eq!(app.notifications.shown.len(), 1);
         app.settings.beeper.notify_group_messages = false;
         app.chats[0].kind = crate::model::ChatKind::Group;
         app.maybe_notify(CHAT, &message);
-        assert_eq!(app.notifications.shown.len(),1);
+        assert_eq!(app.notifications.shown.len(), 1);
         app.me = Some("own-user".into());
         let mut reply = message.clone();
-        reply.quoted = Some(crate::model::Quoted { labelled:None, chat:None, id:"earlier".into(), sender:"own-user".into(), sender_name:None, summary:"earlier".into(), mentions:vec![] });
-        app.maybe_notify(CHAT,&reply);
-        assert_eq!(app.notifications.shown.len(),2);
+        reply.quoted = Some(crate::model::Quoted {
+            labelled: None,
+            chat: None,
+            id: "earlier".into(),
+            sender: "own-user".into(),
+            sender_name: None,
+            summary: "earlier".into(),
+            mentions: vec![],
+        });
+        app.maybe_notify(CHAT, &reply);
+        assert_eq!(app.notifications.shown.len(), 2);
     }
 
     #[test]
@@ -23247,12 +23759,19 @@ mod app_lock_tests {
         let mut app = unlocked_app();
         let message = incoming(&mut app);
         app.chats[0].backend_account = Some("one".into());
-        let preferences = app.settings.beeper.accounts.entry("one".into()).or_default();
+        let preferences = app
+            .settings
+            .beeper
+            .accounts
+            .entry("one".into())
+            .or_default();
         preferences.notifications = false;
         app.maybe_notify(CHAT, &message);
         assert!(app.notifications.shown.is_empty());
         let preferences = app.settings.beeper.accounts.get_mut("one").unwrap();
-        preferences.notifications = true; preferences.previews = false; preferences.sound = Some(crate::settings::NotificationSound::None);
+        preferences.notifications = true;
+        preferences.previews = false;
+        preferences.sound = Some(crate::settings::NotificationSound::None);
         app.maybe_notify(CHAT, &message);
         let shown = app.notifications.shown.last().unwrap();
         assert_eq!(shown.body, "New message");

@@ -79,7 +79,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ctx.data_mut(|data| data.remove::<egui::Rect>(composer_rect_id()));
     titlebar_strip(app, ui);
     let beeper_waiting = crate::backend::beeper::BeeperConfig::from_env().is_some()
-        && app.chats.is_empty() && matches!(app.link, LinkStatus::Starting | LinkStatus::Connecting | LinkStatus::Disconnected { .. });
+        && app.chats.is_empty()
+        && matches!(
+            app.link,
+            LinkStatus::Starting | LinkStatus::Connecting | LinkStatus::Disconnected { .. }
+        );
     if !app.is_linked() || beeper_waiting {
         login::show(app, ui);
         accounts::corner(app, ctx);
@@ -564,7 +568,11 @@ fn banner(app: &mut App, ui: &mut egui::Ui) {
         LinkStatus::Connected => return,
         LinkStatus::Starting | LinkStatus::Connecting => (
             Icon::Refresh,
-            if beeper { app.link.connection_copy(true) } else { crate::i18n::gettext(app.locale, "Connecting to WhatsApp…").into_owned() },
+            if beeper {
+                app.link.connection_copy(true)
+            } else {
+                crate::i18n::gettext(app.locale, "Connecting to WhatsApp…").into_owned()
+            },
             palette.secondary,
             false,
             None,
@@ -579,7 +587,11 @@ fn banner(app: &mut App, ui: &mut egui::Ui) {
         ),
         LinkStatus::Failed(message) => (
             Icon::CircleAlert,
-            if beeper { format!("{message}. Check the existing API setup, then relaunch ZapFast.") } else { message.clone() },
+            if beeper {
+                format!("{message}. Check the existing API setup, then relaunch ZapFast.")
+            } else {
+                message.clone()
+            },
             palette.danger,
             !beeper,
             None,
