@@ -154,7 +154,9 @@ symphonia = { version = "0.5.5", default-features = false, features = ["aac"] }
 opus = "0.4"
 ogg = "0.9"
 # Converts animated Signal APNG stickers to the animated WebP used by WhatsApp.
-webp-animation = "0.10"
+# Bundle WebP so native trial binaries do not depend on a runner's Homebrew
+# libraries or require users to install libwebp separately.
+webp-animation = { version = "0.10", features = ["static"] }
 # Encodes stickers made from pictures as still lossy WebP. Already included
 # through webp-animation, whose animation encoder always writes an animation.
 libwebp-sys2 = { version = "0.2", features = ["1_2"] }
