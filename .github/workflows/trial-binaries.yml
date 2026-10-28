@@ -1,0 +1,115 @@
+name: Trial binaries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'assets/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'build.rs'
+      - 'contrib/beeper-tools/**'
+      - 'BINARY-BUILDS.md'
+      - '.github/workflows/trial-binaries.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'assets/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'build.rs'
+      - 'contrib/beeper-tools/**'
+      - 'BINARY-BUILDS.md'
+      - '.github/workflows/trial-binaries.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trial-binaries-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    # Never silently start paid private-repo or larger-runner builds.
+    if: github.event.repository.private == false
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            executable: zapfast
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            executable: zapfast
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            executable: zapfast
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            executable: zapfast.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev libasound2-dev libpipewire-0.3-dev \
+            clang libclang-dev cmake perl
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          toolchain=$(python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup target add --toolchain "$toolchain" '${{ matrix.target }}'
+          rustc --version
+      - name: Launcher and package tests
+        shell: bash
+        run: python -m unittest discover -s contrib/beeper-tools -p 'test_*.py'
+      - name: Build real release binary
+        shell: bash
+        run: cargo build --locked --release --bin zapfast --target '${{ matrix.target }}'
+      - name: Package trial
+        shell: bash
+        run: |
+          python contrib/beeper-tools/package_binary.py \
+            --binary 'target/${{ matrix.target }}/release/${{ matrix.executable }}' \
+            --output dist --target '${{ matrix.target }}' --commit "$GITHUB_SHA"
+      # A maintainer enables uploads after checking account storage/no-spend
+      # settings. Compilation still runs with this unset, without paid storage.
+      - name: Downloadable binary and checksums
+        if: vars.FAST_BEEPER_UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fast-beeper-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Run summary
+        shell: bash
+        run: |
+          echo '### Trial binary: ${{ matrix.target }}' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Unsigned / unnotarized. Existing Beeper Desktop or Server required. No token or profile bundled.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Artifact uploads require repository variable FAST_BEEPER_UPLOAD_ARTIFACTS=true after storage/budget review.' >> "$GITHUB_STEP_SUMMARY"
