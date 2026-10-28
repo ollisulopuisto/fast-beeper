@@ -1550,8 +1550,12 @@ fn poll_pending_send(api: &Api, chat: &ChatId, pending_id: &str, elapsed: Durati
     let message: Result<BeeperMessage, String> = api.get_message(chat, pending_id);
     match message {
         Ok(m) => {
+            let explicit_success=m.id==pending_id && m.chat_id==*chat && m.is_sender==Some(true) && m.send_status.as_ref().is_some_and(|s|s.status=="SUCCESS" || (!s.status.starts_with("FAIL_") && !s.delivered_to_users.is_empty()));
+            if explicit_success && !m.account_id.is_empty() {
+                emit(Event::BeeperSendConfirmed{origin:api.base_url.clone(),account:m.account_id.clone(),chat:chat.clone()});
+            }
             let mapped = api.map_message(&m, chat);
-            let complete = !matches!(mapped.status, Delivery::Pending);
+            let complete = explicit_success || matches!(mapped.status, Delivery::Failed);
             if matches!(mapped.status, Delivery::Failed) { emit(Event::Info("Beeper reports that a message failed to send".into())); }
             emit(Event::Messages { chat: chat.clone(), messages: vec![mapped], older: false, complete: false });
             if !complete && elapsed >= Duration::from_secs(60) {
@@ -1585,12 +1589,11 @@ fn poll_newer(
             Ok(page) => {
                 let more = page.has_more;
                 let next = page.newest_cursor.clone();
-                if more && newest.is_some() && next.as_ref().is_none_or(|cursor| seen.contains(cursor)) {
-                    emit(Event::BeeperLiveState { chat: chat.clone(), error: Some("Live pagination cursor did not advance; some updates may be missing".into()) });
-                    break;
+                let stalled=more && newest.is_some() && next.as_ref().is_none_or(|cursor|seen.contains(cursor));
+                if !stalled {
+                    emit(Event::BeeperLiveState { chat: chat.clone(), error: None });
+                    if let Some(c)=cursors.get_mut(chat) {c.newest=next.clone().or(c.newest.clone());}
                 }
-                emit(Event::BeeperLiveState { chat: chat.clone(), error: None });
-                if let Some(c) = cursors.get_mut(chat) { c.newest = next.clone().or(c.newest.clone()); }
                 let mut messages: Vec<Message> = page.items.iter().filter(|m| !m.is_hidden && !m.is_deleted).map(|m| api.map_message(m, chat)).collect();
                 messages.sort_by_key(|m| m.timestamp);
                 for m in page.items.iter().filter(|m| m.is_deleted) { emit(Event::MessageDeleted { chat: chat.clone(), id: m.id.clone() }); }
@@ -1598,6 +1601,11 @@ fn poll_newer(
                     let incoming: Vec<Message> = messages.iter().filter(|m| !m.from_me).cloned().collect();
                     emit(Event::Messages { chat: chat.clone(), messages, older: false, complete: false });
                     for message in incoming { emit(Event::Incoming { chat: chat.clone(), message: Box::new(message) }); }
+                }
+                // A bad continuation cursor must not discard valid messages on this page.
+                if stalled {
+                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Live pagination cursor did not advance; received page kept, further updates may be missing".into())});
+                    break;
                 }
                 if !more || newest.is_none() { break; }
                 let Some(next) = next else { break; };
@@ -1625,6 +1633,22 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn queue_confirmation_requires_explicit_success_not_pending_failure_or_sparse_echo() {
+        let listener=TcpListener::bind("127.0.0.1:0").unwrap();let base_url=format!("http://{}",listener.local_addr().unwrap());
+        let server=std::thread::spawn(move ||for status in [None,Some("PENDING"),Some("FAIL_PERMANENT"),Some("SUCCESS")] {
+            let(mut stream,_)=listener.accept().unwrap();let mut request=[0u8;4096];let _=stream.read(&mut request);
+            let mut body=serde_json::json!({"id":"fixture","chatID":"chat","accountID":"work","isSender":true});
+            if let Some(status)=status {body["sendStatus"]=serde_json::json!({"status":status});}
+            let body=body.to_string();write!(stream,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        });
+        let api=Api::new(&BeeperConfig{base_url,token:"fixture".into()}).unwrap();
+        for confirmed in [false,false,false,true] {
+            let events=Mutex::new(Vec::new());poll_pending_send(&api,&"chat".into(),"fixture",Duration::from_secs(1),&|e|events.lock().unwrap().push(e));
+            assert_eq!(events.into_inner().unwrap().iter().any(|e|matches!(e,Event::BeeperSendConfirmed{account,..} if account=="work")),confirmed);
+        }server.join().unwrap();
+    }
 
     #[test]
     fn ordinary_send_omits_optional_reply_instead_of_json_null() {
@@ -1865,7 +1889,7 @@ mod tests {
                 while Instant::now()<until {
                     if let Ok((mut stream,_))=listener.accept() {
                         let mut request=[0u8;4096];let _=stream.read(&mut request);
-                        let body=serde_json::json!({"items":[],"hasMore":true,"newestCursor":next}).to_string();
+                        let body=serde_json::json!({"items":[{"id":"arrived","text":"fixture","isSender":false}],"hasMore":true,"newestCursor":next}).to_string();
                         write!(stream,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
                     } else {std::thread::sleep(Duration::from_millis(1));}
                 }
@@ -1876,7 +1900,9 @@ mod tests {
             let events=std::sync::Mutex::new(Vec::new());
             poll_newer(&api,&chat,&mut cursors,&|event|events.lock().unwrap().push(event));
             assert_eq!(cursors[&chat].newest.as_deref(),Some("seed"));
-            assert!(matches!(events.into_inner().unwrap().last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("cursor")));
+            let events=events.into_inner().unwrap();
+            assert!(events.iter().any(|event|matches!(event,Event::Messages{messages,..} if messages.iter().any(|m|m.id=="arrived"))));
+            assert!(matches!(events.last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("cursor")));
             worker.join().unwrap();
         }
     }

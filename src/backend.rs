@@ -1438,6 +1438,7 @@ pub enum Event {
     BeeperLiveState{chat:ChatId,error:Option<String>},
     BeeperSearchState{query:String,error:Option<String>,truncated:bool},
     BeeperChatSearchError{chat:ChatId,query:String,from:Option<i64>,until:Option<i64>,error:String},
+    BeeperSendConfirmed { origin:String,account:String,chat:ChatId },
     BeeperSendUncertain { chat: ChatId, text: String, message: String },
     BeeperFilesUncertain { chat: ChatId, paths: Vec<PathBuf>, documents: bool, caption: Option<String>, message: String },
     Error(String),

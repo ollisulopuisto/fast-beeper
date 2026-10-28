@@ -43,6 +43,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                         }
                         if modifiers.matches_exact(Modifiers::COMMAND|Modifiers::SHIFT) && *key==Key::U {found=Some((3,0));return false;}
                         if modifiers.matches_exact(Modifiers::COMMAND|Modifiers::SHIFT) && *key==Key::R {found=Some((4,0));return false;}
+                        if modifiers.matches_exact(Modifiers::COMMAND|Modifiers::SHIFT) && *key==Key::L {found=Some((5,0));return false;}
                     }
                     true
                 });found
@@ -53,11 +54,12 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     1=>if let Some(chat)=app.beeper_global_pins().get(index) {app.actions.push(Action::OpenChat(chat.id.clone()));},
                     2=>{
                         let pins=app.beeper_global_pins();
-                        let ids:Vec<_>=app.visible_chats().into_iter().filter(|chat|!pins.iter().any(|pin|pin.id==chat.id)).map(|chat|chat.id.clone()).collect();
+                        let ids:Vec<_>=app.visible_chats().into_iter().filter(|chat|app.beeper_reply_later_filter || !pins.iter().any(|pin|pin.id==chat.id)).map(|chat|chat.id.clone()).collect();
                         if let Some(id)=ids.get(index) {app.actions.push(Action::OpenChat(id.clone()));}
                     },
-                    3=>{app.beeper_unreplied=false;app.actions.push(Action::SetChatFilter(if app.chat_filter==crate::model::ChatFilter::Unread {crate::model::ChatFilter::All}else{crate::model::ChatFilter::Unread}));},
-                    4=>{app.beeper_unreplied=!app.beeper_unreplied;app.actions.push(Action::SetChatFilter(crate::model::ChatFilter::All));},
+                    3=>{app.beeper_reply_later_filter=false;app.beeper_unreplied=false;app.actions.push(Action::SetChatFilter(if app.chat_filter==crate::model::ChatFilter::Unread {crate::model::ChatFilter::All}else{crate::model::ChatFilter::Unread}));},
+                    4=>{app.beeper_reply_later_filter=false;app.beeper_unreplied=!app.beeper_unreplied;app.actions.push(Action::SetChatFilter(crate::model::ChatFilter::All));},
+                    5=>app.toggle_reply_later(),
                     _=>{},
                 }
                 return;
@@ -105,7 +107,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         // Before Ctrl+L, which would also match it with Shift held.
         if app.settings.app_lock_hash.is_some() {
             key(
-                Modifiers::COMMAND | Modifiers::SHIFT,
+                if app.beeper_browse_networks().is_empty() {Modifiers::COMMAND | Modifiers::SHIFT} else {Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT},
                 Key::L,
                 Action::LockApp,
             );
@@ -907,7 +909,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+0", "Reset zoom"),
     ("← / →", "Previous / next item in the media viewer"),
     ("? / Ctrl+/", "Keyboard shortcuts (? when not typing)"),
-    ("Ctrl+Shift+L", "Lock ZapFast (with an app lock password)"),
+    ("Ctrl+Shift+L", "Reply later in Beeper; lock elsewhere (add Alt in Beeper)"),
     ("Ctrl+W", "Close the window (ZapFast remains in the tray)"),
     ("Ctrl+Q", "Quit"),
 ];
