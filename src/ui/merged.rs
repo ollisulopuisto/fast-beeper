@@ -25,12 +25,23 @@ pub fn latest_reply_shortcut() -> egui::KeyboardShortcut {
     )
 }
 fn bounded_note(ui: &mut egui::Ui, text: &str, small: bool) {
-    let width=(ui.clip_rect().right()-ui.cursor().left()).min(ui.available_width()).max(20.0);
-    let font=if small {egui::TextStyle::Small} else {egui::TextStyle::Body}.resolve(ui.style());
-    let galley=ui.painter().layout(text.to_owned(),font,ui.visuals().text_color(),width);
-    let(rect,response)=ui.allocate_exact_size(galley.size(),egui::Sense::hover());
-    response.widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::Label,ui.is_enabled(),text));
-    ui.painter().galley(rect.min,galley,ui.visuals().text_color());
+    let width = (ui.clip_rect().right() - ui.cursor().left())
+        .min(ui.available_width())
+        .max(20.0);
+    let font = if small {
+        egui::TextStyle::Small
+    } else {
+        egui::TextStyle::Body
+    }
+    .resolve(ui.style());
+    let galley = ui
+        .painter()
+        .layout(text.to_owned(), font, ui.visuals().text_color(), width);
+    let (rect, response) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
+    ui.painter()
+        .galley(rect.min, galley, ui.visuals().text_color());
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
@@ -160,8 +171,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             state = State::default();
         }
     });
-    bounded_note(ui,"One timeline. Reply keeps its source. Choosing another destination sends a new message.",false);
-    bounded_note(ui,"Text sends only in linked view. Attachments and typing indicators are disabled here until source routing is verified.",true);
+    bounded_note(
+        ui,
+        "One timeline. Reply keeps its source. Choosing another destination sends a new message.",
+        false,
+    );
+    bounded_note(
+        ui,
+        "Text sends only in linked view. Attachments and typing indicators are disabled here until source routing is verified.",
+        true,
+    );
     if person.members.len() < 8 {
         ui.menu_button("Add another chat…", |ui| {
             let choices: Vec<_> = app
@@ -475,7 +494,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             selected_reply = Some((member.clone(), message.id.clone()));
         }
     });
-    bounded_note(ui,"Or double-click a message / use its reply menu.",true);
+    bounded_note(ui, "Or double-click a message / use its reply menu.", true);
     let remaining = ui.available_height().max(100.0);
     let mut actions = Vec::new();
     let mut refused_action = false;

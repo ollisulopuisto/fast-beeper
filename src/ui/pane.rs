@@ -306,12 +306,20 @@ fn search(app: &mut App, ui: &mut egui::Ui, overlay: bool) {
         });
         return;
     }
-    if app.open_chat.as_deref().is_some_and(|id| app.settings.beeper.people.iter().any(|person| person.members.iter().any(|member| member.chat==id))) {
+    if app.open_chat.as_deref().is_some_and(|id| {
+        app.settings
+            .beeper
+            .people
+            .iter()
+            .any(|person| person.members.iter().any(|member| member.chat == id))
+    }) {
         ui.add(egui::Label::new(egui::RichText::new("This API search covers the selected member chat only. Use the linked timeline search for all loaded sources.").color(palette.secondary)).wrap());
     }
-    if let Some(error)=&app.beeper_chat_search_error {
+    if let Some(error) = &app.beeper_chat_search_error {
         ui.add(egui::Label::new(egui::RichText::new(error).color(palette.warning)).wrap());
-        if app.chat_search_hits.is_empty() {return;}
+        if app.chat_search_hits.is_empty() {
+            return;
+        }
     }
     if app.chat_search_hits.is_empty() {
         if app.chat_search_pending {

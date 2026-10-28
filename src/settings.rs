@@ -980,9 +980,20 @@ mod tests {
         assert!(settings.beeper.show_previews);
         settings.beeper.incognito = true;
         settings.beeper.compact_list = true;
-        settings.beeper.accounts.entry("account-one".into()).or_default().previews = false;
-        settings.beeper.accounts.entry("account-one".into()).or_default().notifications = false;
-        let loaded: Settings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        settings
+            .beeper
+            .accounts
+            .entry("account-one".into())
+            .or_default()
+            .previews = false;
+        settings
+            .beeper
+            .accounts
+            .entry("account-one".into())
+            .or_default()
+            .notifications = false;
+        let loaded: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         assert!(loaded.beeper.incognito && loaded.beeper.compact_list);
         assert!(!loaded.beeper.account(Some("account-one")).notifications);
         assert!(!loaded.beeper.account(Some("account-one")).previews);
@@ -1534,8 +1545,8 @@ mod giphy_tests {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BeeperPreferences {
-    pub people:Vec<crate::merged::Person>,
-    pub reply_later:Vec<crate::merged::Member>,
+    pub people: Vec<crate::merged::Person>,
+    pub reply_later: Vec<crate::merged::Member>,
     pub incognito: bool,
     pub compact_list: bool,
     pub show_previews: bool,
@@ -1550,7 +1561,24 @@ pub struct BeeperPreferences {
     pub accounts: std::collections::HashMap<String, BeeperAccountPreferences>,
 }
 impl Default for BeeperPreferences {
-    fn default() -> Self { Self { people:Vec::new(), reply_later:Vec::new(), incognito: false, compact_list: false, show_previews: true, show_unread_counts: true, show_network_labels: true, notify_focused_chat: false, notify_group_messages: true, local_ai_endpoint: "http://127.0.0.1:8080".into(), local_ai_model: String::new(), local_ai_language: "Finnish".into(), local_ai_allow_lan: false, accounts: Default::default() } }
+    fn default() -> Self {
+        Self {
+            people: Vec::new(),
+            reply_later: Vec::new(),
+            incognito: false,
+            compact_list: false,
+            show_previews: true,
+            show_unread_counts: true,
+            show_network_labels: true,
+            notify_focused_chat: false,
+            notify_group_messages: true,
+            local_ai_endpoint: "http://127.0.0.1:8080".into(),
+            local_ai_model: String::new(),
+            local_ai_language: "Finnish".into(),
+            local_ai_allow_lan: false,
+            accounts: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1563,12 +1591,26 @@ pub struct BeeperAccountPreferences {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BeeperInbox { #[default] All, Unread, None }
+pub enum BeeperInbox {
+    #[default]
+    All,
+    Unread,
+    None,
+}
 impl Default for BeeperAccountPreferences {
-    fn default() -> Self { Self { inbox: BeeperInbox::All, notifications: true, previews: true, sound: None } }
+    fn default() -> Self {
+        Self {
+            inbox: BeeperInbox::All,
+            notifications: true,
+            previews: true,
+            sound: None,
+        }
+    }
 }
 impl BeeperPreferences {
     pub fn account(&self, id: Option<&str>) -> BeeperAccountPreferences {
-        id.and_then(|id| self.accounts.get(id)).cloned().unwrap_or_default()
+        id.and_then(|id| self.accounts.get(id))
+            .cloned()
+            .unwrap_or_default()
     }
 }

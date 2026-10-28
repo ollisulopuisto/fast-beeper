@@ -60,7 +60,7 @@ pub struct Account {
     pub account_receipts_off: bool,
     pub(crate) avatars: HashMap<String, Option<PathBuf>>,
     pub(crate) avatar_requests: HashSet<String>,
-    avatar_checks: HashMap<String,std::time::Instant>,
+    avatar_checks: HashMap<String, std::time::Instant>,
     pub(crate) avatars_full: HashMap<String, Option<PathBuf>>,
     pub(crate) avatar_full_requests: HashSet<String>,
     pub(crate) played_told: HashSet<String>,
@@ -316,18 +316,37 @@ impl Account {
 
     /// Returns or requests a cached profile picture from this account.
     pub fn avatar(&mut self, id: &str) -> Option<PathBuf> {
-        let beeper=self.chats.iter().any(|chat|chat.backend_account.is_some());
+        let beeper = self.chats.iter().any(|chat| chat.backend_account.is_some());
         if beeper {
-            let expired=self.avatar_checks.get(id).is_some_and(|at|at.elapsed()>std::time::Duration::from_secs(900));
-            let missing=self.avatars.get(id).and_then(|p|p.as_ref()).is_some_and(|p|!p.is_file());
-            if expired || missing {self.avatars.remove(id);self.avatar_checks.remove(id);}
-            if self.avatar_checks.len()>=2048 && !self.avatar_checks.contains_key(id) {
-                if let Some(key)=self.avatar_checks.keys().next().cloned(){self.avatar_checks.remove(&key);self.avatars.remove(&key);}
+            let expired = self
+                .avatar_checks
+                .get(id)
+                .is_some_and(|at| at.elapsed() > std::time::Duration::from_secs(900));
+            let missing = self
+                .avatars
+                .get(id)
+                .and_then(|p| p.as_ref())
+                .is_some_and(|p| !p.is_file());
+            if expired || missing {
+                self.avatars.remove(id);
+                self.avatar_checks.remove(id);
+            }
+            if self.avatar_checks.len() >= 2048
+                && !self.avatar_checks.contains_key(id)
+                && let Some(key) = self.avatar_checks.keys().next().cloned()
+            {
+                self.avatar_checks.remove(&key);
+                self.avatars.remove(&key);
             }
         }
-        if let Some(known) = self.avatars.get(id) {return known.clone();}
+        if let Some(known) = self.avatars.get(id) {
+            return known.clone();
+        }
         if self.avatar_requests.insert(id.to_owned()) {
-            if beeper {self.avatar_checks.insert(id.to_owned(),std::time::Instant::now());}
+            if beeper {
+                self.avatar_checks
+                    .insert(id.to_owned(), std::time::Instant::now());
+            }
             self.backend.send(crate::backend::Command::FetchAvatar {
                 id: id.to_owned(),
                 full: false,

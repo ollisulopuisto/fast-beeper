@@ -6472,8 +6472,10 @@ impl Worker {
             return;
         }
         match command {
-            Command::WatchBeeperChats(_)=>{},
-            Command::SetBeeperReminder { .. } => self.emit(Event::Info("Beeper reminders require the Beeper backend".into())),
+            Command::WatchBeeperChats(_) => {}
+            Command::SetBeeperReminder { .. } => self.emit(Event::Info(
+                "Beeper reminders require the Beeper backend".into(),
+            )),
             Command::StartCall {
                 chat,
                 video,

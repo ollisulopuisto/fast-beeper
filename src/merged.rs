@@ -273,7 +273,9 @@ mod tests {
         );
         person.primary = Some(first.clone());
         assert_eq!(
-            person.default_destination(&[first.clone()]).unwrap(),
+            person
+                .default_destination(std::slice::from_ref(&first))
+                .unwrap(),
             Some(&first)
         );
         assert!(person.default_destination(&[second]).is_err());

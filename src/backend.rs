@@ -17,13 +17,13 @@ use crate::paths::AccountDirs;
 pub(crate) mod picture_edit;
 
 // Re-exported so the picker can detect pasted Signal pack links.
+pub mod beeper;
+pub mod local_ai;
 mod read_sync;
 pub(crate) mod sticker_import;
 mod sticker_maker;
 pub(crate) mod sticker_store;
 mod worker;
-pub mod beeper;
-pub mod local_ai;
 pub use worker::{PINNED_CHATS, PLUS_PINNED_CHATS, host_owned_presence};
 
 /// Result of a deletion request, without protocol errors crossing the bridge.
@@ -63,11 +63,26 @@ impl LinkStatus {
     /// Connection wording shared by the initial card and the offline banner.
     pub fn connection_copy(&self, beeper: bool) -> String {
         match self {
-            Self::Starting | Self::Connecting => if beeper { "Connecting to Beeper API..." } else { "Connecting to WhatsApp…" }.into(),
-            Self::Connected => if beeper { "Beeper API connected. Loading chats..." } else { "Linked. Waiting for your chats…" }.into(),
+            Self::Starting | Self::Connecting => if beeper {
+                "Connecting to Beeper API..."
+            } else {
+                "Connecting to WhatsApp…"
+            }
+            .into(),
+            Self::Connected => if beeper {
+                "Beeper API connected. Loading chats..."
+            } else {
+                "Linked. Waiting for your chats…"
+            }
+            .into(),
             Self::Disconnected { reason } => format!("Offline ({reason}). Reconnecting..."),
             Self::Failed(message) => message.clone(),
-            _ => if beeper { "Beeper API is not connected" } else { "Not linked to a phone" }.into(),
+            _ => if beeper {
+                "Beeper API is not connected"
+            } else {
+                "Not linked to a phone"
+            }
+            .into(),
         }
     }
 
@@ -91,13 +106,26 @@ mod tests {
 
     #[test]
     fn connection_copy_matches_backend_and_does_not_claim_linked_when_offline() {
-        assert_eq!(LinkStatus::Connecting.connection_copy(true), "Connecting to Beeper API...");
-        assert!(LinkStatus::Connected.connection_copy(true).contains("Beeper API connected"));
-        let disconnected = LinkStatus::Disconnected { reason: "Connection refused".into() };
+        assert_eq!(
+            LinkStatus::Connecting.connection_copy(true),
+            "Connecting to Beeper API..."
+        );
+        assert!(
+            LinkStatus::Connected
+                .connection_copy(true)
+                .contains("Beeper API connected")
+        );
+        let disconnected = LinkStatus::Disconnected {
+            reason: "Connection refused".into(),
+        };
         let text = disconnected.connection_copy(true);
-        assert!(text.contains("Offline")); assert!(text.contains("Connection refused"));
+        assert!(text.contains("Offline"));
+        assert!(text.contains("Connection refused"));
         assert!(!text.contains("Linked"));
-        assert_eq!(LinkStatus::Connecting.connection_copy(false), "Connecting to WhatsApp…");
+        assert_eq!(
+            LinkStatus::Connecting.connection_copy(false),
+            "Connecting to WhatsApp…"
+        );
     }
 
     #[test]
@@ -830,7 +858,10 @@ pub enum Command {
     SetArchived(ChatId, bool),
     /// Beeper server reminder; None clears it. ISO8601 UTC timestamp.
     WatchBeeperChats(Vec<ChatId>),
-    SetBeeperReminder { chat: ChatId, at: Option<String> },
+    SetBeeperReminder {
+        chat: ChatId,
+        at: Option<String>,
+    },
     /// Leaves a group or channel. `archive` also hides the chat in Archived.
     LeaveGroup {
         chat: ChatId,
@@ -1083,7 +1114,10 @@ pub struct BeeperAccountInfo {
 
 #[derive(Debug)]
 pub enum Event {
-    BeeperAccounts { origin: String, accounts: Vec<BeeperAccountInfo> },
+    BeeperAccounts {
+        origin: String,
+        accounts: Vec<BeeperAccountInfo>,
+    },
     InteractiveReplyState {
         chat: ChatId,
         message: String,
@@ -1433,14 +1467,49 @@ pub enum Event {
     /// The account folders were deleted after RemoveAccount.
     AccountRemoved,
     /// The API outcome is uncertain. Restore text without automatically retrying.
-    BeeperEditUncertain { chat: ChatId, id: String, text: String, message: String },
-    BeeperHistoryState{chat:ChatId,error:Option<String>},
-    BeeperLiveState{chat:ChatId,error:Option<String>},
-    BeeperSearchState{query:String,error:Option<String>,truncated:bool},
-    BeeperChatSearchError{chat:ChatId,query:String,from:Option<i64>,until:Option<i64>,error:String},
-    BeeperSendConfirmed { origin:String,account:String,chat:ChatId },
-    BeeperSendUncertain { chat: ChatId, text: String, message: String },
-    BeeperFilesUncertain { chat: ChatId, paths: Vec<PathBuf>, documents: bool, caption: Option<String>, message: String },
+    BeeperEditUncertain {
+        chat: ChatId,
+        id: String,
+        text: String,
+        message: String,
+    },
+    BeeperHistoryState {
+        chat: ChatId,
+        error: Option<String>,
+    },
+    BeeperLiveState {
+        chat: ChatId,
+        error: Option<String>,
+    },
+    BeeperSearchState {
+        query: String,
+        error: Option<String>,
+        truncated: bool,
+    },
+    BeeperChatSearchError {
+        chat: ChatId,
+        query: String,
+        from: Option<i64>,
+        until: Option<i64>,
+        error: String,
+    },
+    BeeperSendConfirmed {
+        origin: String,
+        account: String,
+        chat: ChatId,
+    },
+    BeeperSendUncertain {
+        chat: ChatId,
+        text: String,
+        message: String,
+    },
+    BeeperFilesUncertain {
+        chat: ChatId,
+        paths: Vec<PathBuf>,
+        documents: bool,
+        caption: Option<String>,
+        message: String,
+    },
     Error(String),
     /// A change to a group's name or photo went to WhatsApp (`saving`), or
     /// WhatsApp answered it.
@@ -1691,7 +1760,9 @@ impl Backend {
         self.offline
     }
 
-    pub(crate) fn command_sender(&self) -> mpsc::UnboundedSender<Command> { self.commands.clone() }
+    pub(crate) fn command_sender(&self) -> mpsc::UnboundedSender<Command> {
+        self.commands.clone()
+    }
 
     pub fn send(&self, command: Command) {
         if self.offline && !matches!(command, Command::Shutdown) {

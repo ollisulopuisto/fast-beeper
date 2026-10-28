@@ -1547,10 +1547,17 @@ fn confirm_clear_media(app: &mut App, ui: &mut egui::Ui, id: crate::model::Accou
         .map(|account| account.display_label(locale))
         .unwrap_or_default();
     if crate::backend::beeper::BeeperConfig::from_env().is_some() {
-        confirm_destructive(app, ui, "Clear disposable Beeper media?", &[
-            "Deletes only this client's disposable Beeper media across connected accounts. Message history and saved downloads stay untouched.",
-            "An evicted original can be fetched again only if Beeper or the network still has it. This does not clean or limit backend storage."
-        ], "Clear cache", [Action::ClearMediaCache(id)]);
+        confirm_destructive(
+            app,
+            ui,
+            "Clear disposable Beeper media?",
+            &[
+                "Deletes only this client's disposable Beeper media across connected accounts. Message history and saved downloads stay untouched.",
+                "An evicted original can be fetched again only if Beeper or the network still has it. This does not clean or limit backend storage.",
+            ],
+            "Clear cache",
+            [Action::ClearMediaCache(id)],
+        );
         return;
     }
     confirm_destructive(
