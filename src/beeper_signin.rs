@@ -214,12 +214,32 @@ fn perform(root: String, token: Zeroizing<String>, step: Step) -> Result<Reply, 
             ) {
                 return Err("Unsupported verification action".into());
             }
-            let id: String = id.bytes().map(|b| format!("%{b:02X}")).collect();
-            wire.call(
-                post.clone(),
-                &format!("/v1/app/setup/verifications/{id}/{action}"),
-                Some(json!({})),
-            )?
+            // Re-read before each deliberate action. A peer may have completed it
+            // since the UI was drawn; never confirm twice from stale availableActions.
+            let current = wire.call(reqwest::Method::GET, "/v1/app/setup", None)?;
+            let wanted = action.replace('/', ".");
+            if current["verification"]["id"].as_str() != Some(id.as_str())
+                || !current["verification"]["availableActions"]
+                    .as_array()
+                    .is_some_and(|actions| actions.iter().any(|a| a.as_str() == Some(&wanted)))
+            {
+                current
+            } else {
+                let encoded: String = id.bytes().map(|b| format!("%{b:02X}")).collect();
+                match wire.call(
+                    post.clone(),
+                    &format!("/v1/app/setup/verifications/{encoded}/{action}"),
+                    Some(json!({})),
+                ) {
+                    Ok(value) => value,
+                    Err(error) if error.contains("HTTP 409") => {
+                        // Refresh after a server-side race. This is state recovery,
+                        // not permission to retry the write or declare setup ready.
+                        wire.call(reqwest::Method::GET, "/v1/app/setup", None)?
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
         }
     };
     let session = data.get("session").unwrap_or(&data).clone();
@@ -620,6 +640,22 @@ mod flow_tests {
         let calls = job.join().unwrap();
         assert_eq!(calls.len(), 1);
         assert!(calls[0].starts_with("POST /v1/app/setup/response "));
+    }
+    #[test]
+    fn completed_verification_is_never_confirmed_again() {
+        let (root, job) = server(vec![
+            r#"{"state":"needs-first-sync","verification":{"id":"fixture","state":"done","availableActions":[]}}"#,
+        ]);
+        let reply = perform(
+            root,
+            Zeroizing::new("synthetic-token".into()),
+            Step::Action("fixture".into(), "sas/confirm".into()),
+        )
+        .unwrap();
+        assert_eq!(reply.session["state"], "needs-first-sync");
+        let calls = job.join().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].starts_with("GET /v1/app/setup "));
     }
     #[test]
     fn recovery_stays_on_bound_origin() {
