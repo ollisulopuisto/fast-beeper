@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'audit' || 'checks' }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
