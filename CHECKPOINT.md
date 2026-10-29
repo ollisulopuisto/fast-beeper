@@ -15,10 +15,14 @@ main native coverage for runtime changes, full manual CI and existing release
 workflow unchanged. Uploads remain disabled unless separately approved by the
 existing gate. Human-led merge, no settings changes or release execution.
 
-Status:166 current-source Rust tests and37 Python tests passed; scope/workflow
-regression tests and actionlint pass locally. Publication pending. Actual
-Actions behavior and minute savings need post-merge evidence. Rollback is a
-single focused PR revert; no runtime/storage migrations are involved.
+Status: PR8 human-merged on main5d4651ac (earlier handoff variant).166
+current-source Rust tests,37 Python tests,7 scope tests,3 workflow tests and
+13 policy regression tests pass locally, with fmt/actionlint checks. Actual
+Actions behavior and minute savings remain under observation. A minimal
+follow-up isolates the daily audit's concurrency group from normal CI so an
+audit cannot cancel a main native run. Existing token cannot publish workflow
+changes; generated incremental patch supplied without changing permissions.
+Rollback is a focused PR revert; no runtime/storage migrations are involved.
 
 ## Active packaging lane - October 29, 2026
 
