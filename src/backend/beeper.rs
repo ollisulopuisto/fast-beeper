@@ -2864,7 +2864,7 @@ fn poll_newer(
                 }
                 // A bad continuation cursor must not discard valid messages on this page.
                 if stalled {
-                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Beeper returned the same update page again. Messages already loaded are kept, but newer messages may be missing".into())});
+                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Beeper could not advance to the next update page. Messages already loaded are kept, but newer messages may be missing".into())});
                     break;
                 }
                 if !more || newest.is_none() {
@@ -3583,7 +3583,7 @@ mod tests {
             let events = events.into_inner().unwrap();
             assert!(events.iter().any(|event|matches!(event,Event::Messages{messages,..} if messages.iter().any(|m|m.id=="arrived"))));
             assert!(
-                matches!(events.last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("cursor"))
+                matches!(events.last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("newer messages may be missing"))
             );
             worker.join().unwrap();
         }
