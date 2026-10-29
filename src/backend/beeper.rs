@@ -3946,6 +3946,11 @@ mod tests {
                         let mut parts = request_line.split_whitespace();
                         let method = parts.next().unwrap_or("").to_string();
                         let path = parts.next().unwrap_or("").to_string();
+                        // A preconnected socket can time out before any HTTP request.
+                        // It must not become a fake mutation in fixture assertions.
+                        if method.is_empty() || path.is_empty() {
+                            continue;
+                        }
                         let body_start = text.find("\r\n\r\n").map(|p| p + 4).unwrap_or(0);
                         let body = text[body_start..].to_string();
                         reqs.lock()
@@ -3983,6 +3988,31 @@ mod tests {
             }
         });
         (format!("http://127.0.0.1:{port}"), requests, stop)
+    }
+
+    #[test]
+    fn stub_ignores_idle_connections_without_losing_the_next_request() {
+        let (base_url, requests, stop) = start_stub();
+        let address = base_url.trim_start_matches("http://");
+        let idle = std::net::TcpStream::connect(address).unwrap();
+        std::thread::sleep(Duration::from_millis(2300));
+        assert!(requests.lock().unwrap().is_empty());
+        drop(idle);
+        let mut next = std::net::TcpStream::connect(address).unwrap();
+        next.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        write!(
+            next,
+            "GET /v1/accounts HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let mut response = String::new();
+        next.read_to_string(&mut response).unwrap();
+        stop.store(true, Ordering::Relaxed);
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        let recorded = requests.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "GET");
+        assert_eq!(recorded[0].1, "/v1/accounts");
     }
 
     fn collect_until(
