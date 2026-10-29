@@ -2864,7 +2864,7 @@ fn poll_newer(
                 }
                 // A bad continuation cursor must not discard valid messages on this page.
                 if stalled {
-                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Live pagination cursor did not advance; received page kept, further updates may be missing".into())});
+                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Beeper returned the same update page again. Messages already loaded are kept, but newer messages may be missing".into())});
                     break;
                 }
                 if !more || newest.is_none() {
