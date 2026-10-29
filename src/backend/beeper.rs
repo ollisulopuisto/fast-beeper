@@ -56,12 +56,12 @@ impl BeeperConfig {
             })
     }
 
-    /// The demo runs when `ZAPFAST_BACKEND=beeper`; without it ZapFast starts
-    /// its normal WhatsApp worker, untouched.
+    /// Retain the explicitly selected, ready Server connection for this process.
     pub fn set_session(cfg: &Self) {
         *SESSION.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg.clone());
     }
 
+    /// The explicit in-app session wins. Otherwise preserve the launch configuration.
     pub fn from_env() -> Option<Self> {
         if let Some(cfg) = SESSION.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
             return Some(cfg.clone());

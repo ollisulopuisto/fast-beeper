@@ -104,7 +104,6 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(launcher.main(),1)
             prompt.assert_not_called(); launch.assert_not_called()
 
-if __name__ == '__main__': unittest.main()
 
 class SignInLauncherTests(unittest.TestCase):
     def test_signin_flag_reaches_gui_without_token_prompt_or_accounts_preflight(self):
@@ -116,3 +115,5 @@ class SignInLauncherTests(unittest.TestCase):
             self.assertEqual(launcher.main(), 0)
             preflight.assert_not_called()
             self.assertEqual(launch.call_args.kwargs['env']['BEEPER_SIGN_IN'], '1')
+
+if __name__ == '__main__': unittest.main()
