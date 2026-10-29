@@ -1,5 +1,25 @@
 # Fast-beeper coordination and development checkpoint
 
+## Active CI/CD efficiency lane - October 29, 2026
+
+Claim: CI trigger/path selection and explicit manual single-target trial/hotfix
+build preparation. Scope requested by maintainer: shorten feedback and avoid
+unneeded hosted-runner minutes without hiding failures or bypassing releases.
+Branch: chore/ci-fast-feedback. Existing Windows x64 failure remains unresolved.
+No concurrent CI-edit claim was present in the current checkpoint/open PR list.
+
+Plan: portable checks first; select native checks from changed source paths;
+retain Nix for runtime/source and build inputs; make duplicate release-mode trial builds explicit
+manual choices rather than every PR and merge. Keep policy always reporting,
+main native coverage for runtime changes, full manual CI and existing release
+workflow unchanged. Uploads remain disabled unless separately approved by the
+existing gate. Human-led merge, no settings changes or release execution.
+
+Status:166 current-source Rust tests and37 Python tests passed; scope/workflow
+regression tests and actionlint pass locally. Publication pending. Actual
+Actions behavior and minute savings need post-merge evidence. Rollback is a
+single focused PR revert; no runtime/storage migrations are involved.
+
 ## Active packaging lane - October 29, 2026
 
 Claim: local trial packaging and its verification, owned by the current

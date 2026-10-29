@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# Superseded checks should not continue their full hour-long build.
+concurrency:
+  group: flatpak-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -33,3 +38,4 @@ jobs:
           manifest-path: packaging/flatpak/rocks.zapfast.ZapFast.yml
           bundle: zapfast-test-x86_64.flatpak
           cache: false
+          upload-artifact: ${{ vars.FAST_BEEPER_UPLOAD_ARTIFACTS == 'true' }}

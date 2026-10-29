@@ -1,23 +1,22 @@
 name: CI
 
-# Pull requests run Linux only: the account's 20 hosted runners are shared
-# by every repository, and a full matrix per push to a pull request kept
-# them all busy for hours (2026-10-26). macOS, Windows, Debian 12 and the
-# other Nix systems run on main, so a platform break shows there before a
-# release tag. Changes to documentation alone skip the build entirely; the
-# required `policy` check lives in policy.yml so it still reports on them.
+# Fast portable feedback first; expensive checks selected by changed inputs.
+# Policy always reports separately. Manual full runs retain every platform.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - docs/**
-      - '**.md'
   pull_request:
-    paths-ignore:
-      - docs/**
-      - '**.md'
   merge_group:
+  # New advisories can appear without a dependency change. Daily audit only.
+  schedule:
+    - cron: '17 6 * * *'
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'full retains all platforms/Nix; fast runs portable checks'
+        type: choice
+        options: [full, fast]
+        default: full
 
 permissions:
   contents: read
@@ -30,7 +29,64 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    name: Select checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      portable: ${{ steps.scope.outputs.portable }}
+      native: ${{ steps.scope.outputs.native }}
+      audit: ${{ steps.scope.outputs.audit }}
+      nix: ${{ steps.scope.outputs.nix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Selection regression tests
+        run: |
+          python3 .github/scripts/test-ci-scope.py
+          python3 .github/scripts/test-ci-workflows.py
+      - name: Select changed inputs
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = schedule ]; then
+            echo 'audit=true' >> "$GITHUB_OUTPUT"
+            for check in portable native nix; do echo "$check=false" >> "$GITHUB_OUTPUT"; done
+          elif [ "$EVENT_NAME" = workflow_dispatch ] && [ "$REQUESTED_SCOPE" = fast ]; then
+            echo 'portable=true' >> "$GITHUB_OUTPUT"
+            for check in native audit nix; do echo "$check=false" >> "$GITHUB_OUTPUT"; done
+          elif [ "$EVENT_NAME" = workflow_dispatch ] || [ "$EVENT_NAME" = merge_group ]; then
+            python3 .github/scripts/ci-scope.py --full --output "$GITHUB_OUTPUT"
+          else
+            python3 .github/scripts/ci-scope.py --base "$BASE" --head "$HEAD" --output "$GITHUB_OUTPUT"
+          fi
+
+  portable:
+    name: Portable adapter and packaging
+    needs: changes
+    if: needs.changes.outputs.portable == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - run: python3 contrib/beeper-tools/check_adapter.py
+      - run: python3 -m unittest discover -s contrib/beeper-tools -p 'test_*.py'
+
   audit:
+    needs: [changes, portable]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.audit == 'true' }}
     name: Dependency advisories
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -43,6 +99,8 @@ jobs:
         run: cargo audit
 
   quality:
+    needs: [changes, portable]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' }}
     name: quality
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -73,6 +131,8 @@ jobs:
         run: mbx doc --locked --all-features --no-deps
 
   test:
+    needs: [changes, portable]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' }}
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # A cold Windows build passed both suites in 59 minutes, then timed out
@@ -112,7 +172,7 @@ jobs:
           wait "$demo_pid"
           test -s "$RUNNER_TEMP/zapfast-content.png"
       - name: macOS preview
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && vars.FAST_BEEPER_UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: macos-preview
@@ -122,8 +182,9 @@ jobs:
   # Building here too catches a dependency that needs newer system
   # libraries before a release tag does.
   debian-12:
+    needs: [changes, portable]
     name: compile (Debian 12)
-    if: github.event_name != 'pull_request'
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     container: debian:12
     timeout-minutes: 45
@@ -140,8 +201,9 @@ jobs:
       - run: cargo build --locked
 
   windows-arm64:
+    needs: [changes, portable]
     name: compile (Windows arm64)
-    if: github.event_name != 'pull_request'
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' && github.event_name != 'pull_request' }}
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -156,6 +218,8 @@ jobs:
       - run: mbx check --locked --all-targets --all-features --target aarch64-pc-windows-msvc
 
   nix:
+    needs: [changes, portable]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.nix == 'true' }}
     name: Nix package (${{ matrix.system }})
     runs-on: ${{ matrix.os }}
     # Uncached, aarch64-darwin takes about 53 minutes, Linux about 22.
