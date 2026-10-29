@@ -127,4 +127,19 @@ class TargetFileFallbackTests(unittest.TestCase):
                 with self.assertRaises(ValueError): launcher.resolve_beeper_target('server')
             self.assertEqual(list(pathlib.Path(tmp).iterdir()),[])
 
+
+
+class StdinTargetTests(unittest.TestCase):
+    def test_private_shell_pipe_accepts_exact_target_envelope(self):
+        data = b'{"success":true,"data":{"id":"server","baseURL":"http://127.0.0.1:23374","auth":{"accessToken":"synthetic"}}}'
+        stream = mock.Mock(); stream.buffer=io.BytesIO(data)
+        with mock.patch.object(launcher.sys,'stdin',stream), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(launcher.stdin_beeper_target('server'),('http://127.0.0.1:23374','synthetic'))
+        self.assertEqual(output.getvalue(),'')
+    def test_malformed_or_wrong_target_pipe_never_echoes_contents(self):
+        for data in [b'private-invalid-json',b'{"id":"desktop","auth":{"accessToken":"private-secret"}}',b'{}']:
+            stream=mock.Mock(); stream.buffer=io.BytesIO(data)
+            with mock.patch.object(launcher.sys,'stdin',stream), self.assertRaises(ValueError) as error: launcher.stdin_beeper_target('server')
+            self.assertNotIn('private-secret',str(error.exception))
+
 if __name__ == '__main__': unittest.main()
