@@ -139,20 +139,44 @@ def resolve_beeper_target(name):
         raise ValueError('Existing target data was invalid. No private target output was printed.') from None
 
 
+def stdin_beeper_target(name):
+    # Explicit local pipe from the user's working shell command. Never echo it.
+    try:
+        raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError()
+        payload = json.loads(raw)
+        if payload.get('success') is False:
+            raise ValueError()
+        target = payload.get('data', payload)
+        if target.get('id') != name:
+            raise ValueError()
+        base = target['baseURL']
+        validate_endpoint(base)
+        token = (target.get('auth') or {}).get('accessToken')
+        if not isinstance(token, str) or not token or len(token)>16384 or any(ch in token for ch in '\r\n'):
+            raise ValueError()
+        return base, token
+    except (ValueError, TypeError, KeyError, AttributeError, OSError):
+        raise ValueError('Piped target was missing, invalid or did not match the requested existing target. No private input was printed. Use JSON output from the working local Beeper CLI.') from None
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     route = parser.add_mutually_exclusive_group()
     route.add_argument('--base-url', help='Existing API server root; Desktop defaults to loopback port23373')
     route.add_argument('--beeper-target', help='Read one existing Beeper CLI target, without setup/start/default changes')
     parser.add_argument('--sign-in', action='store_true', help='Open in-app sign-in for an installed local Server; no terminal token prompt')
+    parser.add_argument('--target-stdin', action='store_true', help='Read private target JSON piped by the working local shell CLI; requires --beeper-target')
     parser.add_argument('--check-only', action='store_true', help='Check transport only, without prompting for a token or launching the client')
     parser.add_argument('--allow-writes', action='store_true', help='Enable deliberate sends, typing and mark-read changes')
     parser.add_argument('--binary', help='Existing local ZapFast binary, instead of cargo run')
     args = parser.parse_args()
+    if args.target_stdin and not args.beeper_target:
+        parser.error('--target-stdin requires --beeper-target')
     target_token = None
     if args.beeper_target:
         try:
-            args.base_url, target_token = resolve_beeper_target(args.beeper_target)
+            args.base_url, target_token = (stdin_beeper_target(args.beeper_target) if args.target_stdin else resolve_beeper_target(args.beeper_target))
         except ValueError as error:
             print(str(error), file=sys.stderr)
             return 1
