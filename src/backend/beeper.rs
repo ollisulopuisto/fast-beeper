@@ -3797,10 +3797,15 @@ mod tests {
     fn avatar_sources_refuse_external_hosts_and_use_authenticated_assets_with_limits() {
         assert!(avatar_source("https://example.org/profile.png").is_err());
         assert!(avatar_source("data:image/svg+xml,<svg>bad</svg>").is_err());
+        // Use a native absolute path: /tmp/... has no drive on Windows.
+        let local_path = std::env::temp_dir().join("profile image.png");
+        let expected = reqwest::Url::from_file_path(&local_path).unwrap();
+        assert!(expected.as_str().contains("profile%20image.png"));
         assert_eq!(
-            avatar_source("/tmp/profile image.png").unwrap(),
-            "file:///tmp/profile%20image.png"
+            avatar_source(local_path.to_str().unwrap()).unwrap(),
+            expected.as_str()
         );
+        assert!(avatar_source("relative/profile image.png").is_err());
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let mut png = Vec::new();
