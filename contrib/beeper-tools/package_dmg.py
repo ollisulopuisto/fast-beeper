@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import platform
+import plistlib
 import re
 import struct
 import subprocess
@@ -29,6 +30,38 @@ def validate_binary(binary, target):
     _, cpu, _, kind = struct.unpack('<IIII', header[:16])
     if cpu != TARGET_CPUS[target] or kind != 2:
         raise ValueError('Mach-O architecture/executable type does not match target')
+
+
+def verify_mounted(image, expected_name, target):
+    """Read-only mount and verify the actual image payload; always detach."""
+    with tempfile.TemporaryDirectory(prefix='.fast-beeper-verify-') as tmp:
+        mount = Path(tmp) / 'volume'
+        result = subprocess.run(
+            ['hdiutil', 'attach', '-readonly', '-nobrowse', '-plist',
+             '-mountpoint', str(mount), str(image)],
+            check=True, stdout=subprocess.PIPE)
+        # An attach succeeded, so cleanup is required even for malformed output.
+        try:
+            entities = plistlib.loads(result.stdout).get('system-entities', [])
+            if not any(item.get('mount-point') == str(mount) for item in entities):
+                raise ValueError('DMG did not mount at the expected location')
+            trial = mount / expected_name
+            if sorted(p.name for p in mount.iterdir()) != [expected_name] or not trial.is_dir():
+                raise ValueError('Unexpected disk image root payload')
+            paths = list(trial.rglob('*'))
+            if any(p.is_symlink() for p in paths):
+                raise ValueError('Disk image payload must not contain symlinks')
+            manifest = json.loads((trial / 'checksums.json').read_text())
+            actual = {p.relative_to(trial).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in paths if p.is_file() and p.name != 'checksums.json'}
+            if manifest != actual:
+                raise ValueError('Mounted disk image checksums or file set differ')
+            validate_binary(trial / 'zapfast', target)
+            info = json.loads((trial / 'build-info.json').read_text())
+            if info.get('target') != target or info.get('installable_app') is not False:
+                raise ValueError('Mounted disk image metadata differs')
+        finally:
+            subprocess.run(['hdiutil', 'detach', str(mount)], check=True)
 
 
 def create(root, binary, output, target, commit, version):
@@ -75,6 +108,7 @@ def create(root, binary, output, target, commit, version):
         if not image.is_file() or not image.stat().st_size:
             raise ValueError('hdiutil returned without a nonempty DMG')
         subprocess.run(['hdiutil', 'verify', str(image)], check=True)
+        verify_mounted(image, trial.name, target)
         (stage / (name + '.sha256')).write_text(hashlib.sha256(image.read_bytes()).hexdigest() + '  ' + name + '\n')
         stage.rename(output)
     return output / name

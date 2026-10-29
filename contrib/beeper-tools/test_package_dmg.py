@@ -80,8 +80,9 @@ class DmgTests(unittest.TestCase):
                         self.assertEqual(hashlib.sha256((trial / relative).read_bytes()).hexdigest(), digest)
                     self.assertEqual((trial / 'zapfast').stat().st_mode & 0o777, 0o755)
                     Path(command[-1]).write_bytes(b'mocked image, not a real DMG')
-            with mock.patch.object(dmg.subprocess, 'run', side_effect=run):
+            with mock.patch.object(dmg.subprocess, 'run', side_effect=run), mock.patch.object(dmg, 'verify_mounted') as mounted:
                 image = self.call(root, binary)
+            mounted.assert_called_once()
             self.assertEqual([c[1] for c in calls], ['create', 'verify'])
             self.assertTrue(image.exists())
             self.assertIn(hashlib.sha256(image.read_bytes()).hexdigest(), image.with_suffix('.dmg.sha256').read_text())
@@ -101,6 +102,49 @@ class DmgTests(unittest.TestCase):
                     with self.assertRaises((OSError, ValueError)):
                         self.call(root, binary)
                 self.assertFalse((root / 'out').exists())
+
+class MountedImageTests(unittest.TestCase):
+    def exercise(self, mode):
+        import plistlib
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / 'trial.dmg'
+            calls = []
+            def run(command, check, **kwargs):
+                calls.append(command[1])
+                if command[1] == 'attach':
+                    mount = Path(command[command.index('-mountpoint') + 1])
+                    trial = mount / 'trial'
+                    trial.mkdir(parents=True)
+                    binary = trial / 'zapfast'
+                    binary.write_bytes(struct.pack('<IIIIIIII', 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0))
+                    info = trial / 'build-info.json'
+                    info.write_text(json.dumps({'target': 'aarch64-apple-darwin', 'installable_app': False}))
+                    hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in trial.iterdir()}
+                    (trial / 'checksums.json').write_text(json.dumps(hashes))
+                    if mode == 'corrupt':
+                        binary.write_bytes(binary.read_bytes() + b'changed')
+                    elif mode == 'extra':
+                        (trial / 'unexpected').write_text('extra')
+                    elif mode == 'symlink':
+                        (trial / 'alias').symlink_to(binary)
+                    payload = b'not plist' if mode == 'bad-plist' else plistlib.dumps({'system-entities': [{'mount-point': str(mount)}]})
+                    return mock.Mock(stdout=payload)
+                if command[1] == 'detach':
+                    shutil.rmtree(Path(command[-1]))
+            with mock.patch.object(dmg.subprocess, 'run', side_effect=run):
+                if mode == 'valid':
+                    dmg.verify_mounted(image, 'trial', 'aarch64-apple-darwin')
+                else:
+                    with self.assertRaises((ValueError, dmg.plistlib.InvalidFileException)):
+                        dmg.verify_mounted(image, 'trial', 'aarch64-apple-darwin')
+            self.assertEqual(calls, ['attach', 'detach'])
+
+    def test_valid_image_and_always_detach_after_invalid_payload(self):
+        for mode in ('valid', 'corrupt', 'extra', 'symlink', 'bad-plist'):
+            with self.subTest(mode=mode):
+                self.exercise(mode)
 
 
 if __name__ == '__main__':
