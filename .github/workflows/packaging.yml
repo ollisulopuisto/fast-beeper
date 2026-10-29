@@ -37,6 +37,11 @@ on:
 permissions:
   contents: read
 
+# Never cancel a publishing release, only obsolete check-only runs.
+concurrency:
+  group: packaging-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   packaging:
     permissions:

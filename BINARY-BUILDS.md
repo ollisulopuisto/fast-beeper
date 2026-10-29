@@ -1,8 +1,12 @@
-# Automatic trial binaries
+# Manual trial and urgent hotfix binaries
 
-The **Trial binaries** workflow builds each push to main, relevant pull requests,
-and manual runs. Download the artifact for your machine from the successful
-Actions run after a maintainer enables uploads with the repository variable
+The **Trial binaries** workflow runs only when explicitly dispatched. Choose a
+branch/ref and one target (Apple Silicon by default), or deliberately choose `all`.
+It does not wait for full CI, and is compile/package evidence, not production
+release approval. See [CI-GUIDE.md](CI-GUIDE.md) for check routing and limits.
+
+With uploads off there is no retained download. Download an artifact only after
+a separately approved storage decision enables the repository variable
 `FAST_BEEPER_UPLOAD_ARTIFACTS=true`. Uploads default off until account storage and
 a no-spend budget or permitted storage cost are checked. Compilation and local
 packaging run without uploads. Artifacts expire after one day. Each contains a zip and its SHA-256

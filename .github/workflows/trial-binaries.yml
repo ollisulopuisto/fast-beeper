@@ -1,43 +1,59 @@
 name: Trial binaries
 
+# Explicit compile/package route, not an alternative production release gate.
+# No automatic duplicate release builds for PRs or main pushes.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'assets/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'build.rs'
-      - 'contrib/beeper-tools/**'
-      - 'BINARY-BUILDS.md'
-      - '.github/workflows/trial-binaries.yml'
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'assets/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'build.rs'
-      - 'contrib/beeper-tools/**'
-      - 'BINARY-BUILDS.md'
-      - '.github/workflows/trial-binaries.yml'
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Urgent compile/package target; all is an explicit broad run'
+        type: choice
+        default: aarch64-apple-darwin
+        options:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+          - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-msvc
+          - all
 
 permissions:
   contents: read
 
 concurrency:
-  group: trial-binaries-${{ github.event.pull_request.number || github.ref }}
+  group: trial-binaries-${{ github.ref }}-${{ inputs.target }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - id: matrix
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          rows = [
+              dict(os='macos-15', target='aarch64-apple-darwin', executable='zapfast'),
+              dict(os='macos-15-intel', target='x86_64-apple-darwin', executable='zapfast'),
+              dict(os='ubuntu-24.04', target='x86_64-unknown-linux-gnu', executable='zapfast'),
+              dict(os='windows-2025', target='x86_64-pc-windows-msvc', executable='zapfast.exe'),
+          ]
+          selected = [r for r in rows if os.environ['TARGET'] in ('all', r['target'])]
+          if not selected:
+              raise SystemExit('Unknown target; refusing build')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('matrix=' + json.dumps(dict(include=selected)) + '\n')
+          PY
+
   build:
+    needs: select
     name: ${{ matrix.target }}
     # Never silently start paid private-repo or larger-runner builds.
     if: github.event.repository.private == false
@@ -45,20 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 2
-      matrix:
-        include:
-          - os: macos-15
-            target: aarch64-apple-darwin
-            executable: zapfast
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            executable: zapfast
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            executable: zapfast
-          - os: windows-2025
-            target: x86_64-pc-windows-msvc
-            executable: zapfast.exe
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -110,6 +113,7 @@ jobs:
       - name: Run summary
         shell: bash
         run: |
+          echo 'Explicit urgent trial: compile/package checks, NOT full CI/release acceptance.' >> "$GITHUB_STEP_SUMMARY"
           echo '### Trial binary: ${{ matrix.target }}' >> "$GITHUB_STEP_SUMMARY"
           echo 'Unsigned / unnotarized. Existing Beeper Desktop or Server required. No token or profile bundled.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Artifact uploads require repository variable FAST_BEEPER_UPLOAD_ARTIFACTS=true after storage/budget review.' >> "$GITHUB_STEP_SUMMARY"
