@@ -103,4 +103,28 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(launcher.main(),1)
             prompt.assert_not_called(); launch.assert_not_called()
 
+
+
+class TargetFileFallbackTests(unittest.TestCase):
+    def test_shell_only_cli_uses_exact_existing_named_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            targets = pathlib.Path(tmp) / 'targets'
+            targets.mkdir()
+            (targets / 'server.json').write_text('{"id":"server","baseURL":"http://127.0.0.1:23374","auth":{"accessToken":"synthetic-server"}}')
+            with mock.patch.dict(os.environ, {'BEEPER_CLI_CONFIG_DIR':tmp,'BEEPER_ACCESS_TOKEN':'wrong-desktop'}), mock.patch.object(launcher.subprocess,'run',side_effect=FileNotFoundError):
+                self.assertEqual(launcher.resolve_beeper_target('server'),('http://127.0.0.1:23374','synthetic-server'))
+    def test_timeout_uses_same_existing_profile_and_validates_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            targets = pathlib.Path(tmp) / 'targets'; targets.mkdir()
+            (targets / 'server.json').write_text('{"id":"desktop","baseURL":"http://127.0.0.1:23374","auth":{"accessToken":"private-not-output"}}')
+            with mock.patch.dict(os.environ, {'BEEPER_CLI_CONFIG_DIR':tmp}), mock.patch.object(launcher.subprocess,'run',side_effect=launcher.subprocess.TimeoutExpired('beeper',10)):
+                with self.assertRaisesRegex(ValueError, 'could not be read safely') as error:
+                    launcher.resolve_beeper_target('server')
+                self.assertNotIn('private-not-output',str(error.exception))
+    def test_missing_profile_never_creates_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {'BEEPER_CLI_CONFIG_DIR':tmp}), mock.patch.object(launcher.subprocess,'run',side_effect=FileNotFoundError):
+                with self.assertRaises(ValueError): launcher.resolve_beeper_target('server')
+            self.assertEqual(list(pathlib.Path(tmp).iterdir()),[])
+
 if __name__ == '__main__': unittest.main()

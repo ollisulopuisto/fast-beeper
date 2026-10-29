@@ -101,7 +101,27 @@ def resolve_beeper_target(name):
         result = subprocess.run(['beeper','targets','show',name,'--json'], stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, timeout=10, check=False)
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        raise ValueError('Could not inspect the existing Beeper CLI target. Install/check the official CLI locally; no target was created or started.') from None
+        # Shell aliases/functions are not executables inherited by Python; the
+        # official CLI's exact named profile is a local source of truth too.
+        # Read only this existing target, never a Desktop/default fallback.
+        root = pathlib.Path(os.environ.get('BEEPER_CLI_CONFIG_DIR') or pathlib.Path.home() / '.beeper')
+        try:
+            path = root / 'targets' / (name + '.json')
+            with path.open('rb') as stream:
+                body = stream.read(1024 * 1024 + 1)
+            if len(body) > 1024 * 1024:
+                raise ValueError()
+            target = json.loads(body)
+            if target.get('id') != name:
+                raise ValueError()
+            base = target['baseURL']
+            validate_endpoint(base)
+            token = (target.get('auth') or {}).get('accessToken')
+            if token is not None and (not isinstance(token, str) or not token or len(token) > 16384 or any(ch in token for ch in '\r\n')):
+                raise ValueError()
+            return base, token
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('The CLI executable was unavailable or timed out, and its existing named target profile could not be read safely. No target, default or Server was changed; no private output was printed.') from None
     if result.returncode or len(result.stdout) > 1024 * 1024:
         raise ValueError('Existing target lookup failed. No target was created, changed or started.')
     try:
