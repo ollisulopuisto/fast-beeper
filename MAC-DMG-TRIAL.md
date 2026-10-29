@@ -32,7 +32,9 @@ uv run --no-project python contrib/beeper-tools/package_dmg.py --binary target/a
 Intel uses `x86_64-apple-darwin` in both places. The helper checks the executable's
 Mach-O CPU/type, rejects an existing output and creates/verifies the image with
 macOS hdiutil. It publishes a complete local output directory only after image
-verification, with a SHA-256 checksum beside the image. It does not establish
+verification, with a SHA-256 checksum beside the image. Before publication it
+mounts the image read-only, checks its exact file set, payload hashes, Mach-O
+architecture and metadata, then detaches it even when payload checks fail. It does not establish
 that the supplied commit/version actually built an arbitrary user-supplied binary;
 that provenance must be retained by the build caller. No signing, notarization,
 minimum macOS compatibility or application runtime acceptance is implied.
@@ -57,7 +59,7 @@ macOS blocks this unsigned/unnotarized trial.
 
 The payload, command construction, architecture rejection, non-Mac refusal,
 checksum verification, existing-output protection and failed/empty-image cleanup
-have portable mocked tests. **A real DMG has not been created, mounted or visually
+and read-only mount/detach validation have portable mocked tests. **A real DMG has not been created, mounted or visually
 inspected with this helper yet.** hdiutil execution, Gatekeeper, native launch and
 minimum system compatibility require a Mac acceptance run. This document does
 not claim a downloadable DMG or a released app.
