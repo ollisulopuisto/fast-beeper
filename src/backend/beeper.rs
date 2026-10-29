@@ -3061,7 +3061,9 @@ mod tests {
                         requests2.lock().unwrap().push(path.to_string());
                         let body = if path == "/v1/accounts" {
                             "[]"
-                        } else if path == "/v1/chats" {
+                        } else if path == "/v1/chats"
+                            || path.starts_with("/v1/chats/live-watch/messages")
+                        {
                             EMPTY_PAGE
                         } else {
                             r#"{"items":[{"id":"kept","timestamp":"2026-10-28T00:00:00Z","text":"keep"}],"hasMore":true}"#
@@ -3094,6 +3096,11 @@ mod tests {
         collect_until(&event_rx, Duration::from_secs(5), &|e| {
             matches!(e, Event::Chats(_))
         });
+        // Keep ordinary live polling active, but on a separate conversation.
+        // Reads of fixture history below must come only from explicit commands.
+        cmd_tx
+            .send(Command::WatchBeeperChats(vec!["live-watch".into()]))
+            .unwrap();
         cmd_tx
             .send(Command::LoadChat {
                 chat: "fixture".into(),
@@ -3137,6 +3144,15 @@ mod tests {
             matches!(e, Event::Messages { older: true, .. })
         });
         assert!(events.iter().any(|e|matches!(e,Event::Messages{older:true,complete:false,messages,..} if messages.is_empty())));
+        // Prove that a background poll really occurred during this test.
+        let live_events = collect_until(
+            &event_rx,
+            Duration::from_secs(5),
+            &|e| matches!(e, Event::BeeperLiveState { chat, .. } if chat == "live-watch"),
+        );
+        assert!(live_events.iter().any(|e| {
+            matches!(e, Event::BeeperLiveState { chat, error: None } if chat == "live-watch")
+        }));
         cmd_tx.send(Command::Shutdown).unwrap();
         worker.join().unwrap();
         done.store(true, Ordering::Relaxed);
@@ -3146,7 +3162,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|p| p.contains("/messages"))
+                .filter(|p| p.starts_with("/v1/chats/fixture/messages"))
                 .count(),
             1
         );
