@@ -51,6 +51,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         window_chrome(app, ui);
         return;
     }
+    app.beeper_signin.show(ctx);
+    if let Some(cfg) = app.beeper_signin.connect.take() {
+        app.connect_beeper_session(cfg);
+    }
     keys::handle(app, ctx);
     history_buttons(app, ctx);
     let main_navigation = app.is_linked()

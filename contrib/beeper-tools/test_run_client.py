@@ -5,6 +5,7 @@ import io
 import os
 import pathlib
 import socket
+import sys
 import tempfile
 import threading
 import unittest
@@ -104,3 +105,14 @@ class LauncherTests(unittest.TestCase):
             prompt.assert_not_called(); launch.assert_not_called()
 
 if __name__ == '__main__': unittest.main()
+
+class SignInLauncherTests(unittest.TestCase):
+    def test_signin_flag_reaches_gui_without_token_prompt_or_accounts_preflight(self):
+        with mock.patch.object(sys, 'argv', ['launcher.py', '--base-url', 'http://127.0.0.1:23374', '--sign-in', '--binary', '/tmp/synthetic-binary']), \
+             mock.patch.object(launcher, 'preflight') as preflight, \
+             mock.patch.object(launcher.getpass, 'getpass', side_effect=AssertionError('terminal prompt')), \
+             mock.patch.object(launcher.subprocess, 'call', return_value=0) as launch, \
+             mock.patch.object(launcher.pathlib.Path, 'mkdir'):
+            self.assertEqual(launcher.main(), 0)
+            preflight.assert_not_called()
+            self.assertEqual(launch.call_args.kwargs['env']['BEEPER_SIGN_IN'], '1')

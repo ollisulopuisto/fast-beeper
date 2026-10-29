@@ -34,10 +34,13 @@ const MSG_POLL: Duration = Duration::from_secs(3);
 /// Command-handling latency budget; the loop sleeps this long between drains.
 const LOOP_TICK: Duration = Duration::from_millis(200);
 
+#[derive(Clone)]
 pub struct BeeperConfig {
     pub base_url: String,
     pub token: String,
 }
+
+static SESSION: std::sync::Mutex<Option<BeeperConfig>> = std::sync::Mutex::new(None);
 
 static BEEPER_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -45,16 +48,24 @@ impl BeeperConfig {
     /// Returns whether ZapFast was launched with `ZAPFAST_BACKEND=beeper`.
     /// Cached so it can be called on UI frames without environment lookup overhead.
     pub fn is_beeper_mode() -> bool {
-        *BEEPER_MODE.get_or_init(|| {
-            std::env::var("ZAPFAST_BACKEND")
-                .map(|v| v.eq_ignore_ascii_case("beeper"))
-                .unwrap_or(false)
-        })
+        SESSION.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+            || *BEEPER_MODE.get_or_init(|| {
+                std::env::var("ZAPFAST_BACKEND")
+                    .map(|v| v.eq_ignore_ascii_case("beeper"))
+                    .unwrap_or(false)
+            })
     }
 
     /// The demo runs when `ZAPFAST_BACKEND=beeper`; without it ZapFast starts
     /// its normal WhatsApp worker, untouched.
+    pub fn set_session(cfg: &Self) {
+        *SESSION.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg.clone());
+    }
+
     pub fn from_env() -> Option<Self> {
+        if let Some(cfg) = SESSION.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+            return Some(cfg.clone());
+        }
         if !Self::is_beeper_mode() {
             return None;
         }
@@ -1763,7 +1774,7 @@ fn history_cursor(
 }
 
 pub fn run(
-    cfg: BeeperConfig,
+    mut cfg: BeeperConfig,
     dirs: AccountDirs,
     events: std::sync::mpsc::Sender<Event>,
     mut commands: UnboundedReceiver<Command>,
@@ -1776,6 +1787,12 @@ pub fn run(
 
     emit(Event::Link(LinkStatus::Connecting));
 
+    if cfg.token.is_empty() {
+        match crate::beeper_signin::stored(&cfg.base_url) {
+            Ok(token) => cfg.token = token.to_string(),
+            Err(error) => emit(Event::Info(error)),
+        }
+    }
     let api = match Api::new(&cfg) {
         Ok(api) => api,
         Err(e) => {

@@ -124,6 +124,7 @@ def main():
     route = parser.add_mutually_exclusive_group()
     route.add_argument('--base-url', help='Existing API server root; Desktop defaults to loopback port23373')
     route.add_argument('--beeper-target', help='Read one existing Beeper CLI target, without setup/start/default changes')
+    parser.add_argument('--sign-in', action='store_true', help='Open in-app sign-in for an installed local Server; no terminal token prompt')
     parser.add_argument('--check-only', action='store_true', help='Check transport only, without prompting for a token or launching the client')
     parser.add_argument('--allow-writes', action='store_true', help='Enable deliberate sends, typing and mark-read changes')
     parser.add_argument('--binary', help='Existing local ZapFast binary, instead of cargo run')
@@ -138,7 +139,10 @@ def main():
     args.base_url = args.base_url or 'http://127.0.0.1:23373'
     try:
         parsed = validate_endpoint(args.base_url)
-        preflight(args.base_url)
+        if not args.sign_in:
+            preflight(args.base_url)
+        elif parsed.hostname not in LOOPBACK:
+            raise ValueError('In-app sign-in requires a local loopback Server.')
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1
@@ -146,17 +150,18 @@ def main():
         print('Accounts endpoint reachable. Authentication and real-account compatibility remain separate checks.')
         return 0
     # A selected target must never inherit a Desktop token from the shell.
-    token = (target_token if args.beeper_target else os.environ.get('BEEPER_ACCESS_TOKEN')) or getpass.getpass('Beeper API token (local terminal only): ')
-    if not token:
+    token = (target_token if args.beeper_target else os.environ.get('BEEPER_ACCESS_TOKEN')) or ('' if args.sign_in else getpass.getpass('Beeper API token (local terminal only): '))
+    if not token and not args.sign_in:
         parser.error('Token is empty')
     try:
-        preflight(args.base_url, token)
+        if not args.sign_in:
+            preflight(args.base_url, token)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1
     env = loopback_child_environment(os.environ, parsed)
     env.update(ZAPFAST_BACKEND='beeper', BEEPER_DESKTOP_BASE_URL=args.base_url,
-               BEEPER_ACCESS_TOKEN=token, BEEPER_READONLY='0' if args.allow_writes else '1')
+               BEEPER_ACCESS_TOKEN=token, BEEPER_SIGN_IN='1' if args.sign_in else '0', BEEPER_READONLY='0' if args.allow_writes else '1')
     # Keep the prototype separate from any installed stock WhatsApp ZapFast profile.
     state = pathlib.Path.home() / '.zapfast-beeper-prototype'
     env['ZAPFAST_PROFILE_ROOT'] = str(state)

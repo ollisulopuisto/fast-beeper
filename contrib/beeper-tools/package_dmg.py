@@ -90,8 +90,8 @@ def create(root, binary, output, target, commit, version):
             'Copy the entire trial directory to a writable location before running.\n'
             'Use the Python Beeper launcher in README.md, not the bare binary.\n'
             'Python 3 or an existing uv installation is required. Nothing installs it.\n'
-            'An existing running Desktop or Server endpoint and its token are required.\n'
-            'The launcher asks for credentials locally and defaults to read-only.\n'
+            'An existing running Desktop or Server endpoint is required. Local Server sign-in is available with --sign-in.\n'
+            'Server email-code and recovery-key entry stay inside the app with --sign-in. The launcher defaults to read-only.\n'
             'No Server, credentials, account data or profile is bundled.\n'
             'No runtime, signing, notarization or minimum macOS compatibility acceptance.\n')
         info = json.loads((trial / 'build-info.json').read_text())

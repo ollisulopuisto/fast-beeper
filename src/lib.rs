@@ -13,6 +13,7 @@ pub mod audio;
 pub mod autostart;
 pub mod backdrop;
 pub mod backend;
+pub mod beeper_signin;
 pub mod bidi;
 pub mod call_audio;
 pub mod call_diag;
