@@ -243,9 +243,38 @@ struct AttachmentSize {
     height: u32,
 }
 
+/// Canonical navigation identity only. Account IDs, origins and send targets
+/// are never changed. Unknown network names remain intact.
+fn canonical_network(network: &str) -> String {
+    match network.trim().to_ascii_lowercase().as_str() {
+        "facebook" | "facebook/messenger" | "facebook messenger" | "messenger" | "facebookgo" => {
+            "Facebook/Messenger".into()
+        }
+        "signal" | "signalgo" => "Signal".into(),
+        "matrix" | "beeper" => "Beeper".into(),
+        "linkedin" => "LinkedIn".into(),
+        "whatsapp" => "WhatsApp".into(),
+        "slack" | "slackgo" => "Slack".into(),
+        "discord" | "discordgo" => "Discord".into(),
+        "telegram" => "Telegram".into(),
+        "instagram" => "Instagram".into(),
+        "googlemessages" | "google messages" | "sms" => "Google Messages".into(),
+        "imessage" => "iMessage".into(),
+        _ => network.to_owned(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct BeeperBridge {
+    #[serde(rename = "type", default)]
+    bridge_type: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BeeperAccount {
+    #[serde(default)]
+    bridge: Option<BeeperBridge>,
     #[serde(rename = "accountID")]
     account_id: String,
     #[serde(default)]
@@ -254,6 +283,27 @@ struct BeeperAccount {
     network: Option<String>,
     #[serde(default)]
     status: Option<String>,
+}
+
+impl BeeperAccount {
+    fn navigation_network(&self) -> String {
+        if let Some(network) = self.network.as_deref().filter(|n| !n.trim().is_empty()) {
+            return canonical_network(network);
+        }
+        // Fall back only to a known protocol type supplied by this API, never
+        // infer a network from an account ID or invent a connected account.
+        self.bridge
+            .as_ref()
+            .map(|b| match b.bridge_type.as_str() {
+                "facebook" | "facebookgo" | "messenger" | "signal" | "signalgo" | "matrix"
+                | "linkedin" | "whatsapp" | "slack" | "slackgo" | "discord" | "discordgo"
+                | "telegram" | "instagram" | "googlemessages" | "imessage" => {
+                    canonical_network(&b.bridge_type)
+                }
+                _ => String::new(),
+            })
+            .unwrap_or_default()
+    }
 }
 
 fn account_inventory(accounts: &[BeeperAccount]) -> Vec<super::BeeperAccountInfo> {
@@ -266,7 +316,7 @@ fn account_inventory(accounts: &[BeeperAccount]) -> Vec<super::BeeperAccountInfo
                 .as_ref()
                 .and_then(|u| u.full_name.clone().or(u.username.clone()))
                 .unwrap_or_else(|| a.account_id.clone()),
-            network: a.network.clone().unwrap_or_default(),
+            network: a.navigation_network(),
             status: a.status.clone().unwrap_or_else(|| "Not supplied".into()),
         })
         .collect()
@@ -1652,7 +1702,7 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
     }
     chat.network = Some(network_label(c));
     chat.backend_account = Some(c.account_id.clone());
-    chat.backend_network = Some(c.network.clone());
+    chat.backend_network = Some(canonical_network(&c.network));
     chat.last = c
         .preview
         .as_ref()
@@ -1697,17 +1747,16 @@ fn network_labeller(
     chats: &[BeeperChat],
     accounts: &[BeeperAccount],
 ) -> impl Fn(&BeeperChat) -> String {
-    let mut seen: HashMap<&str, HashSet<&str>> = HashMap::new();
+    let mut seen: HashMap<String, HashSet<&str>> = HashMap::new();
     for c in chats {
-        seen.entry(c.network.as_str())
+        seen.entry(canonical_network(&c.network))
             .or_default()
             .insert(c.account_id.as_str());
     }
     for account in accounts {
-        if let Some(network) = &account.network {
-            seen.entry(network.as_str())
-                .or_default()
-                .insert(&account.account_id);
+        let network = account.navigation_network();
+        if !network.is_empty() {
+            seen.entry(network).or_default().insert(&account.account_id);
         }
     }
     let duplicated: HashSet<String> = seen
@@ -1728,11 +1777,11 @@ fn network_labeller(
         .collect();
     move |c: &BeeperChat| {
         let network = if c.network.is_empty() {
-            "chat"
+            "chat".to_owned()
         } else {
-            c.network.as_str()
+            canonical_network(&c.network)
         };
-        if duplicated.contains(network) {
+        if duplicated.contains(&network) {
             let who = user_by_account
                 .get(&c.account_id)
                 .cloned()
@@ -2832,7 +2881,7 @@ fn poll_newer(
                 }
                 // A bad continuation cursor must not discard valid messages on this page.
                 if stalled {
-                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Live pagination cursor did not advance; received page kept, further updates may be missing".into())});
+                    emit(Event::BeeperLiveState {chat:chat.clone(),error:Some("Beeper could not advance to the next update page. Messages already loaded are kept, but newer messages may be missing".into())});
                     break;
                 }
                 if !more || newest.is_none() {
@@ -2922,6 +2971,46 @@ mod tests {
             );
         }
         server.join().unwrap();
+    }
+
+    #[test]
+    fn server_network_aliases_share_navigation_without_changing_account() {
+        let accounts: Vec<BeeperAccount> = serde_json::from_str(
+            r#"[
+            {"accountID":"private-facebook","network":"Facebook","bridge":{"type":"facebookgo"}},
+            {"accountID":"private-signal","bridge":{"type":"signal"}},
+            {"accountID":"private-unknown","bridge":{"type":"new-unknown-protocol"}}
+        ]"#,
+        )
+        .unwrap();
+        let inventory = account_inventory(&accounts);
+        assert_eq!(inventory[0].network, "Facebook/Messenger");
+        assert_eq!(inventory[1].network, "Signal");
+        assert_eq!(inventory[2].network, "");
+        assert_eq!(inventory[0].id, "private-facebook");
+        for alias in [
+            "Facebook",
+            "Facebook/Messenger",
+            "facebook messenger",
+            "Messenger",
+        ] {
+            let chat: BeeperChat = serde_json::from_value(serde_json::json!({
+                "id":"original-chat", "accountID":"private-facebook", "network":alias
+            }))
+            .unwrap();
+            let label = network_labeller(&[], &accounts);
+            let mapped = map_chat(&chat, &label);
+            assert_eq!(
+                mapped.backend_network.as_deref(),
+                Some(inventory[0].network.as_str())
+            );
+            assert_eq!(mapped.backend_account.as_deref(), Some("private-facebook"));
+            assert_eq!(mapped.id, "original-chat");
+        }
+        assert_eq!(
+            canonical_network("Unknown Custom Network"),
+            "Unknown Custom Network"
+        );
     }
 
     #[test]
@@ -3511,7 +3600,7 @@ mod tests {
             let events = events.into_inner().unwrap();
             assert!(events.iter().any(|event|matches!(event,Event::Messages{messages,..} if messages.iter().any(|m|m.id=="arrived"))));
             assert!(
-                matches!(events.last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("cursor"))
+                matches!(events.last(),Some(Event::BeeperLiveState{error:Some(text),..}) if text.contains("newer messages may be missing"))
             );
             worker.join().unwrap();
         }

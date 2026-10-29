@@ -68,7 +68,7 @@ pub(super) fn beeper_live_warning(app: &App, ui: &mut egui::Ui, chat: &str) {
         ui.add(
             egui::Label::new(
                 egui::RichText::new(format!(
-                    "{source}: {error}. Loaded messages may be stale; retrying automatically."
+                    "{source}: {error}. Updates may be incomplete. Retrying automatically."
                 ))
                 .color(app.palette.warning),
             )
