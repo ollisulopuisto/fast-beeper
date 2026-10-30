@@ -9,7 +9,7 @@ use crate::qr::Qr;
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
-    let beeper = crate::backend::beeper::BeeperConfig::from_env().is_some();
+    let beeper = crate::backend::beeper::BeeperConfig::is_beeper_mode();
     card(
         app,
         ui,
@@ -92,7 +92,10 @@ pub(super) fn card(
 fn body(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
-    let beeper = crate::backend::beeper::BeeperConfig::from_env().is_some();
+    let beeper = crate::backend::beeper::BeeperConfig::is_beeper_mode();
+    if beeper && ui.button("Sign in to local Beeper Server").clicked() {
+        app.beeper_signin.open = true;
+    }
     match app.link.clone() {
         LinkStatus::Starting | LinkStatus::Connecting => {
             busy(

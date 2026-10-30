@@ -1005,7 +1005,16 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         let (logo, _) = ui.allocate_exact_size(egui::Vec2::splat(44.0), egui::Sense::hover());
         theme::mark(ui, logo.center(), 44.0);
         ui.vertical(|ui| {
-            theme::text(ui, "ZapFast", theme::bold(17.0), palette.text);
+            theme::text(
+                ui,
+                if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
+                    "Fast Beeper"
+                } else {
+                    "ZapFast"
+                },
+                theme::bold(17.0),
+                palette.text,
+            );
             let version_label = crate::i18n::gettext(app.locale, "Version {version}")
                 .replace("{version}", env!("CARGO_PKG_VERSION"));
             theme::text(ui, version_label, theme::regular(13.0), palette.secondary);
@@ -1016,7 +1025,11 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            "A native WhatsApp client written in Rust with egui. It connects through whatsapp-rust. Messages are end-to-end encrypted on this device.",
+            if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
+                "A native Beeper client based on ZapFast, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper."
+            } else {
+                "A native WhatsApp client written in Rust with egui. It connects through whatsapp-rust. Messages are end-to-end encrypted on this device."
+            },
         ),
         theme::regular(13.0),
         palette.text,
@@ -1025,7 +1038,11 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            "This is an unofficial client. Using it may be against WhatsApp's terms of service and could get an account suspended.",
+            if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
+                "This is an unofficial Beeper client. Supported features depend on your Beeper API and connected networks. Source links and author credit below refer to the upstream ZapFast project."
+            } else {
+                "This is an unofficial client. Using it may be against WhatsApp's terms of service and could get an account suspended."
+            },
         ),
         theme::regular(12.5),
         palette.secondary,

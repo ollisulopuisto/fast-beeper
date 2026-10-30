@@ -14,7 +14,7 @@ use crate::model::{
 mod calls;
 pub use calls::CALL_LOG_LIMIT;
 mod drafts;
-mod encryption;
+pub(crate) mod encryption;
 pub use encryption::{archive_key_identity, copy_archive_key, forget_archive_key};
 mod favorites;
 pub use favorites::Favorite;

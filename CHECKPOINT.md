@@ -135,3 +135,17 @@ copyable in the existing error list when newer current/parked drafts prevent
 restoration. Empty composer restoration still works. Red-green assertions pass;
 GUI library/binary build. This is in-session dismissible retention, not a durable
 recovery archive: later errors can evict it. No new pixel/native validation.
+
+## October 30 overnight follow-through (local review)
+
+Combined branch `overnight/beeper-native-followthrough` retains both Server
+sign-in and the private SSH target-stdin launcher, plus canonical Messenger
+network aliases, optional bridge-type fallback and corrected product/settings
+copy. Merge conflicts were resolved preserving both helper capabilities.
+43 Python tests and 168 current-source adapter/model tests pass.
+Native compile, updated UI pixels, history-404 diagnosis and full network
+inventory are not verified. Messenger rendering was confirmed on the earlier
+user build; missing Signal/WhatsApp and pagination completeness remain open.
+No new branch push, hosted build, upload, merge or release was performed.
+Existing trial workflow produces ZIP only, not a fresh DMG. GitHub zero-new-cost
+restriction applies; storage liability is unverified, so builds remain held.

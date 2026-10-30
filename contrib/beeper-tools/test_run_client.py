@@ -5,6 +5,7 @@ import io
 import os
 import pathlib
 import socket
+import sys
 import tempfile
 import threading
 import unittest
@@ -102,5 +103,54 @@ class LauncherTests(unittest.TestCase):
         with mock.patch('sys.argv',['run_client.py','--base-url',self.base]), mock.patch.object(launcher.getpass,'getpass') as prompt, mock.patch.object(launcher.subprocess,'call') as launch, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(launcher.main(),1)
             prompt.assert_not_called(); launch.assert_not_called()
+
+
+class SignInLauncherTests(unittest.TestCase):
+    def test_signin_flag_reaches_gui_without_token_prompt_or_accounts_preflight(self):
+        with mock.patch.object(sys, 'argv', ['launcher.py', '--base-url', 'http://127.0.0.1:23374', '--sign-in', '--binary', '/tmp/synthetic-binary']), \
+             mock.patch.object(launcher, 'preflight') as preflight, \
+             mock.patch.object(launcher.getpass, 'getpass', side_effect=AssertionError('terminal prompt')), \
+             mock.patch.object(launcher.subprocess, 'call', return_value=0) as launch, \
+             mock.patch.object(launcher.pathlib.Path, 'mkdir'):
+            self.assertEqual(launcher.main(), 0)
+            preflight.assert_not_called()
+            self.assertEqual(launch.call_args.kwargs['env']['BEEPER_SIGN_IN'], '1')
+
+class TargetFileFallbackTests(unittest.TestCase):
+    def test_shell_only_cli_uses_exact_existing_named_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            targets = pathlib.Path(tmp) / 'targets'
+            targets.mkdir()
+            (targets / 'server.json').write_text('{"id":"server","baseURL":"http://127.0.0.1:23374","auth":{"accessToken":"synthetic-server"}}')
+            with mock.patch.dict(os.environ, {'BEEPER_CLI_CONFIG_DIR':tmp,'BEEPER_ACCESS_TOKEN':'wrong-desktop'}), mock.patch.object(launcher.subprocess,'run',side_effect=FileNotFoundError):
+                self.assertEqual(launcher.resolve_beeper_target('server'),('http://127.0.0.1:23374','synthetic-server'))
+    def test_timeout_uses_same_existing_profile_and_validates_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            targets = pathlib.Path(tmp) / 'targets'; targets.mkdir()
+            (targets / 'server.json').write_text('{"id":"desktop","baseURL":"http://127.0.0.1:23374","auth":{"accessToken":"private-not-output"}}')
+            with mock.patch.dict(os.environ, {'BEEPER_CLI_CONFIG_DIR':tmp}), mock.patch.object(launcher.subprocess,'run',side_effect=launcher.subprocess.TimeoutExpired('beeper',10)):
+                with self.assertRaisesRegex(ValueError, 'could not be read safely') as error:
+                    launcher.resolve_beeper_target('server')
+                self.assertNotIn('private-not-output',str(error.exception))
+    def test_missing_profile_never_creates_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {'BEEPER_CLI_CONFIG_DIR':tmp}), mock.patch.object(launcher.subprocess,'run',side_effect=FileNotFoundError):
+                with self.assertRaises(ValueError): launcher.resolve_beeper_target('server')
+            self.assertEqual(list(pathlib.Path(tmp).iterdir()),[])
+
+
+
+class StdinTargetTests(unittest.TestCase):
+    def test_private_shell_pipe_accepts_exact_target_envelope(self):
+        data = b'{"success":true,"data":{"id":"server","baseURL":"http://127.0.0.1:23374","auth":{"accessToken":"synthetic"}}}'
+        stream = mock.Mock(); stream.buffer=io.BytesIO(data)
+        with mock.patch.object(launcher.sys,'stdin',stream), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(launcher.stdin_beeper_target('server'),('http://127.0.0.1:23374','synthetic'))
+        self.assertEqual(output.getvalue(),'')
+    def test_malformed_or_wrong_target_pipe_never_echoes_contents(self):
+        for data in [b'private-invalid-json',b'{"id":"desktop","auth":{"accessToken":"private-secret"}}',b'{}']:
+            stream=mock.Mock(); stream.buffer=io.BytesIO(data)
+            with mock.patch.object(launcher.sys,'stdin',stream), self.assertRaises(ValueError) as error: launcher.stdin_beeper_target('server')
+            self.assertNotIn('private-secret',str(error.exception))
 
 if __name__ == '__main__': unittest.main()

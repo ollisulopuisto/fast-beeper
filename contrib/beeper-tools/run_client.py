@@ -101,7 +101,27 @@ def resolve_beeper_target(name):
         result = subprocess.run(['beeper','targets','show',name,'--json'], stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, timeout=10, check=False)
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        raise ValueError('Could not inspect the existing Beeper CLI target. Install/check the official CLI locally; no target was created or started.') from None
+        # Shell aliases/functions are not executables inherited by Python; the
+        # official CLI's exact named profile is a local source of truth too.
+        # Read only this existing target, never a Desktop/default fallback.
+        root = pathlib.Path(os.environ.get('BEEPER_CLI_CONFIG_DIR') or pathlib.Path.home() / '.beeper')
+        try:
+            path = root / 'targets' / (name + '.json')
+            with path.open('rb') as stream:
+                body = stream.read(1024 * 1024 + 1)
+            if len(body) > 1024 * 1024:
+                raise ValueError()
+            target = json.loads(body)
+            if target.get('id') != name:
+                raise ValueError()
+            base = target['baseURL']
+            validate_endpoint(base)
+            token = (target.get('auth') or {}).get('accessToken')
+            if token is not None and (not isinstance(token, str) or not token or len(token) > 16384 or any(ch in token for ch in '\r\n')):
+                raise ValueError()
+            return base, token
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('The CLI executable was unavailable or timed out, and its existing named target profile could not be read safely. No target, default or Server was changed; no private output was printed.') from None
     if result.returncode or len(result.stdout) > 1024 * 1024:
         raise ValueError('Existing target lookup failed. No target was created, changed or started.')
     try:
@@ -119,26 +139,54 @@ def resolve_beeper_target(name):
         raise ValueError('Existing target data was invalid. No private target output was printed.') from None
 
 
+def stdin_beeper_target(name):
+    # Explicit local pipe from the user's working shell command. Never echo it.
+    try:
+        raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError()
+        payload = json.loads(raw)
+        if payload.get('success') is False:
+            raise ValueError()
+        target = payload.get('data', payload)
+        if target.get('id') != name:
+            raise ValueError()
+        base = target['baseURL']
+        validate_endpoint(base)
+        token = (target.get('auth') or {}).get('accessToken')
+        if not isinstance(token, str) or not token or len(token)>16384 or any(ch in token for ch in '\r\n'):
+            raise ValueError()
+        return base, token
+    except (ValueError, TypeError, KeyError, AttributeError, OSError):
+        raise ValueError('Piped target was missing, invalid or did not match the requested existing target. No private input was printed. Use JSON output from the working local Beeper CLI.') from None
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     route = parser.add_mutually_exclusive_group()
     route.add_argument('--base-url', help='Existing API server root; Desktop defaults to loopback port23373')
     route.add_argument('--beeper-target', help='Read one existing Beeper CLI target, without setup/start/default changes')
+    parser.add_argument('--sign-in', action='store_true', help='Open in-app sign-in for an installed local Server; no terminal token prompt')
+    parser.add_argument('--target-stdin', action='store_true', help='Read private target JSON piped by the working local shell CLI; requires --beeper-target')
     parser.add_argument('--check-only', action='store_true', help='Check transport only, without prompting for a token or launching the client')
     parser.add_argument('--allow-writes', action='store_true', help='Enable deliberate sends, typing and mark-read changes')
     parser.add_argument('--binary', help='Existing local ZapFast binary, instead of cargo run')
     args = parser.parse_args()
+    if args.target_stdin and not args.beeper_target:
+        parser.error('--target-stdin requires --beeper-target')
     target_token = None
     if args.beeper_target:
         try:
-            args.base_url, target_token = resolve_beeper_target(args.beeper_target)
+            args.base_url, target_token = (stdin_beeper_target(args.beeper_target) if args.target_stdin else resolve_beeper_target(args.beeper_target))
         except ValueError as error:
             print(str(error), file=sys.stderr)
             return 1
     args.base_url = args.base_url or 'http://127.0.0.1:23373'
     try:
         parsed = validate_endpoint(args.base_url)
-        preflight(args.base_url)
+        if not args.sign_in:
+            preflight(args.base_url)
+        elif parsed.hostname not in LOOPBACK:
+            raise ValueError('In-app sign-in requires a local loopback Server.')
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1
@@ -146,17 +194,18 @@ def main():
         print('Accounts endpoint reachable. Authentication and real-account compatibility remain separate checks.')
         return 0
     # A selected target must never inherit a Desktop token from the shell.
-    token = (target_token if args.beeper_target else os.environ.get('BEEPER_ACCESS_TOKEN')) or getpass.getpass('Beeper API token (local terminal only): ')
-    if not token:
+    token = (target_token if args.beeper_target else os.environ.get('BEEPER_ACCESS_TOKEN')) or ('' if args.sign_in else getpass.getpass('Beeper API token (local terminal only): '))
+    if not token and not args.sign_in:
         parser.error('Token is empty')
     try:
-        preflight(args.base_url, token)
+        if not args.sign_in:
+            preflight(args.base_url, token)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1
     env = loopback_child_environment(os.environ, parsed)
     env.update(ZAPFAST_BACKEND='beeper', BEEPER_DESKTOP_BASE_URL=args.base_url,
-               BEEPER_ACCESS_TOKEN=token, BEEPER_READONLY='0' if args.allow_writes else '1')
+               BEEPER_ACCESS_TOKEN=token, BEEPER_SIGN_IN='1' if args.sign_in else '0', BEEPER_READONLY='0' if args.allow_writes else '1')
     # Keep the prototype separate from any installed stock WhatsApp ZapFast profile.
     state = pathlib.Path.home() / '.zapfast-beeper-prototype'
     env['ZAPFAST_PROFILE_ROOT'] = str(state)
