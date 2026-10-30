@@ -41,7 +41,8 @@ class FinderAppTests(unittest.TestCase):
         for required in ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'ExitOnForwardFailure=yes',
                          '127.0.0.1:23374:127.0.0.1:23374', 'target["id"] as? String == "server"',
                          'env["ZAPFAST_BACKEND"] = "beeper"', 'env["BEEPER_SIGN_IN"] = "0"',
-                         '.zapfast-beeper-prototype', 'defer { stop(tunnel) }']:
+                         '.zapfast-beeper-prototype', 'defer { stop(tunnel) }',
+                         'marker == Data("READY".utf8)']:
             self.assertIn(required, source)
         self.assertIn('let host: String', source)
         connection = source.split('struct Connection: Codable {', 1)[1].split('}', 1)[0]

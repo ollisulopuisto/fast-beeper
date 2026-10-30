@@ -102,12 +102,21 @@ func launch(_ connection: Connection) throws {
           !token.isEmpty, token.count <= 16384, !token.contains("\r"), !token.contains("\n")
     else { throw LaunchError.target }
 
-    let tunnel = ssh(connection, extra: ["-N", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:23374:127.0.0.1:23374"])
-    tunnel.standardOutput = FileHandle.nullDevice
+    // The remote ready marker is emitted only after SSH has established forwarding.
+    // Merely checking isRunning before authentication could send a token to an old listener.
+    let tunnel = ssh(connection, extra: ["-T", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:23374:127.0.0.1:23374"])
+    tunnel.arguments! += ["printf READY; cat >/dev/null"]
+    let hold = Pipe()
+    let ready = Pipe()
+    tunnel.standardInput = hold
+    tunnel.standardOutput = ready
     try tunnel.run()
     defer { stop(tunnel) }
-    Thread.sleep(forTimeInterval: 1)
-    guard tunnel.isRunning else { throw LaunchError.tunnel }
+    let tunnelTimeout = DispatchWorkItem { stop(tunnel) }
+    DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: tunnelTimeout)
+    let marker = try ready.fileHandleForReading.read(upToCount: 5)
+    tunnelTimeout.cancel()
+    guard tunnel.isRunning, marker == Data("READY".utf8) else { throw LaunchError.tunnel }
     let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")
     guard manager.isExecutableFile(atPath: binary.path) else { throw LaunchError.missingBinary }
     try manager.createDirectory(at: profile, withIntermediateDirectories: true,
