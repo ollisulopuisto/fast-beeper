@@ -114,7 +114,11 @@ func launch(_ connection: Connection) throws {
     defer { stop(tunnel) }
     let tunnelTimeout = DispatchWorkItem { stop(tunnel) }
     DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: tunnelTimeout)
-    let marker = try ready.fileHandleForReading.read(upToCount: 5)
+    var marker = Data()
+    while marker.count < 5 {
+        guard let chunk = try ready.fileHandleForReading.read(upToCount: 5 - marker.count), !chunk.isEmpty else { break }
+        marker.append(chunk)
+    }
     tunnelTimeout.cancel()
     guard tunnel.isRunning, marker == Data("READY".utf8) else { throw LaunchError.tunnel }
     let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")
