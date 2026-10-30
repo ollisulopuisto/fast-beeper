@@ -13,6 +13,8 @@ set -euo pipefail
 binary="$1"
 app="$2"
 version="$3"
+mode="${4:-upstream}"
+if [[ "$mode" != upstream && "$mode" != beeper ]]; then echo "Unknown app mode" >&2; exit 1; fi
 numeric_version="${version%%-*}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -21,13 +23,25 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$binary" "$app/Contents/MacOS/zapfast"
 chmod 755 "$app/Contents/MacOS/zapfast"
+if [[ "$mode" == beeper ]]; then
+    mv "$app/Contents/MacOS/zapfast" "$app/Contents/MacOS/zapfast-client"
+    xcrun swiftc -swift-version 5 -framework AppKit "$here/BeeperLauncher.swift" -o "$app/Contents/MacOS/zapfast"
+fi
 sed "s/__VERSION__/$numeric_version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
+
+if [[ "$mode" == beeper ]]; then
+    # A separate fork identity prevents updates/login agents colliding with stock ZapFast.
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier fi.sulopuisto.fast-beeper' "$app/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName ZapFast Beeper' "$app/Contents/Info.plist"
+fi
 
 # Starting in the tray at login: a login item cannot pass --start-hidden, so
 # SMAppService registers this agent from the bundle instead.
 identifier=me.paolino.fastsapp
+if [[ "$mode" == upstream ]]; then
 mkdir -p "$app/Contents/Library/LaunchAgents"
 cp "$here/autostart.plist" "$app/Contents/Library/LaunchAgents/$identifier.autostart.plist"
+fi
 
 iconset="$(mktemp -d)/zapfast.iconset"
 mkdir -p "$iconset"
@@ -44,6 +58,11 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/zapfast.icns"
 sounds="$here/../../assets/sounds"
 cp "$sounds/receive.wav" "$app/Contents/Resources/zapfast-receive.wav"
 cp "$sounds/alert.wav" "$app/Contents/Resources/zapfast-alert.wav"
+
+# Sign both executables in the fork, then the containing app.
+if [[ "$mode" == beeper ]]; then
+    codesign --force --entitlements "$here/entitlements.plist" --sign "${CODESIGN_IDENTITY:--}" "$app/Contents/MacOS/zapfast-client"
+fi
 
 # Attach the microphone entitlement before native-packages preserves it when
 # replacing the ad-hoc signature with a hardened Developer ID signature.
