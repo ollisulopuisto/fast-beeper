@@ -649,7 +649,56 @@ fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                     app.actions.push(Action::SetChatFilter(next));
                 }
             }
-            if !app.beeper_browse_networks().is_empty() {
+            let networks = app.beeper_browse_networks();
+            if !networks.is_empty() {
+                ui.add_space(6.0);
+                // Network quick filters replace the rail's network
+                // selector; the first ten keep their Ctrl+1..0 shortcuts.
+                for (index, network) in networks.iter().enumerate() {
+                    let selected = app.beeper_network_filter.as_ref() == Some(network);
+                    let name: &str = if network.is_empty() {
+                        "Network not supplied"
+                    } else {
+                        network
+                    };
+                    let chip = widgets::filter_chip(ui, &palette, name, 0, selected);
+                    let chip = if index < 10 {
+                        chip.on_hover_text(format!(
+                            "{name} ({})",
+                            super::keys::label(&format!("Ctrl+{}", (index + 1) % 10))
+                        ))
+                    } else {
+                        chip
+                    };
+                    if chip.clicked() {
+                        // A second click on the active network shows every network again.
+                        let next = if selected { None } else { Some(network.clone()) };
+                        app.select_beeper_scope(next, None);
+                    }
+                }
+                // With a network chosen, its accounts appear as chips, as
+                // they did under the rail's network buttons.
+                if let Some(network) = app.beeper_network_filter.clone() {
+                    for (key, label) in app.beeper_browse_accounts() {
+                        let selected = app.beeper_account_filter.as_ref() == Some(&key);
+                        let short = label
+                            .split(" · ")
+                            .nth(1)
+                            .unwrap_or(&label)
+                            .split(" [")
+                            .next()
+                            .unwrap_or(&label);
+                        if widgets::filter_chip(ui, &palette, short, 0, selected)
+                            .on_hover_text(&label)
+                            .clicked()
+                        {
+                            let account = if selected { None } else { Some(key) };
+                            app.select_beeper_scope(Some(network.clone()), account);
+                        }
+                    }
+                }
+            }
+            if !networks.is_empty() {
                 if widgets::filter_chip(ui, &palette, "Unreplied", 0, app.beeper_unreplied)
                     .on_hover_text("Latest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R")
                     .clicked()
@@ -912,7 +961,9 @@ fn starred_row(
     }
 }
 
-/// Compact pins intentionally span network/account navigation in this profile.
+/// Compact pins intentionally span network/account navigation in this
+/// profile. They render as ordinary chat rows, so pin/unpin, context
+/// menus and unread badges behave exactly as in the list below.
 fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
     let pins = app.beeper_global_pins();
     if pins.is_empty() {
@@ -924,100 +975,24 @@ fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
             .small()
             .color(palette.secondary),
     );
+    let row_height = if app.settings.beeper.compact_list {
+        56.0
+    } else {
+        theme::ROW_HEIGHT
+    };
+    ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical()
         .id_salt("beeper-global-pins")
-        .max_height(190.0)
+        .max_height(row_height * 3.5)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for chat in pins {
-                    let title = app.chat_title(&chat);
-                    let identity = chat.network.as_deref().unwrap_or("Beeper");
-                    let picture = app.avatar(&chat.id);
-                    let (rect, response) = ui.allocate_exact_size(vec2(76.0, 88.0), Sense::click());
-                    if response.hovered() || app.open_chat.as_deref() == Some(&chat.id) {
-                        widgets::row_highlight(ui, &palette, rect, palette.surface_active);
-                    }
-                    let avatar = Rect::from_center_size(
-                        rect.center_top() + vec2(0.0, 23.0),
-                        Vec2::splat(38.0),
-                    );
-                    widgets::paint_avatar(
-                        ui,
-                        &palette,
-                        avatar,
-                        &title,
-                        &chat.id,
-                        picture.as_deref(),
-                    );
-                    if chat.looks_unread() {
-                        widgets::unread_indicator(
-                            ui,
-                            &palette,
-                            avatar.right_top(),
-                            chat.unread.max(1),
-                            false,
-                            false,
-                        );
-                    }
-                    let name = if title.chars().count() > 10 {
-                        format!("{}…", title.chars().take(9).collect::<String>())
-                    } else {
-                        title.clone()
-                    };
-                    ui.painter().text(
-                        rect.center_top() + vec2(0.0, 52.0),
-                        egui::Align2::CENTER_CENTER,
-                        name,
-                        theme::regular(11.0),
-                        palette.text,
-                    );
-                    let parts: Vec<_> = identity.split(" · ").collect();
-                    let network = chat.backend_network.as_deref().unwrap_or("B");
-                    let short = match network.to_lowercase().as_str() {
-                        "whatsapp" => "WA".to_owned(),
-                        "signal" => "Si".to_owned(),
-                        "telegram" => "Tg".to_owned(),
-                        _ => network.chars().take(2).collect(),
-                    };
-                    let marker = format!(
-                        "{short} · {}",
-                        parts
-                            .last()
-                            .copied()
-                            .unwrap_or(identity)
-                            .chars()
-                            .take(6)
-                            .collect::<String>()
-                    );
-                    ui.painter().text(
-                        rect.center_top() + vec2(0.0, 69.0),
-                        egui::Align2::CENTER_CENTER,
-                        marker,
-                        theme::regular(10.0),
-                        palette.secondary,
-                    );
-                    let response = response.on_hover_text(format!(
-                        "{title}\n{identity}\nAccount: {}",
-                        chat.backend_account.as_deref().unwrap_or("")
-                    ));
-                    response.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::WidgetType::SelectableLabel,
-                            ui.is_enabled(),
-                            app.open_chat.as_deref() == Some(&chat.id),
-                            format!("Pinned {title}, {identity}"),
-                        )
-                    });
-                    if response.clicked() {
-                        app.actions.push(Action::OpenChat(chat.id.clone()));
-                    }
-                }
-            });
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for chat in pins {
+                row(app, ui, &chat);
+            }
         });
-    ui.add_space(6.0);
+    ui.add_space(4.0);
 }
-
 fn list(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     // Taken here so a send seen while the list is hidden cannot move it later.
