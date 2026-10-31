@@ -1554,6 +1554,30 @@ pub(crate) fn composer_with_capabilities(
                     });
                     sent
                 });
+            // Shift+Ctrl+Enter (Cmd on a Mac) schedules the draft instead of
+            // sending it; plain Enter and the send shortcut stay untouched.
+            let schedule_key = has_focus
+                && app.editing.is_none()
+                && ui.input_mut(|input| {
+                    let mut scheduled = false;
+                    input.events.retain(|event| {
+                        if scheduled {
+                            return true;
+                        }
+                        let is_schedule = matches!(
+                            event,
+                            egui::Event::Key {
+                                key: Key::Enter,
+                                pressed: true,
+                                modifiers,
+                                ..
+                            } if modifiers.shift && modifiers.command && !modifiers.alt
+                        );
+                        scheduled |= is_schedule;
+                        !is_schedule
+                    });
+                    scheduled
+                });
             let mut send_click = false;
             let line_height = ui
                 .painter()
@@ -1904,6 +1928,9 @@ pub(crate) fn composer_with_capabilities(
             theme::focus_outline(ui, id, pill.response.rect, f32::from(COMPOSER_RADIUS));
             ui.ctx()
                 .data_mut(|data| data.insert_temp(composer_pill_id(), pill.response.rect));
+            if schedule_key && (!app.composer.trim().is_empty() || !app.pending.is_empty()) {
+                app.actions.push(Action::ShowDialog(Dialog::SendLater));
+            }
             if (send_key || send_click)
                 && (!app.composer.trim().is_empty() || !app.pending.is_empty())
             {
@@ -1936,7 +1963,14 @@ pub(crate) fn composer_with_capabilities(
                     (true, false) => crate::i18n::gettext(app.locale, "Enter sends · Shift+Enter for a new line · *bold* _italic_ ~strike~ · Text only"),
                     (false, false) => crate::i18n::gettext(app.locale, "Ctrl+Enter sends · *bold* _italic_ ~strike~ · Text only"),
                 };
-                let hint = super::keys::label(hint_text.as_ref());
+                let hint = super::keys::label(
+                    format!(
+                        "{} · {}",
+                        hint_text.as_ref(),
+                        crate::i18n::gettext(app.locale, "Shift+Ctrl+Enter schedules")
+                    )
+                    .as_str(),
+                );
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
                     if theme::icon_button(

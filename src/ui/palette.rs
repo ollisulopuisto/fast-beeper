@@ -31,10 +31,11 @@ pub enum PaletteCommand {
     Shortcuts,
     WhatsNew,
     ScheduledQueue,
+    SendLater,
 }
 
 impl PaletteCommand {
-    const EVERY: [Self; 8] = [
+    const EVERY: [Self; 9] = [
         Self::SearchChats,
         Self::NewChat,
         Self::Unreplied,
@@ -43,6 +44,7 @@ impl PaletteCommand {
         Self::Shortcuts,
         Self::WhatsNew,
         Self::ScheduledQueue,
+        Self::SendLater,
     ];
 
     fn title(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
@@ -56,6 +58,7 @@ impl PaletteCommand {
             Self::Shortcuts => gettext(locale, "Keyboard shortcuts"),
             Self::WhatsNew => gettext(locale, "What's New"),
             Self::ScheduledQueue => gettext(locale, "Send Later queue"),
+            Self::SendLater => gettext(locale, "Schedule this message"),
         }
     }
 }
@@ -157,6 +160,7 @@ fn execute(app: &mut App, row: &PaletteRow) {
             PaletteCommand::ScheduledQueue => {
                 app.actions.push(Action::ShowDialog(Dialog::ScheduledList))
             }
+            PaletteCommand::SendLater => app.actions.push(Action::ShowDialog(Dialog::SendLater)),
         },
     }
     app.actions.push(Action::CloseDialog);
