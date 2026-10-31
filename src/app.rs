@@ -8847,18 +8847,19 @@ impl App {
                 text,
                 due_at,
                 quoting,
+                replaces,
             } => {
                 // The composer and quote stay until the scheduler confirms
                 // (`Event::ScheduledAccepted`); a failure loses nothing.
                 self.backend.send(Command::ScheduleSend {
                     scheduler_url: self.settings.scheduler_url.clone(),
                     scheduler_token: self.scheduler_token(),
-                    account: self.account().id.clone(),
+                    account: self.account().id.to_string(),
                     chat,
                     text,
                     due_at,
                     quoting,
-                    replaces: self.send_later_replaces.clone(),
+                    replaces: replaces.or_else(|| self.send_later_replaces.clone()),
                 });
             }
             Action::SetArchived(chat, archived) => {

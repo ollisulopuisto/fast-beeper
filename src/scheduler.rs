@@ -23,9 +23,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// All times are Unix seconds. The UI converts with jiff at the boundary;
-/// the queue itself stays integer math so persistence needs no jiff/serde
-/// feature and ordering is trivial.
+// All times are Unix seconds. The UI converts with jiff at the boundary;
+// the queue itself stays integer math so persistence needs no jiff/serde
+// feature and ordering is trivial.
 
 /// On-disk schema version. Unknown versions refuse to load rather than
 /// silently dropping scheduled messages.

@@ -2394,14 +2394,14 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
         let evening = now
             .date()
             .at(20, 0, 0, 0)
-            .to_zoned(now.time_zone())
+            .to_zoned(now.time_zone().clone())
             .ok()
             .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
         preset(ui, "This evening".to_string(), evening);
         let morning = now
             .date()
             .at(9, 0, 0, 0)
-            .to_zoned(now.time_zone())
+            .to_zoned(now.time_zone().clone())
             .ok()
             .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
         preset(ui, "Tomorrow morning".to_string(), morning);
@@ -2507,6 +2507,7 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
                 text,
                 due_at,
                 quoting,
+                replaces: None,
             });
         }
         app.actions.push(crate::model::Action::CloseDialog);
@@ -2591,7 +2592,7 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                     });
                     let preview: String = m.text.chars().take(120).collect();
                     ui.label(preview);
-                    if m.quoting.is_some() {
+                    if m.reply_to.is_some() {
                         ui.label(
                             egui::RichText::new("reply")
                                 .small()
@@ -2611,22 +2612,22 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                                 .small_button(crate::i18n::gettext(app.locale, "Cancel"))
                                 .clicked()
                         {
-                            app.dispatch(Action::ScheduledItemAction {
+                            app.actions.push(Action::ScheduledItemAction {
                                 id: m.id.clone(),
                                 action: "cancel".into(),
                             });
-                            app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                            app.actions.push(Action::ShowDialog(Dialog::ScheduledList));
                         }
                         if matches!(m.state, State::Failed | State::Missed | State::Uncertain)
                             && ui
                                 .small_button(crate::i18n::gettext(app.locale, "Retry"))
                                 .clicked()
                         {
-                            app.dispatch(Action::ScheduledItemAction {
+                            app.actions.push(Action::ScheduledItemAction {
                                 id: m.id.clone(),
                                 action: "retry".into(),
                             });
-                            app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                            app.actions.push(Action::ShowDialog(Dialog::ScheduledList));
                         }
                         if matches!(
                             m.state,
@@ -2636,11 +2637,11 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                                 .small_button(crate::i18n::gettext(app.locale, "Send now"))
                                 .clicked()
                             {
-                                app.dispatch(Action::ScheduledItemAction {
+                                app.actions.push(Action::ScheduledItemAction {
                                     id: m.id.clone(),
                                     action: "send-now".into(),
                                 });
-                                app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                                app.actions.push(Action::ShowDialog(Dialog::ScheduledList));
                             }
                             if ui
                                 .small_button(crate::i18n::gettext(app.locale, "Edit"))
@@ -2657,7 +2658,7 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                                     app.send_later_draft_backup = Some(app.composer.clone());
                                 }
                                 app.composer = m.text.clone();
-                                if let Some(quoting) = &m.quoting {
+                                if let Some(quoting) = &m.reply_to {
                                     app.reply_to = Some(crate::model::ReplyTarget {
                                         id: quoting.clone(),
                                         chat: None,
