@@ -45,12 +45,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         egui::Id::new("chats-resize-strip"),
         egui::Sense::click_and_drag(),
     );
-    if resize.hovered() || resize.dragged() {
+    // The strip reaches onto the conversation's side of the edge, where the
+    // conversation's own widgets cover it, so a press there never reaches
+    // this interact. Follow the raw pointer instead: a press starting
+    // anywhere in the strip drags the edge while it stays down.
+    let strip_drag = ui.ctx().input(|input| {
+        input.pointer.primary_down()
+            && input
+                .pointer
+                .press_origin()
+                .is_some_and(|origin| strip.contains(origin))
+    });
+    if resize.hovered() || strip_drag {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    if resize.dragged()
-        && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos())
-    {
+    if strip_drag && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos()) {
         let dragged = (pos.x - rect.left()).clamp(260.0, 520.0);
         if (dragged - app.settings.sidebar_width).abs() > 1.0 {
             app.settings.sidebar_width = dragged;
