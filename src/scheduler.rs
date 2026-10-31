@@ -563,8 +563,10 @@ mod tests {
         let mut uncertain = item("a", ts(-1));
         uncertain.state = State::Uncertain;
         queue.add(uncertain).unwrap();
-        let mut mock = Mock::default();
-        mock.reconcile_verdict = Reconcile::Found;
+        let mock = Mock {
+            reconcile_verdict: Reconcile::Found,
+            ..Default::default()
+        };
         let mut sched = scheduler(queue, mock);
         let verdict = sched
             .reconcile(
@@ -583,8 +585,10 @@ mod tests {
         let mut uncertain = item("a", ts(-1));
         uncertain.state = State::Uncertain;
         queue.add(uncertain).unwrap();
-        let mut mock = Mock::default();
-        mock.reconcile_verdict = Reconcile::NotFound;
+        let mock = Mock {
+            reconcile_verdict: Reconcile::NotFound,
+            ..Default::default()
+        };
         let mut sched = scheduler(queue, mock);
         sched
             .reconcile(

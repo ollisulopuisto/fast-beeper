@@ -10,15 +10,13 @@
 //! - BEEPER_ACCESS_TOKEN   Server API token (required)
 //! - ZAPFAST_QUEUE_PATH    queue file (default: ~/.local/share/zapfast/scheduled.json)
 //! - ZAPFAST_LISTEN        listen address (default: 127.0.0.1:23376; ALWAYS
-//!                         keep this localhost - there is no auth on the
-//!                         control socket beyond the loopback binding)
+//!   keep this localhost - there is no auth on the control socket beyond
+//!   the loopback binding)
 //! - ZAPFAST_TICK_SECS     seconds between due checks (default: 15, min 1)
 //! - ZAPFAST_CONTROL_TOKEN bearer token REQUIRED on every request; the
-//!                         daemon refuses to start without one. Prefer
-//!                         ZAPFAST_CONTROL_TOKEN_FILE (default:
-//!                         ~/.config/zapfast/scheduler-token, 0600) over the
-//!                         environment, so the secret stays out of the
-//!                         process list.
+//!   daemon refuses to start without one. Prefer ZAPFAST_CONTROL_TOKEN_FILE
+//!   (default: ~/.config/zapfast/scheduler-token, 0600) over the environment,
+//!   so the secret stays out of the process list.
 //!
 //! Socket hardening, even without a token: POSTs require
 //! Content-Type: application/json and any request carrying an Origin or
@@ -46,7 +44,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use zapfast::scheduler::{Queue, ScheduledMessage, Scheduler};
+use zapfast::scheduler::{Queue, Scheduler};
 use zapfast::scheduler_api::ServerSender;
 
 fn now() -> i64 {
