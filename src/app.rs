@@ -430,6 +430,10 @@ pub struct App {
     /// Profile names observed on incoming messages, by sender id, for people
     /// the contact book does not know (group members on server accounts).
     pub sender_names: HashMap<String, String>,
+    /// Quote references already requested from the server (chat, quoted
+    /// id): each is fetched once per session; failures keep the generic
+    /// placeholder instead of re-fetching every batch.
+    pub quote_fetches: std::collections::HashSet<(ChatId, String)>,
     pub beeper_search_state: Option<(String, Option<String>, bool)>,
     composer_mentions: Vec<ComposerMention>,
     /// Byte offset of the `:` starting the active emoji query.
@@ -1416,6 +1420,7 @@ impl App {
             beeper_history_errors: HashMap::new(),
             beeper_live_errors: HashMap::new(),
             sender_names: HashMap::new(),
+            quote_fetches: std::collections::HashSet::new(),
             beeper_search_state: None,
             composer_mentions: Vec::new(),
             emoji_start: None,
@@ -3858,6 +3863,31 @@ impl App {
                         quoted.sender_name = Some(sender_name);
                     }
                 }
+                // Quotes whose originals are outside the loaded page are
+                // fetched by id, once per session; failures keep the
+                // generic placeholder rather than re-fetching forever.
+                let still_unresolved: Vec<(String, String)> = unresolved_quotes
+                    .iter()
+                    .filter(|(message_id, quoted_id)| {
+                        !self
+                            .quote_fetches
+                            .contains(&(chat.clone(), quoted_id.clone()))
+                            && conversation
+                                .message(message_id)
+                                .and_then(|message| message.quoted.as_ref())
+                                .is_some_and(|quoted| quoted.sender.is_empty())
+                    })
+                    .cloned()
+                    .collect();
+                if !still_unresolved.is_empty() {
+                    for (_, quoted_id) in &still_unresolved {
+                        self.quote_fetches.insert((chat.clone(), quoted_id.clone()));
+                    }
+                    self.backend.send(Command::ResolveQuotes {
+                        chat: chat.clone(),
+                        refs: still_unresolved,
+                    });
+                }
                 if older {
                     conversation.loading_older = false;
                     conversation.complete = complete;
@@ -4568,6 +4598,30 @@ impl App {
                 }
             }
             Event::Info(message) => self.toast(message),
+            Event::QuoteResolved {
+                chat,
+                message,
+                quoted,
+            } => {
+                // A name observed anywhere in history beats the raw id.
+                let sender_name = quoted
+                    .sender_name
+                    .clone()
+                    .or_else(|| self.sender_names.get(&quoted.sender).cloned());
+                // The server returning no author keeps the placeholder.
+                if !quoted.sender.is_empty()
+                    && let Some(message) = self
+                        .conversations
+                        .get_mut(&chat)
+                        .and_then(|conversation| conversation.message_mut(&message))
+                    && let Some(existing) = message.quoted.as_mut()
+                {
+                    existing.sender = quoted.sender.clone();
+                    existing.sender_name = sender_name;
+                    existing.summary = quoted.summary.clone();
+                    existing.labelled = quoted.labelled;
+                }
+            }
             Event::ClipboardImage(result) => {
                 self.handle_clipboard_image(result, write_clipboard_image);
             }

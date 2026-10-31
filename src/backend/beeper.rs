@@ -2322,6 +2322,30 @@ pub fn run(
                     // Pull the echo (and anything else new) straight away.
                     poll_newer(&api, &chat, &mut chat_cursors, &emit);
                 }
+                Command::ResolveQuotes { chat, refs } => {
+                    for (message_id, quoted_id) in refs {
+                        let Ok(fetched) = api.get_message(&chat, &quoted_id) else {
+                            // Deleted or unreachable quoted message: keep the
+                            // generic placeholder rather than guessing.
+                            continue;
+                        };
+                        let (body, labelled) = body_of(&fetched);
+                        let summary: String = body.chars().take(120).collect();
+                        emit(Event::QuoteResolved {
+                            chat: chat.clone(),
+                            message: message_id,
+                            quoted: crate::model::Quoted {
+                                chat: None,
+                                id: quoted_id,
+                                sender: fetched.sender_id.clone(),
+                                sender_name: readable_name(&fetched.sender_name),
+                                summary,
+                                labelled: Some(labelled),
+                                mentions: Vec::new(),
+                            },
+                        });
+                    }
+                }
                 Command::SetBeeperReminder { chat, at } => {
                     let path = format!("/v1/chats/{}/reminders", encode_segment(&chat));
                     let result = if let Some(at) = at {
