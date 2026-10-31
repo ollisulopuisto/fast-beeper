@@ -33,7 +33,7 @@ pub enum PaletteCommand {
 }
 
 impl PaletteCommand {
-    const EVERY: [Self; 6] = [
+    const EVERY: [Self; 7] = [
         Self::SearchChats,
         Self::NewChat,
         Self::Unreplied,
