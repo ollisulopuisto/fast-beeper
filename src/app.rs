@@ -3858,6 +3858,24 @@ impl App {
                         quoted.sender_name = Some(sender_name);
                     }
                 }
+                // Quotes whose originals are outside the loaded page are
+                // fetched by id; failures keep the generic placeholder.
+                let still_unresolved: Vec<(String, String)> = unresolved_quotes
+                    .iter()
+                    .filter(|(message_id, _)| {
+                        conversation
+                            .message(message_id)
+                            .and_then(|message| message.quoted.as_ref())
+                            .is_some_and(|quoted| quoted.sender.is_empty())
+                    })
+                    .cloned()
+                    .collect();
+                if !still_unresolved.is_empty() {
+                    self.backend.send(Command::ResolveQuotes {
+                        chat: chat.clone(),
+                        refs: still_unresolved,
+                    });
+                }
                 if older {
                     conversation.loading_older = false;
                     conversation.complete = complete;
@@ -4568,6 +4586,28 @@ impl App {
                 }
             }
             Event::Info(message) => self.toast(message),
+            Event::QuoteResolved {
+                chat,
+                message,
+                quoted,
+            } => {
+                // A name observed anywhere in history beats the raw id.
+                let sender_name = quoted
+                    .sender_name
+                    .clone()
+                    .or_else(|| self.sender_names.get(&quoted.sender).cloned());
+                if let Some(message) = self
+                    .conversations
+                    .get_mut(&chat)
+                    .and_then(|conversation| conversation.message_mut(&message))
+                    && let Some(existing) = message.quoted.as_mut()
+                {
+                    existing.sender = quoted.sender.clone();
+                    existing.sender_name = sender_name;
+                    existing.summary = quoted.summary.clone();
+                    existing.labelled = quoted.labelled;
+                }
+            }
             Event::ClipboardImage(result) => {
                 self.handle_clipboard_image(result, write_clipboard_image);
             }
@@ -18908,7 +18948,10 @@ mod tests {
         assert_eq!(quoted.sender, "wl_uuid:local-signal.localhost");
         assert_eq!(quoted.sender_name.as_deref(), Some("~Mikael Kasurinen"));
         // The observed profile name resolves group members the contacts lack.
-        assert_eq!(app.display_name("wl_uuid:local-signal.localhost"), "~Mikael Kasurinen");
+        assert_eq!(
+            app.display_name("wl_uuid:local-signal.localhost"),
+            "~Mikael Kasurinen"
+        );
     }
 
     /// Settings measures the account's media cache as it opens; Clear empties

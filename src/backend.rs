@@ -858,6 +858,12 @@ pub enum Command {
     SetArchived(ChatId, bool),
     /// Beeper server reminder; None clears it. ISO8601 UTC timestamp.
     WatchBeeperChats(Vec<ChatId>),
+    /// Resolve the authors and previews of quoted messages that were not
+    /// in the loaded page: (message holding the quote, quoted message id).
+    ResolveQuotes {
+        chat: ChatId,
+        refs: Vec<(String, String)>,
+    },
     SetBeeperReminder {
         chat: ChatId,
         at: Option<String>,
@@ -1442,6 +1448,13 @@ pub enum Event {
     },
     /// Informational toast message.
     Info(String),
+    /// A quoted message fetched by id because it was outside the loaded
+    /// page: (message holding the quote, resolved quote).
+    QuoteResolved {
+        chat: ChatId,
+        message: String,
+        quoted: crate::model::Quoted,
+    },
     /// A decoded image ready to be written to the clipboard on the interface thread.
     ClipboardImage(Result<crate::model::DecodedImage, String>),
     /// A newer release than this build exists.
