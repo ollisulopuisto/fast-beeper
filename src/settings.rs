@@ -425,6 +425,10 @@ pub struct Settings {
     pub custom_titlebar: bool,
     /// Interface language. `None` follows the operating system's locale.
     pub interface_language: Option<crate::i18n::Locale>,
+    /// The version whose release notes the user last saw; `None` before
+    /// the What's New dialog has ever been acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_changelog_version: Option<String>,
     /// Filename of the selected local JSON palette.
     pub custom_theme: Option<String>,
     #[serde(

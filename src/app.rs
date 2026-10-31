@@ -713,6 +713,8 @@ pub struct App {
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
     pub show_update: bool,
+    /// The What's New upgrade check runs once, at the first idle tick.
+    changelog_checked: bool,
     pub update_download: crate::updates::DownloadState,
     pub update_support: Option<Result<crate::updates::Installation, String>>,
     update_inspecting: bool,
@@ -1547,6 +1549,7 @@ impl App {
             update: None,
             last_update_check: None,
             show_update: false,
+            changelog_checked: false,
             update_download: Default::default(),
             update_support: None,
             update_inspecting: false,
@@ -6679,6 +6682,29 @@ impl App {
             self.last_update_check = Some(now);
             self.backend.send(Command::CheckForUpdates);
         }
+        // What's New: once, at the first idle tick. A first run with the
+        // feature only acknowledges the current version; an upgrade shows
+        // the sections newer than the acknowledged one. The dialog marks
+        // them seen when it closes.
+        if !self.changelog_checked && self.dialog.is_none() && !self.show_update {
+            self.changelog_checked = true;
+            let current = crate::whatsnew::current();
+            match self
+                .settings
+                .last_changelog_version
+                .as_deref()
+                .and_then(crate::whatsnew::version)
+            {
+                None => {
+                    self.settings.last_changelog_version = Some(env!("CARGO_PKG_VERSION").into());
+                    self.settings_dirty = true;
+                }
+                Some(last) if last < current => {
+                    self.actions.push(Action::ShowDialog(Dialog::WhatsNew));
+                }
+                Some(_) => {}
+            }
+        }
         self.maybe_download_update();
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
@@ -8778,6 +8804,10 @@ impl App {
             Action::CloseDialog => {
                 self.cancel_contact_dialog_request();
                 self.clear_chat_lock_entry();
+                if self.dialog == Some(Dialog::WhatsNew) {
+                    self.settings.last_changelog_version = Some(env!("CARGO_PKG_VERSION").into());
+                    self.settings_dirty = true;
+                }
                 self.dialog = None;
                 self.invite = None;
                 self.forward_search.clear();

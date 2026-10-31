@@ -2293,6 +2293,9 @@ pub enum Dialog {
     /// Keyboard-first command palette: find chats, apply filters, run
     /// common actions. Message search stays in the search fields.
     Palette,
+    /// Release notes: automatically once after an upgrade, and any time
+    /// from Help.
+    WhatsNew,
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,

@@ -29,6 +29,7 @@ pub enum PaletteCommand {
     ReplyLater,
     Settings,
     Shortcuts,
+    WhatsNew,
 }
 
 impl PaletteCommand {
@@ -39,6 +40,7 @@ impl PaletteCommand {
         Self::ReplyLater,
         Self::Settings,
         Self::Shortcuts,
+        Self::WhatsNew,
     ];
 
     fn title(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
@@ -50,6 +52,7 @@ impl PaletteCommand {
             Self::ReplyLater => gettext(locale, "Show reply-later queue"),
             Self::Settings => gettext(locale, "Open settings"),
             Self::Shortcuts => gettext(locale, "Keyboard shortcuts"),
+            Self::WhatsNew => gettext(locale, "What's New"),
         }
     }
 }
@@ -147,6 +150,7 @@ fn execute(app: &mut App, row: &PaletteRow) {
             }
             PaletteCommand::Settings => app.actions.push(Action::ToggleSettings),
             PaletteCommand::Shortcuts => app.actions.push(Action::ShowDialog(Dialog::Shortcuts)),
+            PaletteCommand::WhatsNew => app.actions.push(Action::ShowDialog(Dialog::WhatsNew)),
         },
     }
     app.actions.push(Action::CloseDialog);

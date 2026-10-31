@@ -98,6 +98,7 @@ fn build_menu() -> tray_icon::menu::Result<Menu> {
     ])?;
     let help = Submenu::new("Help", true);
     help.append_items(&[
+        &item("whats-new", "What's New", None),
         &item("shortcuts", "Keyboard Shortcuts", Some("Super+Slash")),
         &item("help", "ZapFast Help", None),
     ])?;
@@ -230,6 +231,7 @@ fn action(id: &str) -> Option<Action> {
         "zoom-in" => Action::ZoomBy(0.1),
         "zoom-out" => Action::ZoomBy(-0.1),
         "zoom-reset" => Action::ResetZoom,
+        "whats-new" => Action::ShowDialog(Dialog::WhatsNew),
         "shortcuts" => Action::ShowDialog(Dialog::Shortcuts),
         "help" => Action::OpenUrl("https://zapfast.rocks/using-zapfast/".into()),
         "show-window" => Action::ShowWindow,

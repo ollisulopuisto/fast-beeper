@@ -36,6 +36,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::NewContact => 380.0,
                 Dialog::NewChat => 420.0,
                 Dialog::Palette => 480.0,
+                Dialog::WhatsNew => 480.0,
                 Dialog::UnlockLockedChats | Dialog::ConfirmLockChat(_) => 380.0,
                 Dialog::ConfirmDeleteChat(_) | Dialog::JoinGroup | Dialog::ConfirmStartOver => {
                     380.0
@@ -87,6 +88,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::NewContact => new_contact(app, ui),
                 Dialog::NewChat => new_chat(app, ui),
                 Dialog::Palette => super::palette::show(app, ui),
+                Dialog::WhatsNew => whats_new(app, ui),
                 Dialog::UnlockLockedChats => unlock_locked_chats(app, ui),
                 Dialog::ConfirmLockChat(id) => confirm_lock_chat(app, ui, &id),
                 Dialog::ConfirmDeleteChat(id) => confirm_delete_chat(app, ui, &id),
@@ -933,6 +935,73 @@ fn shortcut_row(
             theme::paragraph(ui, what, theme::regular(13.0), palette.secondary);
         });
     });
+}
+
+/// "What's New": after an upgrade the sections newer than the last
+/// acknowledged version; opened from Help or the palette, the three
+/// latest releases.
+fn whats_new(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    title(ui, app, &crate::i18n::gettext(app.locale, "What's New"));
+    let sections = crate::whatsnew::sections();
+    let acknowledged = app
+        .settings
+        .last_changelog_version
+        .as_deref()
+        .and_then(crate::whatsnew::version);
+    let fresh = crate::whatsnew::newer_than(&sections, acknowledged);
+    let showing = if fresh.is_empty() {
+        crate::whatsnew::latest(&sections, 3)
+    } else {
+        fresh
+    };
+    if showing.is_empty() {
+        theme::text(
+            ui,
+            crate::i18n::gettext(app.locale, "No release notes recorded yet"),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+    } else {
+        egui::ScrollArea::vertical()
+            .id_salt("whats-new-sections")
+            .max_height((ui.ctx().content_rect().height() - 280.0).clamp(120.0, 420.0))
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for section in showing {
+                    theme::text(
+                        ui,
+                        format!(
+                            "{} {}",
+                            crate::i18n::gettext(app.locale, "Version"),
+                            section
+                                .version
+                                .iter()
+                                .map(|n| n.to_string())
+                                .collect::<Vec<_>>()
+                                .join(".")
+                        ),
+                        theme::semibold(14.0),
+                        palette.text,
+                    );
+                    for item in &section.items {
+                        theme::text(ui, format!("• {item}"), theme::regular(13.0), palette.text);
+                    }
+                    ui.add_space(6.0);
+                }
+            });
+    }
+    ui.add_space(4.0);
+    if theme::pill_button(
+        ui,
+        &palette,
+        &crate::i18n::gettext(app.locale, "Got it"),
+        false,
+    )
+    .clicked()
+    {
+        app.actions.push(crate::model::Action::CloseDialog);
+    }
 }
 
 fn shortcuts(app: &mut App, ui: &mut egui::Ui) {
