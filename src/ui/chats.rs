@@ -2311,6 +2311,20 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
         app.actions
             .push(Action::SetArchived(chat.id.clone(), !chat.archived));
     }
+    // One shot at total quiet, for high-volume chats: mute indefinitely and
+    // archive, so the chat leaves the list, stops counting and never
+    // notifies or resurfaces on its own. Undo with Unarchive and Unmute.
+    if !(chat.archived && chat.muted(crate::util::now()))
+        && widgets::menu_item(
+            ui,
+            palette,
+            Some(Icon::BellOff),
+            &crate::i18n::gettext(locale, "Silence"),
+        )
+    {
+        app.actions.push(Action::SetMuted(chat.id.clone(), Some(0)));
+        app.actions.push(Action::SetArchived(chat.id.clone(), true));
+    }
     if chat.backend_account.is_some() {
         widgets::submenu(
             ui,
@@ -2707,6 +2721,11 @@ mod tests {
 
     fn click_clear_chat_in_the_list_menu(app: &mut App, chat: &Chat) {
         let label = crate::i18n::gettext(app.locale, "Clear chat");
+        click_item_in_the_list_menu(app, chat, label.as_ref());
+    }
+
+    /// Clicks the chat context menu item carrying this exact translated label.
+    fn click_item_in_the_list_menu(app: &mut App, chat: &Chat, label: &str) {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         let mut frame = |events| {
@@ -2747,14 +2766,14 @@ mod tests {
         let position = shapes
             .iter()
             .find_map(|clipped| match &clipped.shape {
-                egui::Shape::Text(text) if text.galley.text() == label.as_ref() => {
+                egui::Shape::Text(text) if text.galley.text() == label => {
                     let position = text.visual_bounding_rect().center();
                     (clipped.clip_rect.contains(position) && menu.contains(position))
                         .then_some(position)
                 }
                 _ => None,
             })
-            .expect("the translated Clear chat item is visible in the chat menu");
+            .expect("the translated menu item is visible in the chat menu");
         for pressed in [true, false] {
             frame(vec![
                 egui::Event::PointerMoved(position),
@@ -2807,6 +2826,25 @@ mod tests {
 
         assert!(app.actions.is_empty(), "{:?}", app.actions);
         assert_eq!(app.open_chat.as_deref(), Some(open.id.as_str()));
+    }
+
+    #[test]
+    fn silence_in_the_list_menu_mutes_and_archives_the_chat() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
+        let chat = Chat::new("noisy@g.us".into(), "Noisy group".into());
+
+        let label = crate::i18n::gettext(app.locale, "Silence");
+        click_item_in_the_list_menu(&mut app, &chat, label.as_ref());
+
+        assert_eq!(
+            app.actions,
+            [
+                Action::SetMuted(chat.id.clone(), Some(0)),
+                Action::SetArchived(chat.id.clone(), true),
+            ]
+        );
     }
 
     #[test]
