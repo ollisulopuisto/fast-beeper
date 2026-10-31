@@ -18908,7 +18908,10 @@ mod tests {
         assert_eq!(quoted.sender, "wl_uuid:local-signal.localhost");
         assert_eq!(quoted.sender_name.as_deref(), Some("~Mikael Kasurinen"));
         // The observed profile name resolves group members the contacts lack.
-        assert_eq!(app.display_name("wl_uuid:local-signal.localhost"), "~Mikael Kasurinen");
+        assert_eq!(
+            app.display_name("wl_uuid:local-signal.localhost"),
+            "~Mikael Kasurinen"
+        );
     }
 
     /// Settings measures the account's media cache as it opens; Clear empties
