@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn conflict_is_an_error_not_a_panic() {
         let stub = stub(vec![format!(
-            "HTTP/1.1 409 Conflict\r\ncontent-length: 24\r\nconnection: close\r\n\r\n{{\"error\":\"BadState\"}}"
+            "HTTP/1.1 409 Conflict\r\ncontent-length: 20\r\nconnection: close\r\n\r\n{{\"error\":\"BadState\"}}"
         )]);
         let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         let err = client.cancel("sl-1").unwrap_err();

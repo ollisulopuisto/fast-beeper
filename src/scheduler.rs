@@ -232,7 +232,9 @@ impl Queue {
 
     /// After reconciliation found no copy, the user may resend an Uncertain
     /// or Failed item; it goes through the normal claim-before-send path.
-    pub fn retry(&mut self, id: &str) -> Result<(), QueueError> {
+    /// An explicit retry re-due's the item for now; without this a Missed
+    /// item past the grace window would be missed again on the next tick.
+    pub fn retry(&mut self, id: &str, now: i64) -> Result<(), QueueError> {
         let item = self
             .get_mut(id)
             .ok_or_else(|| QueueError::NotFound(id.into()))?;
@@ -240,6 +242,7 @@ impl Queue {
             State::Failed | State::Uncertain | State::Missed => {
                 item.state = State::Scheduled;
                 item.error = None;
+                item.due_at = now;
                 Ok(())
             }
             state => Err(QueueError::BadState {
@@ -477,7 +480,7 @@ mod tests {
         queue.add(item("second", ts(30))).unwrap();
         let mut sched = scheduler(queue, Mock::default());
         let outcomes = sched.tick(
-            ts(120),
+            ts(45),
             &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
         );
         assert_eq!(sched.sender.sent, vec!["first", "second"]);
@@ -590,7 +593,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(sched.queue.get("a").unwrap().state, State::Uncertain);
-        sched.queue.retry("a").unwrap();
+        sched.queue.retry("a", ts(1)).unwrap();
         assert_eq!(sched.queue.get("a").unwrap().state, State::Scheduled);
     }
 
@@ -607,7 +610,7 @@ mod tests {
         assert_eq!(sched.queue.get("a").unwrap().state, State::Missed);
         assert!(sched.sender.sent.is_empty());
         // A missed item only goes out through an explicit retry.
-        sched.queue.retry("a").unwrap();
+        sched.queue.retry("a", ts(1)).unwrap();
         sched.tick(
             ts(1),
             &mut persist_into(&sched.sender.persisted as *const _ as *mut _),

@@ -282,7 +282,7 @@ pub fn control(
         ("POST", ["v1", "scheduled", id, action]) => {
             let result = match *action {
                 "cancel" => queue.cancel(id),
-                "retry" => queue.retry(id),
+                "retry" => queue.retry(id, now),
                 "edit" => {
                     let parsed: serde_json::Value =
                         serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
