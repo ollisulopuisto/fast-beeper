@@ -191,23 +191,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
         .into_iter()
         .filter(|destination| destination.offered(app))
         .collect();
-        let beeper = app.chats.iter().any(|c| c.backend_account.is_some())
-            || !app.beeper_accounts.is_empty();
-        let networks = if beeper {
-            app.beeper_browse_networks()
-        } else {
-            Vec::new()
-        };
-        let account_count = if beeper && app.beeper_network_filter.is_some() {
-            app.beeper_browse_accounts().len()
-        } else {
-            0
-        };
-        let top_height = if beeper {
-            CELL + networks.len() as f32 * CELL + account_count as f32 * 38.0
-        } else {
-            2.0 * CELL
-        };
+        let top_height = 2.0 * CELL;
         let foot = bottom.len() as f32 * (PLATE + GAP) + GAP + AVATAR + GAP;
         let minimum = top_height
             + foot
@@ -227,11 +211,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                 // of leaving the bottom buttons beyond the window.
                 ui.set_height(height);
                 destination_button(app, ui, &palette, Destination::Chats, CELL);
-                if beeper {
-                    beeper_networks(app, ui, &palette, &networks);
-                } else {
-                    destination_button(app, ui, &palette, Destination::Calls, CELL);
-                }
+                destination_button(app, ui, &palette, Destination::Calls, CELL);
                 if hidden {
                     // A cell of its own under Calls: nothing above it moves
                     // when the list comes and goes.
@@ -276,156 +256,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
 
 /// Text badges are deliberately network initials, not invented vendor logos.
 /// Every network is directly reachable; accounts expand under the active one.
-fn beeper_networks(app: &mut App, ui: &mut egui::Ui, palette: &Palette, networks: &[String]) {
-    for (index, network) in networks.iter().enumerate() {
-        let lit = app.page == Page::Chats && app.beeper_network_filter.as_ref() == Some(network);
-        let badge = network_badge(network);
-        let name = if network.is_empty() {
-            "Network not supplied"
-        } else {
-            network
-        };
-        let label = if index < 10 {
-            format!(
-                "{name} ({})",
-                super::keys::label(&format!("Ctrl+{}", (index + 1) % 10))
-            )
-        } else {
-            name.to_owned()
-        };
-        if scope_badge(
-            ui,
-            palette,
-            format!("network:{network}"),
-            &badge,
-            &label,
-            lit,
-            CELL,
-        ) {
-            app.select_beeper_scope(Some(network.clone()), None);
-        }
-        if app.beeper_network_filter.as_ref() == Some(network) {
-            let accounts = app.beeper_browse_accounts();
-            // All-account network button above remains the reset control.
-            for (index, (key, label)) in accounts.into_iter().enumerate() {
-                let selected = app.beeper_account_filter.as_ref() == Some(&key);
-                let name = label
-                    .split(" · ")
-                    .nth(1)
-                    .unwrap_or(&label)
-                    .split(" [")
-                    .next()
-                    .unwrap_or(&label);
-                let badge = format!(
-                    "{}{}",
-                    index + 1,
-                    name.chars().next().unwrap_or('?').to_uppercase()
-                );
-                if scope_badge(
-                    ui,
-                    palette,
-                    format!("account:{key}"),
-                    &badge,
-                    &label,
-                    selected,
-                    38.0,
-                ) {
-                    app.select_beeper_scope(Some(network.clone()), Some(key));
-                }
-            }
-        }
-    }
-}
-fn network_icon(network: &str) -> Option<Icon> {
-    Some(match network.to_lowercase().as_str() {
-        "linkedin" => Icon::NetworkLinkedin,
-        "whatsapp" => Icon::NetworkWhatsapp,
-        "signal" => Icon::NetworkSignal,
-        "telegram" => Icon::NetworkTelegram,
-        "instagram" => Icon::NetworkInstagram,
-        "messenger" | "facebook messenger" | "facebook/messenger" => Icon::NetworkMessenger,
-        "facebook" => Icon::NetworkFacebook,
-        "slack" => Icon::NetworkSlack,
-        "discord" => Icon::NetworkDiscord,
-        "google messages" | "googlemessages" | "sms" => Icon::NetworkGooglemessages,
-        "matrix" | "beeper" => Icon::NetworkMatrix,
-        "imessage" => Icon::NetworkImessage,
-        _ => return None,
-    })
-}
-fn network_badge(network: &str) -> String {
-    match network.to_ascii_lowercase().as_str() {
-        "whatsapp" => "WA".into(),
-        "signal" => "Si".into(),
-        "telegram" => "Tg".into(),
-        "instagram" => "IG".into(),
-        "linkedin" => "in".into(),
-        "messenger" | "facebook messenger" | "facebook/messenger" => "Ms".into(),
-        "facebook" => "Fb".into(),
-        "slack" => "Sl".into(),
-        "beeper" | "matrix" => "B".into(),
-        _ => network.chars().take(2).collect(),
-    }
-}
-fn scope_badge(
-    ui: &mut egui::Ui,
-    palette: &Palette,
-    id: String,
-    badge: &str,
-    label: &str,
-    lit: bool,
-    height: f32,
-) -> bool {
-    let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    let plate = Rect::from_center_size(
-        cell.center(),
-        Vec2::splat(if height < CELL { 28.0 } else { PLATE }),
-    );
-    let response = ui
-        .interact(
-            plate,
-            egui::Id::new(("beeper-scope-rail", &id)),
-            Sense::click(),
-        )
-        .on_hover_text(label)
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    if lit || response.hovered() {
-        ui.painter().rect_filled(
-            plate,
-            8.0,
-            if lit {
-                palette.surface_active
-            } else {
-                palette.surface_hover
-            },
-        );
-    }
-    let color = if lit { palette.text } else { palette.secondary };
-    if let Some(network) = id.strip_prefix("network:").and_then(network_icon) {
-        theme::paint_icon(ui, network, plate, 22.0, color);
-    } else {
-        ui.painter().text(
-            plate.center(),
-            egui::Align2::CENTER_CENTER,
-            if badge.is_empty() { "?" } else { badge },
-            theme::regular(13.0),
-            color,
-        );
-    }
-
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(
-            egui::WidgetType::SelectableLabel,
-            ui.is_enabled(),
-            lit,
-            label,
-        )
-    });
-    theme::reveal_focus(&response);
-    response.clicked()
-}
-
-/// The button that brings the hidden chat list back.
 fn show_list_button(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     ui.allocate_ui_with_layout(
         vec2(ui.available_width(), CELL),

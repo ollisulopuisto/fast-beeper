@@ -19,6 +19,7 @@ pub mod lock;
 pub mod login;
 pub mod message_info;
 pub mod new_group;
+pub mod palette;
 pub mod pane;
 pub mod picker;
 pub mod polls;

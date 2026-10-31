@@ -508,6 +508,10 @@ pub struct App {
     pub chat_lock_confirm: String,
     pub chat_lock_error: bool,
     pub new_chat_search: String,
+    /// Command palette query text.
+    pub palette_query: String,
+    /// Highlighted row in the command palette.
+    pub palette_selected: usize,
     /// Last answer from the slow code verifier, keyed by what was checked.
     chat_lock_check: std::cell::RefCell<Option<(String, Option<String>, bool)>>,
     /// Receipts of the message whose "Message info" is open.
@@ -712,6 +716,8 @@ pub struct App {
     pub update: Option<crate::updates::Release>,
     last_update_check: Option<Instant>,
     pub show_update: bool,
+    /// The What's New upgrade check runs once, at the first idle tick.
+    changelog_checked: bool,
     pub update_download: crate::updates::DownloadState,
     pub update_support: Option<Result<crate::updates::Installation, String>>,
     update_inspecting: bool,
@@ -1450,6 +1456,8 @@ impl App {
             chat_lock_confirm: String::new(),
             chat_lock_error: false,
             new_chat_search: String::new(),
+            palette_query: String::new(),
+            palette_selected: 0,
             chat_lock_check: Default::default(),
             message_receipts: None,
             receipts_watch: None,
@@ -1545,6 +1553,7 @@ impl App {
             update: None,
             last_update_check: None,
             show_update: false,
+            changelog_checked: false,
             update_download: Default::default(),
             update_support: None,
             update_inspecting: false,
@@ -6721,6 +6730,29 @@ impl App {
             self.last_update_check = Some(now);
             self.backend.send(Command::CheckForUpdates);
         }
+        // What's New: once, at the first idle tick. A first run with the
+        // feature only acknowledges the current version; an upgrade shows
+        // the sections newer than the acknowledged one. The dialog marks
+        // them seen when it closes.
+        if !self.changelog_checked && self.dialog.is_none() && !self.show_update {
+            self.changelog_checked = true;
+            let current = crate::whatsnew::current();
+            match self
+                .settings
+                .last_changelog_version
+                .as_deref()
+                .and_then(crate::whatsnew::version)
+            {
+                None => {
+                    self.settings.last_changelog_version = Some(env!("CARGO_PKG_VERSION").into());
+                    self.settings_dirty = true;
+                }
+                Some(last) if last < current => {
+                    self.actions.push(Action::ShowDialog(Dialog::WhatsNew));
+                }
+                Some(_) => {}
+            }
+        }
         self.maybe_download_update();
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
@@ -8785,6 +8817,10 @@ impl App {
                     self.new_chat_search.clear();
                     self.new_group = None;
                 }
+                if dialog == Dialog::Palette {
+                    self.palette_query.clear();
+                    self.palette_selected = 0;
+                }
                 if let Dialog::AddGroupMembers(chat) = &dialog {
                     let Some(existing) = self
                         .chat(chat)
@@ -8833,6 +8869,10 @@ impl App {
             Action::CloseDialog => {
                 self.cancel_contact_dialog_request();
                 self.clear_chat_lock_entry();
+                if self.dialog == Some(Dialog::WhatsNew) {
+                    self.settings.last_changelog_version = Some(env!("CARGO_PKG_VERSION").into());
+                    self.settings_dirty = true;
+                }
                 self.dialog = None;
                 self.invite = None;
                 self.forward_search.clear();
