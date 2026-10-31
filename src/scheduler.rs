@@ -623,9 +623,9 @@ mod tests {
         queue
             .edit("a", Some("changed".into()), Some(ts(120)))
             .unwrap();
-        let item = queue.get("a").unwrap();
-        assert_eq!(item.text, "changed");
-        assert_eq!(item.due_at, ts(120));
+        let edited = queue.get("a").unwrap();
+        assert_eq!(edited.text, "changed");
+        assert_eq!(edited.due_at, ts(120));
         queue.cancel("a").unwrap();
         assert_eq!(queue.get("a").unwrap().state, State::Cancelled);
         // Cancelled items cannot be edited or sent.
