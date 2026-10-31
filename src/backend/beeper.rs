@@ -1622,7 +1622,10 @@ fn delivery_of(m: &BeeperMessage) -> Delivery {
         Some(s) if s.status.starts_with("FAIL_") => Delivery::Failed,
         Some(s) if s.status == "PENDING" => Delivery::Pending,
         Some(s) if !s.delivered_to_users.is_empty() => Delivery::Delivered,
-        _ => Delivery::Sent,
+        Some(s) if s.status == "SUCCESS" => Delivery::Sent,
+        // Absent or unrecognized send status is not evidence of "sent":
+        // show a neutral unknown state instead of a false definitive tick.
+        _ => Delivery::Unknown,
     }
 }
 
@@ -5067,6 +5070,7 @@ mod tests {
             ("PENDING", Delivery::Pending),
             ("FAIL_PERMANENT", Delivery::Failed),
             ("SUCCESS", Delivery::Sent),
+            ("", Delivery::Unknown),
         ] {
             let wire =
                 serde_json::json!({"id":"x", "isSender":true, "sendStatus":{"status":status}});

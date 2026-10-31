@@ -138,7 +138,7 @@ pub(super) fn docked(
     }
     let mut width = rect.width();
     if resize.dragged()
-        && let Some(pos) = ui.ctx().pointer.latest_pos()
+        && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos())
     {
         width = (rect.right() - pos.x).clamp(min, max);
     }

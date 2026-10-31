@@ -49,7 +49,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
     if resize.dragged()
-        && let Some(pos) = ui.ctx().pointer.latest_pos()
+        && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos())
     {
         let dragged = (pos.x - rect.left()).clamp(260.0, 520.0);
         if (dragged - app.settings.sidebar_width).abs() > 1.0 {

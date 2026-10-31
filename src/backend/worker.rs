@@ -6473,6 +6473,7 @@ impl Worker {
         }
         match command {
             Command::WatchBeeperChats(_) => {}
+            Command::ResolveQuotes { .. } => {}
             Command::SetBeeperReminder { .. } => self.emit(Event::Info(
                 "Beeper reminders require the Beeper backend".into(),
             )),

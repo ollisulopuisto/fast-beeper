@@ -577,6 +577,9 @@ pub enum Delivery {
     /// Incoming message without outgoing receipts.
     #[default]
     None,
+    /// Outgoing, but the backend reported no usable send status: distinct
+    /// from both "sent" (acknowledged) and incoming messages (no ticks).
+    Unknown,
     /// Sent to the backend but not acknowledged by the server.
     Pending,
     Sent,

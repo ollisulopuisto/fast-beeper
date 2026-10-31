@@ -3825,10 +3825,13 @@ impl App {
                     self.backend.send(Command::LoadCallLog);
                 }
                 for message in &messages {
-                    if !message.from_me && !message.sender_name.is_empty() {
+                    if !message.from_me
+                        && let Some(name) =
+                            message.sender_name.as_ref().filter(|name| !name.is_empty())
+                    {
                         self.sender_names
                             .entry(message.sender.clone())
-                            .or_insert_with(|| message.sender_name.clone());
+                            .or_insert_with(|| name.clone());
                     }
                 }
                 let unresolved_quotes: Vec<(String, String)> = messages
@@ -3860,7 +3863,7 @@ impl App {
                         .and_then(|message| message.quoted.as_mut())
                     {
                         quoted.sender = sender;
-                        quoted.sender_name = Some(sender_name);
+                        quoted.sender_name = sender_name;
                     }
                 }
                 // Quotes whose originals are outside the loaded page are
@@ -18926,7 +18929,7 @@ mod tests {
         let chat = "group@local-signal.localhost";
         let mut original = message(chat, "orig", 1);
         original.sender = "wl_uuid:local-signal.localhost".into();
-        original.sender_name = "~Mikael Kasurinen".into();
+        original.sender_name = Some("~Mikael Kasurinen".into());
         events
             .send(Event::Messages {
                 chat: chat.into(),

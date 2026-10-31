@@ -5,7 +5,7 @@
 use egui::{Key, Modifiers, Sense, vec2};
 
 use super::{theme, widgets};
-use crate::App;
+use crate::app::App;
 use crate::model::{Action, ChatFilter, ChatId, Dialog, Page};
 
 /// One executable palette row.
