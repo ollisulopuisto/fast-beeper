@@ -46,9 +46,9 @@ does not depend on the MacBook being awake. fast-beeper then reaches the
 daemon through a managed SSH tunnel, the same pattern the Beeper API
 tunnel (`127.0.0.1:23374`) already uses:
 
-1. Install the daemon on the Studio machine (build for that platform,
-   token file at `~/.config/zapfast/scheduler-token`, systemd user unit
-   instead of launchd - see `zapfast-scheduler.service`).
+1. Install the daemon on the Studio machine (macOS: the same
+   `install_macos.sh` / launchd agent applies; `zapfast-scheduler.service`
+   is the systemd user unit for a Linux host instead).
 2. Give the MacBook a tunnel: `ssh -N -L 23376:127.0.0.1:23376 dst@192.168.1.222`,
    managed by the same mechanism that maintains the API tunnel.
 3. Copy the token file to the MacBook's config dir (0600); both sides
