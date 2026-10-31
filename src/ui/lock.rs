@@ -45,6 +45,10 @@ fn keys(app: &mut App, ctx: &egui::Context) {
 }
 
 fn password(app: &mut App, ui: &mut egui::Ui) {
+    // One automatic Touch ID prompt per lock; retries stay manual.
+    if app.app_lock.touch_id_offered && !app.app_lock.touch_id_asked {
+        app.actions.push(Action::TryTouchId);
+    }
     let palette = app.palette;
     let locale = app.locale;
     theme::paragraph(
@@ -101,6 +105,22 @@ fn password(app: &mut App, ui: &mut egui::Ui) {
     }
     if submit && ready {
         app.actions.push(Action::UnlockApp);
+    }
+    if app.app_lock.touch_id_offered {
+        ui.add_space(6.0);
+        if app.app_lock.touch_id_running() {
+            theme::paragraph(
+                ui,
+                gettext(locale, "Touch ID…"),
+                theme::regular(13.0),
+                palette.secondary,
+            );
+        } else if !checking
+            && theme::pill_button(ui, &palette, &gettext(locale, "Unlock with Touch ID"), false)
+                .clicked()
+        {
+            app.actions.push(Action::TryTouchId);
+        }
     }
     ui.add_space(10.0);
     if theme::link(

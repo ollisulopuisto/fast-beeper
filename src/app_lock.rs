@@ -252,6 +252,17 @@ pub struct AppLock {
     pub deferred: Vec<Deferred>,
     /// The Settings password form, when open.
     pub form: Option<Form>,
+    /// The password being checked, held only until the check answers so a
+    /// successful unlock can move it to the OS keychain when Touch ID is
+    /// on. Zeroized, and cleared by every other outcome.
+    pending_save: Option<zeroize::Zeroizing<String>>,
+    /// A running Touch ID prompt's answer: the keychain-gated read.
+    touch_id: Option<Receiver<Option<zeroize::Zeroizing<String>>>>,
+    /// Touch ID was already prompted once for this lock.
+    pub touch_id_asked: bool,
+    /// The lock screen may offer Touch ID this lock: the setting is on and
+    /// a saved password exists. The app sets this when it locks.
+    pub touch_id_offered: bool,
 }
 
 impl std::fmt::Debug for AppLock {
@@ -279,6 +290,10 @@ impl AppLock {
             forgetting: Forgetting::No,
             deferred: Vec::new(),
             form: None,
+            pending_save: None,
+            touch_id: None,
+            touch_id_asked: false,
+            touch_id_offered: false,
         }
     }
 
@@ -336,6 +351,9 @@ impl AppLock {
         self.wrong = false;
         self.forgetting = Forgetting::No;
         self.form = None;
+        self.pending_save = None;
+        self.touch_id = None;
+        self.touch_id_asked = false;
     }
 
     /// Lifts the lock without a password: when the password itself is gone,
@@ -347,6 +365,9 @@ impl AppLock {
         self.forgetting = Forgetting::No;
         self.failures = 0;
         self.retry_at = None;
+        self.pending_save = None;
+        self.touch_id = None;
+        self.touch_id_asked = false;
         self.last_input = self.now();
     }
 
@@ -373,6 +394,7 @@ impl AppLock {
             return;
         }
         let password = std::mem::take(&mut self.entry);
+        self.pending_save = Some(zeroize::Zeroizing::new(password.clone()));
         self.wrong = false;
         self.spawn(
             Work::Unlock {
@@ -441,6 +463,50 @@ impl AppLock {
         }
     }
 
+    /// Takes the password of a just-finished successful check, so the app
+    /// can move it to the OS keychain for Touch ID. Empty afterwards.
+    pub fn take_pending_save(&mut self) -> Option<zeroize::Zeroizing<String>> {
+        self.pending_save.take()
+    }
+
+    /// Whether a Touch ID prompt is running.
+    pub fn touch_id_running(&self) -> bool {
+        self.touch_id.is_some()
+    }
+
+    /// Whether the lock screen may ask for Touch ID now.
+    pub fn can_try_touch_id(&self) -> bool {
+        self.locked && self.touch_id.is_none() && !self.checking()
+    }
+
+    /// Starts a Touch ID prompt; its answer arrives on `answers`: the
+    /// keychain-released password, or `None` when the prompt failed or was
+    /// cancelled.
+    pub fn begin_touch_id(&mut self, answers: Receiver<Option<zeroize::Zeroizing<String>>>) {
+        if !self.can_try_touch_id() {
+            return;
+        }
+        self.touch_id = Some(answers);
+        self.touch_id_asked = true;
+    }
+
+    /// The prompt's answer, if it finished. A prompt that dies without
+    /// answering counts as failed.
+    pub fn poll_touch_id(&mut self) -> Option<Option<zeroize::Zeroizing<String>>> {
+        let receiver = self.touch_id.as_ref()?;
+        match receiver.try_recv() {
+            Ok(answered) => {
+                self.touch_id = None;
+                Some(answered)
+            }
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
+                self.touch_id = None;
+                Some(None)
+            }
+        }
+    }
+
     /// Waits for the running check; for tests.
     #[cfg(test)]
     pub fn wait(&mut self) -> Option<Outcome> {
@@ -459,6 +525,7 @@ impl AppLock {
             self.release();
             return;
         }
+        self.pending_save = None;
         self.failures = self.failures.saturating_add(1);
         self.wrong = true;
         let wait = wait_after(self.failures);
@@ -641,4 +708,58 @@ mod tests {
         assert!(!lock.checking());
         assert_eq!(lock.form.as_ref().unwrap().error, Some(FormError::TooShort));
     }
+
+    #[test]
+    fn touch_id_answers_once_and_locking_resets_it() {
+        let mut lock = AppLock::new(true);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        lock.begin_touch_id(receiver);
+        assert!(lock.touch_id_running() && lock.touch_id_asked);
+        assert_eq!(lock.poll_touch_id().map(|a| a.is_some()), None);
+        sender
+            .send(Some(zeroize::Zeroizing::new("pw".to_string())))
+            .unwrap();
+        assert_eq!(
+            lock.poll_touch_id()
+                .and_then(|a| a)
+                .as_deref()
+                .map(String::as_str),
+            Some("pw")
+        );
+        assert!(!lock.touch_id_running());
+
+        // A prompt that dies answers as failed, never a hang.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        lock.begin_touch_id(receiver);
+        drop(sender);
+        assert_eq!(lock.poll_touch_id().map(|a| a.is_some()), Some(false));
+
+        // Locking again re-arms the one automatic prompt.
+        let (_sender, receiver) = std::sync::mpsc::channel();
+        lock.begin_touch_id(receiver);
+        lock.lock();
+        assert!(!lock.touch_id_running() && !lock.touch_id_asked);
+    }
+
+    #[test]
+    fn the_checked_password_is_kept_only_for_a_successful_unlock() {
+        let stored = verifier_with_rounds("secret-password", 1_000);
+        let mut lock = AppLock::new(true);
+        lock.entry = "secret-password".to_string();
+        lock.try_unlock(&stored, || {});
+        assert_eq!(lock.wait(), Some(Outcome::Unlock(true)));
+        assert_eq!(
+            lock.take_pending_save().as_deref().map(String::as_str),
+            Some("secret-password")
+        );
+        assert!(lock.take_pending_save().is_none());
+
+        let mut lock = AppLock::new(true);
+        lock.entry = "wrong-password".to_string();
+        lock.try_unlock(&stored, || {});
+        assert_eq!(lock.wait(), Some(Outcome::Unlock(false)));
+        lock.unlocked(false);
+        assert!(lock.take_pending_save().is_none());
+    }
+}
 }

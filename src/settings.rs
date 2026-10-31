@@ -533,6 +533,12 @@ pub struct Settings {
     pub app_lock_hash: Option<String>,
     /// How long ZapFast may go unused before the app lock locks it.
     pub app_lock_after: AutoLock,
+    /// Offer Touch ID on the lock screen. After the next successful
+    /// password unlock, the password is kept in the OS keychain for it.
+    pub app_lock_touch_id: bool,
+    /// Let macOS put ZapFast into App Nap. Off, ZapFast holds a power
+    /// assertion so messaging keeps working from the background.
+    pub allow_app_nap: bool,
     /// Last window width in logical pixels (points at zoom 1), remembered
     /// across restarts; see [`fastframe_shell::window::Geometry`]. `None`
     /// uses the default size.
@@ -601,6 +607,8 @@ impl Default for Settings {
             chat_lock_hint_dismissed: false,
             app_lock_hash: None,
             app_lock_after: AutoLock::default(),
+            app_lock_touch_id: false,
+            allow_app_nap: false,
             window_width: None,
             window_height: None,
             window_x: None,
@@ -1613,4 +1621,16 @@ impl BeeperPreferences {
             .cloned()
             .unwrap_or_default()
     }
+
+    #[test]
+    fn touch_id_and_app_nap_default_off_and_survive_save() {
+        let mut settings: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.app_lock_touch_id && !settings.allow_app_nap);
+        settings.app_lock_touch_id = true;
+        settings.allow_app_nap = true;
+        let loaded: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(loaded.app_lock_touch_id && loaded.allow_app_nap);
+    }
 }
+

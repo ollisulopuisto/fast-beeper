@@ -3147,6 +3147,13 @@ pub enum Action {
     SubmitAppLockForm,
     /// How long ZapFast may go unused before it locks.
     SetAutoLock(crate::settings::AutoLock),
+    /// Asks Touch ID on the lock screen; the first prompt per lock is
+    /// automatic, later ones are the button.
+    TryTouchId,
+    /// Turns Touch ID unlocks for the app lock on or off.
+    SetAppLockTouchId(bool),
+    /// Lets macOS put ZapFast into App Nap, or keeps it running.
+    SetAllowAppNap(bool),
     Reconnect,
     /// Sets aside an archive whose key is gone and links again.
     StartOverArchive,

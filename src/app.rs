@@ -1615,6 +1615,10 @@ impl App {
         app.settings.voice_speed = app.player.set_speed(app.settings.voice_speed);
         // The chip comes back with its account; a label is the window's.
         app.label_filter = app.remembered_label();
+        // Power policy and the lock screen's Touch ID offer follow the
+        // loaded settings from the first frame on.
+        crate::energy::set_app_nap_allowed(app.settings.allow_app_nap);
+        app.refresh_touch_id_offer();
         app
     }
 
@@ -6747,6 +6751,23 @@ impl App {
         self.settings_dirty = true;
     }
 
+    /// Whether the lock screen may offer Touch ID this lock: a password is
+    /// set, the setting is on, this build has Touch ID, and a saved
+    /// password waits in the OS keychain.
+    fn refresh_touch_id_offer(&mut self) {
+        self.app_lock.touch_id_offered = self.settings.app_lock_hash.is_some()
+            && self.settings.app_lock_touch_id
+            && crate::biometrics::supported()
+            && crate::biometrics::has_saved_password();
+    }
+
+    /// Forgets the password Touch ID kept in the OS keychain.
+    fn forget_touch_id_password(&self) {
+        if let Err(error) = crate::biometrics::delete_password() {
+            log::warn!("could not forget the Touch ID password: {error:#}");
+        }
+    }
+
     /// Tells each account's worker whether it may fetch older history in the
     /// background, and which chat is on screen so it goes first. Only the
     /// account on screen has one: a hidden account's remembered chat is not
@@ -9596,6 +9617,25 @@ impl App {
                 self.app_lock.note_input();
                 self.mark_settings_dirty();
             }
+            Action::TryTouchId => {
+                if self.app_lock.can_try_touch_id() {
+                    let reason = crate::i18n::gettext(self.locale, "Unlock ZapFast");
+                    self.app_lock.begin_touch_id(crate::biometrics::evaluate(&reason));
+                }
+            }
+            Action::SetAppLockTouchId(on) => {
+                self.settings.app_lock_touch_id = on;
+                self.mark_settings_dirty();
+                if !on {
+                    self.forget_touch_id_password();
+                }
+                self.refresh_touch_id_offer();
+            }
+            Action::SetAllowAppNap(allow) => {
+                self.settings.allow_app_nap = allow;
+                self.mark_settings_dirty();
+                crate::energy::set_app_nap_allowed(allow);
+            }
             Action::Reconnect => self.backend.send(Command::Reconnect),
             Action::StartOverArchive => {
                 self.dialog = None;
@@ -10103,6 +10143,19 @@ impl App {
         if let Some(outcome) = self.app_lock.poll() {
             self.app_lock_outcome(outcome);
         }
+        if let Some(answered) = self.app_lock.poll_touch_id() {
+            // The keychain released the password under the system's prompt;
+            // the same slow verifier still gates the unlock.
+            if let Some(password) = answered
+                && self.app_lock.is_locked()
+            {
+                self.app_lock.entry = (*password).clone();
+                if let Some(stored) = self.settings.app_lock_hash.clone() {
+                    let waker = self.waker.clone();
+                    self.app_lock.try_unlock(&stored, move || waker.wake());
+                }
+            }
+        }
         if self.settings.app_lock_hash.is_none() {
             // Nothing to unlock with; never leave the window stuck.
             if self.app_lock.is_locked() {
@@ -10136,6 +10189,7 @@ impl App {
             return;
         }
         self.app_lock.lock();
+        self.refresh_touch_id_offer();
         // Nothing private stays readable in the tree behind the lock screen.
         self.announcer.forget_private();
         self.window_focused = false;
@@ -10213,8 +10267,18 @@ impl App {
                 if !self.app_lock.is_locked() {
                     return;
                 }
+                let password = self.app_lock.take_pending_save();
                 self.app_lock.unlocked(matched);
                 if matched {
+                    // Touch ID on: keep the password that just worked in the
+                    // OS keychain, so the next lock opens by touch.
+                    if self.settings.app_lock_touch_id
+                        && let Some(password) = password
+                        && let Err(error) = crate::biometrics::save_password(&password)
+                    {
+                        log::warn!("could not save the Touch ID password: {error:#}");
+                    }
+                    self.refresh_touch_id_offer();
                     // In the order they were asked for, so the last one is
                     // what the reader finds on screen. Nothing switches
                     // accounts while locked, so a link was meant for the
@@ -10238,6 +10302,10 @@ impl App {
                 self.settings.app_lock_hash = Some(verifier);
                 self.app_lock.note_input();
                 self.save_settings();
+                // A new password makes the saved Touch ID one stale; the
+                // next successful unlock saves the new one.
+                self.forget_touch_id_password();
+                self.refresh_touch_id_offer();
                 self.toast(crate::i18n::gettext(self.locale, "App lock password saved"));
             }
             Outcome::TurnOff => {
@@ -10246,6 +10314,8 @@ impl App {
                 }
                 self.settings.app_lock_hash = None;
                 self.save_settings();
+                self.forget_touch_id_password();
+                self.refresh_touch_id_offer();
                 self.toast(crate::i18n::gettext(self.locale, "App lock turned off"));
             }
         }
