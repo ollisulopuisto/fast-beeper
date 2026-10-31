@@ -415,10 +415,6 @@ pub struct Settings {
     /// value stays a loopback URL.
     #[serde(default = "default_scheduler_url")]
     pub scheduler_url: String,
-    /// Control token for the scheduler's socket, when the daemon was
-    /// started with one (ZAPFAST_CONTROL_TOKEN). Empty = no token.
-    #[serde(default)]
-    pub scheduler_token: String,
     pub theme: ThemeChoice,
     /// Whether a `"system"` theme is really Messages. The file says
     /// `"system"` for Messages, which releases before it read as Follow
@@ -574,7 +570,6 @@ impl Default for Settings {
         Self {
             version: SETTINGS_VERSION,
             scheduler_url: default_scheduler_url(),
-            scheduler_token: String::new(),
             theme: ThemeChoice::System,
             messages_theme: false,
             font: FontChoice::System,

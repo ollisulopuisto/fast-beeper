@@ -13,8 +13,12 @@
 //!                         keep this localhost - there is no auth on the
 //!                         control socket beyond the loopback binding)
 //! - ZAPFAST_TICK_SECS     seconds between due checks (default: 15, min 1)
-//! - ZAPFAST_CONTROL_TOKEN optional bearer token required on every request;
-//!                         set one whenever anything else runs on the host
+//! - ZAPFAST_CONTROL_TOKEN bearer token REQUIRED on every request; the
+//!                         daemon refuses to start without one. Prefer
+//!                         ZAPFAST_CONTROL_TOKEN_FILE (default:
+//!                         ~/.config/zapfast/scheduler-token, 0600) over the
+//!                         environment, so the secret stays out of the
+//!                         process list.
 //!
 //! Socket hardening, even without a token: POSTs require
 //! Content-Type: application/json and any request carrying an Origin or
@@ -130,7 +134,13 @@ fn header<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
         .map(str::trim)
 }
 
-fn handle(stream: &mut TcpStream, queue: &mut Queue, path: &std::path::Path, token: &str) {
+fn handle(
+    stream: &mut TcpStream,
+    queue: &mut Queue,
+    path: &std::path::Path,
+    token: &str,
+    validator: &mut ServerSender,
+) {
     let Some((method, req_path, headers, body)) = read_request(stream) else {
         return json_response(stream, "400 Bad Request", r#"{"error":"bad request"}"#);
     };
@@ -163,8 +173,15 @@ fn handle(stream: &mut TcpStream, queue: &mut Queue, path: &std::path::Path, tok
             return json_response(stream, "403 Forbidden", r#"{"error":"bad control token"}"#);
         }
     }
-    let (status, response, changed) =
-        zapfast::scheduler_api::control(queue, &method, &req_path, &body, now(), &new_id);
+    let (status, response, changed) = zapfast::scheduler_api::control(
+        queue,
+        &method,
+        &req_path,
+        &body,
+        now(),
+        &new_id,
+        &mut |chat, account| validator.validate_chat(chat, account),
+    );
     if changed {
         persist(queue, path);
     }
@@ -178,6 +195,27 @@ fn handle(stream: &mut TcpStream, queue: &mut Queue, path: &std::path::Path, tok
     json_response(stream, status_text, &response);
 }
 
+/// The shared secret guarding the control socket. From the environment,
+/// or better, a 0600 file the installer creates.
+fn control_token() -> Option<String> {
+    if let Ok(token) = std::env::var("ZAPFAST_CONTROL_TOKEN") {
+        let token = token.trim().to_string();
+        if !token.is_empty() {
+            return Some(token);
+        }
+    }
+    let path = std::env::var("ZAPFAST_CONTROL_TOKEN_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+            PathBuf::from(home).join(".config/zapfast/scheduler-token")
+        });
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
 fn persist(queue: &Queue, path: &std::path::Path) {
     if let Err(e) = queue.save(path) {
         eprintln!("zapfast-scheduler: queue save failed: {e}");
@@ -188,7 +226,15 @@ fn main() {
     let base_url =
         std::env::var("BEEPER_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:23374".into());
     let token = std::env::var("BEEPER_ACCESS_TOKEN").unwrap_or_default();
-    let control_token = std::env::var("ZAPFAST_CONTROL_TOKEN").unwrap_or_default();
+    let control_token = match control_token() {
+        Some(token) => token,
+        None => {
+            eprintln!(
+                "zapfast-scheduler: no control token. Set ZAPFAST_CONTROL_TOKEN or run the installer, which writes the token file."
+            );
+            std::process::exit(1);
+        }
+    };
     let listen = std::env::var("ZAPFAST_LISTEN").unwrap_or_else(|_| "127.0.0.1:23376".into());
     let tick_secs = std::env::var("ZAPFAST_TICK_SECS")
         .ok()
@@ -200,7 +246,14 @@ fn main() {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let sender = match ServerSender::new(base_url, &token) {
+    let sender = match ServerSender::new(base_url.clone(), &token) {
+        Ok(sender) => sender,
+        Err(e) => {
+            eprintln!("zapfast-scheduler: {e}");
+            std::process::exit(1);
+        }
+    };
+    let mut validator = match ServerSender::new(base_url, &token) {
         Ok(sender) => sender,
         Err(e) => {
             eprintln!("zapfast-scheduler: {e}");
@@ -244,9 +297,13 @@ fn main() {
         // Drain control requests first so user actions land before sends.
         loop {
             match listener.accept() {
-                Ok((mut stream, _)) => {
-                    handle(&mut stream, &mut scheduler.queue, &path, &control_token)
-                }
+                Ok((mut stream, _)) => handle(
+                    &mut stream,
+                    &mut scheduler.queue,
+                    &path,
+                    &control_token,
+                    &mut validator,
+                ),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(_) => break,
             }

@@ -87,6 +87,44 @@ impl ServerSender {
     }
 }
 
+impl ServerSender {
+    /// Enqueue-time validation: the chat must exist on the Server and
+    /// belong to the stated account, so a mistargeted item fails at
+    /// scheduling time rather than sending somewhere wrong at due time.
+    pub fn validate_chat(&mut self, chat_id: &str, account_id: &str) -> Result<(), String> {
+        #[derive(serde::Deserialize)]
+        struct Chat {
+            #[serde(rename = "accountID", default)]
+            account_id: String,
+        }
+        let url = format!("{}/v1/chats/{}", self.base_url, encode_segment(chat_id));
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .map_err(|e| format!("validation unreachable: {e}"))?;
+        let status = response.status();
+        let body = Self::bounded_body(response).map_err(|e| match e {
+            SendError::Rejected(m) | SendError::Unknown(m) => m,
+        })?;
+        if status.as_u16() == 404 {
+            return Err("chat not found on the server".into());
+        }
+        if !status.is_success() {
+            return Err(format!("validation failed: HTTP {status}"));
+        }
+        let chat: Chat = serde_json::from_str(&body)
+            .map_err(|e| format!("validation response unreadable: {e}"))?;
+        if chat.account_id != account_id {
+            return Err(format!(
+                "chat belongs to account {}, not {account_id}",
+                chat.account_id
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Send for ServerSender {
     fn send(&mut self, item: &ScheduledMessage) -> Result<String, SendError> {
         let mut payload = serde_json::json!({"text": item.text});
@@ -184,6 +222,7 @@ pub fn control(
     body: &str,
     now: i64,
     new_id: &dyn Fn() -> String,
+    validate: &mut dyn FnMut(&str, &str) -> Result<(), String>,
 ) -> (u16, String, bool) {
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match (method, segments.as_slice()) {
@@ -212,6 +251,11 @@ pub fn control(
                     false,
                 );
             };
+            // The chat must exist and belong to the account BEFORE the
+            // item is queued; a mismatch must never reach the send path.
+            if let Err(e) = validate(&chat_id, &account_id) {
+                return (400, format!(r#"{{"error":"invalid target: {e}"}}"#), false);
+            }
             let item = crate::scheduler::ScheduledMessage::new(
                 new_id(),
                 account_id,
@@ -361,11 +405,27 @@ mod tests {
         fn health_and_empty_list() {
             let mut q = queue();
             assert_eq!(
-                control(&mut q, "GET", "/v1/health", "", 0, &|| "x".into()).0,
+                control(
+                    &mut q,
+                    "GET",
+                    "/v1/health",
+                    "",
+                    0,
+                    &|| "x".into(),
+                    &mut |_, _| Ok(())
+                )
+                .0,
                 200
             );
-            let (status, body, changed) =
-                control(&mut q, "GET", "/v1/scheduled", "", 0, &|| "x".into());
+            let (status, body, changed) = control(
+                &mut q,
+                "GET",
+                "/v1/scheduled",
+                "",
+                0,
+                &|| "x".into(),
+                &mut |_, _| Ok(()),
+            );
             assert_eq!((status, body.as_str(), changed), (200, "[]", false));
         }
 
@@ -408,7 +468,15 @@ mod tests {
         #[test]
         fn missing_fields_and_bad_json_are_400() {
             let mut q = queue();
-            let (status, _, _) = control(&mut q, "POST", "/v1/scheduled", "{not json", 0, &ids());
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled",
+                "{not json",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+            );
             assert_eq!(status, 400);
             let (status, _, _) = control(
                 &mut q,
@@ -446,19 +514,74 @@ mod tests {
             assert_eq!(status, 200);
             assert_eq!(q.items[0].text, "changed");
             assert_eq!(q.items[0].due_at, 2000);
-            let (status, _, _) =
-                control(&mut q, "POST", "/v1/scheduled/a/send-now", "", 555, &ids());
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/send-now",
+                "",
+                555,
+                &ids(),
+                &mut |_, _| Ok(()),
+            );
             assert_eq!(status, 200);
             assert_eq!(q.items[0].due_at, 555);
             assert_eq!(q.items[0].state, State::Scheduled);
         }
 
         #[test]
+        fn enqueue_validates_chat_and_account() {
+            let mut q = queue();
+            let add = r#"{"account_id":"wa","chat_id":"c1","text":"hi","due_at":100}"#;
+            // Validation failure: nothing queued, clear 400.
+            let (status, body, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled",
+                add,
+                50,
+                &ids(),
+                &mut |_, _| Err("chat belongs to account other".into()),
+            );
+            assert_eq!(status, 400);
+            assert!(body.contains("invalid target"));
+            assert!(!changed);
+            assert!(q.items.is_empty());
+            // The validator sees the exact chat and account.
+            let mut seen = Vec::new();
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled",
+                add,
+                50,
+                &ids(),
+                &mut |chat, account| {
+                    seen.push((chat.to_string(), account.to_string()));
+                    Ok(())
+                },
+            );
+            assert_eq!(status, 200);
+            assert_eq!(seen, vec![("c1".to_string(), "wa".to_string())]);
+        }
+
+        #[test]
         fn unknown_paths_and_actions_are_404() {
             let mut q = queue();
-            assert_eq!(control(&mut q, "GET", "/v1/nope", "", 0, &ids()).0, 404);
             assert_eq!(
-                control(&mut q, "POST", "/v1/scheduled/a/explode", "", 0, &ids()).0,
+                control(&mut q, "GET", "/v1/nope", "", 0, &ids(), &mut |_, _| Ok(())).0,
+                404
+            );
+            assert_eq!(
+                control(
+                    &mut q,
+                    "POST",
+                    "/v1/scheduled/a/explode",
+                    "",
+                    0,
+                    &ids(),
+                    &mut |_, _| Ok(())
+                )
+                .0,
                 404
             );
         }
@@ -477,7 +600,15 @@ mod tests {
             );
             item.state = State::Failed;
             q.add(item).unwrap();
-            let (status, _, _) = control(&mut q, "POST", "/v1/scheduled/a/retry", "", 0, &ids());
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/retry",
+                "",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+            );
             assert_eq!(status, 200);
             assert_eq!(q.items[0].state, State::Scheduled);
         }

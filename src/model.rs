@@ -2302,6 +2302,8 @@ pub enum Dialog {
     /// Schedules the composer's message for later delivery through the
     /// zapfast-scheduler companion service.
     SendLater,
+    /// The Send Later queue: pending scheduled messages with their states.
+    ScheduledList,
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,
@@ -2602,8 +2604,10 @@ pub enum Action {
         /// Quoted message id.
         quoting: Option<crate::model::ReplyTarget>,
     },
+    /// Acts on one queued Send Later item (cancel, retry, send-now).
+    ScheduledItemAction { id: String, action: String },
     /// Schedules a message for later delivery through the companion
-    /// scheduler service. Replies are not supported in this slice.
+    /// scheduler service.
     ScheduleSend {
         chat: ChatId,
         text: String,

@@ -96,6 +96,9 @@ pub struct Account {
     pub send_later_date: String,
     pub send_later_time: String,
     pub send_later_error: Option<String>,
+    /// The scheduler queue as the companion service last reported it;
+    /// None while the first fetch is in flight or after a failure.
+    pub scheduled_messages: Option<Vec<crate::scheduler::ScheduledMessage>>,
     pub show_archived: bool,
     pub chat_filter: ChatFilter,
     /// The chip the Calls page's history shows.
@@ -218,6 +221,7 @@ impl Account {
             send_later_date: String::new(),
             send_later_time: String::new(),
             send_later_error: None,
+            scheduled_messages: None,
             show_archived: false,
             chat_filter,
             call_filter,
