@@ -133,13 +133,22 @@ pub(super) fn docked(
         egui::Id::new((id, "resize-strip")),
         Sense::click_and_drag(),
     );
-    if resize.hovered() || resize.dragged() {
+    // The strip reaches onto the conversation's side of the edge, where the
+    // conversation's own widgets cover it, so a press there never reaches
+    // this interact. Follow the raw pointer instead: a press starting
+    // anywhere in the strip drags the edge while it stays down.
+    let strip_drag = ui.ctx().input(|input| {
+        input.pointer.primary_down()
+            && input
+                .pointer
+                .press_origin()
+                .is_some_and(|origin| strip.contains(origin))
+    });
+    if resize.hovered() || strip_drag {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
     let mut width = rect.width();
-    if resize.dragged()
-        && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos())
-    {
+    if strip_drag && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos()) {
         width = (rect.right() - pos.x).clamp(min, max);
     }
     ui.painter().vline(
