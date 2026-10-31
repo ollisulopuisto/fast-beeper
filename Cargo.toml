@@ -282,11 +282,14 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 tray-icon = { version = "0.25", default-features = false }
 # AppKit calls for the application menus and editing commands on the main thread.
 objc2 = "0.6"
+# Keychain items gated by Touch ID, for the app lock.
+objc2-security = { version = "0.3", default-features = false, features = ["SecBase", "SecItem", "SecAccessControl"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["alloc", "CFData", "CFDictionary", "CFNumber", "CFString"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSGraphics", "NSResponder", "NSText", "NSView", "NSVisualEffectView", "NSWindow"] }
 # Reaches the window behind eframe's view, for the Messages theme's vibrancy.
 raw-window-handle = "0.6"
 # Reads the locale's clock format.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDateFormatter", "NSFormatter", "NSLocale", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDateFormatter", "NSFormatter", "NSLocale", "NSString", "NSProcessInfo"] }
 # The camera for video calls, through AVFoundation.
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-avfoundation"] }
 

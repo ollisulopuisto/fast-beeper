@@ -818,6 +818,32 @@ fn sections(app: &App) -> Vec<Section> {
         ),
         |settings| &mut settings.download_updates_automatically,
     );
+    if crate::biometrics::supported() {
+        system.row(
+            translated(locale, "Allow App Nap"),
+            translated(
+                locale,
+                "Saves battery by letting macOS pause ZapFast in the background. While off, messaging and the connection keep working without delay.",
+            ),
+            move |ui, app| {
+                let mut allow = app.settings.allow_app_nap;
+                let response = widgets::switch(ui, &palette, &mut allow);
+                theme::reveal_focus(&response);
+                let label = crate::i18n::gettext(app.locale, "Allow App Nap");
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Checkbox,
+                        ui.is_enabled(),
+                        allow,
+                        label.as_ref(),
+                    )
+                });
+                if response.changed() {
+                    app.actions.push(Action::SetAllowAppNap(allow));
+                }
+            },
+        );
+    }
     let environment = app
         .settings
         .proxy
@@ -1104,6 +1130,32 @@ fn app_lock_rows(app: &App, privacy: &mut Section) {
                 theme::reveal_focus(&response.response);
             },
         );
+        if crate::biometrics::supported() {
+            privacy.row(
+                translated(locale, "Unlock with Touch ID"),
+                translated(
+                    locale,
+                    "After the next password unlock, Touch ID can unlock for you. Turning this off or changing the password forgets the saved password.",
+                ),
+                move |ui, app| {
+                    let mut on = app.settings.app_lock_touch_id;
+                    let response = widgets::switch(ui, &palette, &mut on);
+                    theme::reveal_focus(&response);
+                    let label = crate::i18n::gettext(app.locale, "Unlock with Touch ID");
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::Checkbox,
+                            ui.is_enabled(),
+                            on,
+                            label.as_ref(),
+                        )
+                    });
+                    if response.changed() {
+                        app.actions.push(Action::SetAppLockTouchId(on));
+                    }
+                },
+            );
+        }
     }
 }
 

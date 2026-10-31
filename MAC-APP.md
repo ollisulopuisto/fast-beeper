@@ -44,3 +44,16 @@ Dock, launch from Applications, existing SSH/tunnel lifecycle and GUI exit,
 unknown-host/key failure, occupied local port refusal, token privacy, and network
 inventory/history/pagination on the existing Server. No claim that missing
 WhatsApp/Signal or history404 has been fixed by packaging.
+
+## App lock Touch ID and App Nap
+
+When the app lock has a password, Settings > Privacy > "Unlock with Touch ID"
+offers Touch ID on the lock screen. The password itself is stored in the macOS
+keychain only after the next successful password unlock; turning the setting
+off or changing the password forgets it. Every unlock still runs the same
+PBKDF2 verifier - Touch ID fills the password, it never skips the check.
+
+ZapFast holds an NSProcessInfo activity from start, so macOS does not put it
+into App Nap and messaging plus the managed connection keep working in the
+background (idle system sleep stays allowed). Settings > System > "Allow App
+Nap" trades that for battery savings.
