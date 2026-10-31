@@ -359,7 +359,6 @@ fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {
         app.focus_search = false;
         response.request_focus();
     }
-    filter_chips(app, ui);
 }
 
 /// A button on the right of the chat list header's first row.
@@ -611,9 +610,9 @@ pub fn filter_chip_id(filter: ChatFilter) -> egui::Id {
     egui::Id::new(("chat-filter", filter as u8))
 }
 
-/// Filter chips under the search field. Search lists every match, so the
-/// chips hide there.
-fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
+/// Quick filters in the combined sidebar. Search lists every match, so
+/// the chips hide there.
+pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     if app.show_starred {
         // The starred panel replaces the chat list, so its filters go with it.
         return;
@@ -996,8 +995,8 @@ fn starred_row(
 
 /// Compact pins intentionally span network/account navigation in this
 /// profile. They render as ordinary chat rows, so pin/unpin, context
-/// menus and unread badges behave exactly as in the list below.
-fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
+/// menus and unread badges behave exactly as in the chat list.
+pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
     let pins = app.beeper_global_pins();
     if pins.is_empty() {
         return;
@@ -1026,6 +1025,54 @@ fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
         });
     ui.add_space(4.0);
 }
+
+/// Favorite chats span network/account navigation exactly like the compact
+/// pins: the phone's favorites list, as direct jumps from the sidebar.
+/// They render as ordinary chat rows, so favorite toggles, context menus
+/// and unread badges behave exactly as in the list.
+pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
+    let mut favorites: Vec<Chat> = app
+        .chats
+        .iter()
+        .filter(|c| {
+            c.backend_account.is_some() && c.favorite && !c.is_channel() && !c.locked && !c.archived
+        })
+        .cloned()
+        .collect();
+    if favorites.is_empty() {
+        return;
+    }
+    favorites.sort_by(|a, b| {
+        a.favorite_position
+            .cmp(&b.favorite_position)
+            .then_with(|| b.last_activity.cmp(&a.last_activity))
+            .then(a.id.cmp(&b.id))
+    });
+    let palette = app.palette;
+    ui.label(
+        egui::RichText::new("Favorites · all networks")
+            .small()
+            .color(palette.secondary),
+    );
+    let row_height = if app.settings.beeper.compact_list {
+        56.0
+    } else {
+        theme::ROW_HEIGHT
+    };
+    ui.spacing_mut().item_spacing.y = 0.0;
+    egui::ScrollArea::vertical()
+        .id_salt("beeper-global-favorites")
+        .max_height(row_height * 3.5)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for chat in favorites {
+                row(app, ui, &chat);
+            }
+        });
+    ui.add_space(4.0);
+}
+
 fn list(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     // Taken here so a send seen while the list is hidden cannot move it later.
@@ -1051,9 +1098,6 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     let global_pins = !app.show_archived
         && !app.beeper_reply_later_filter
         && app.chats.iter().any(|c| c.backend_account.is_some());
-    if global_pins {
-        pinned_row(app, ui);
-    }
     let chats: Vec<Chat> = app
         .visible_chats()
         .into_iter()
