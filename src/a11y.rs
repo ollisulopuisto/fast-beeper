@@ -353,6 +353,7 @@ pub fn status_word(locale: Locale, status: Delivery) -> Option<String> {
         Delivery::Read => gettext(locale, "read").into_owned(),
         Delivery::Played => gettext(locale, "played").into_owned(),
         Delivery::Failed => gettext(locale, "not sent").into_owned(),
+        Delivery::Unknown => gettext(locale, "delivery status unavailable").into_owned(),
     })
 }
 

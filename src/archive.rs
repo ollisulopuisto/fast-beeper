@@ -362,7 +362,9 @@ fn searched_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
 
 fn status_rank(status: Delivery) -> i64 {
     match status {
-        Delivery::None => 0,
+        // Unknown persists as no status: rank zero never blocks later
+        // advancement and reloads as no tick rather than a false one.
+        Delivery::None | Delivery::Unknown => 0,
         Delivery::Pending => 1,
         Delivery::Sent => 2,
         Delivery::Delivered => 3,

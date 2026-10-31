@@ -3853,44 +3853,63 @@ impl App {
                         })
                     })
                     .collect();
-                let conversation = self.conversations.entry(chat.clone()).or_default();
-                let was_empty = conversation.messages.is_empty();
-                if older && !messages.is_empty() {
-                    conversation.phone_delivered = true;
-                }
-                conversation.merge(messages, older);
-                // A server reply carries only the original's id; resolve its
-                // author from loaded history when the original is known.
-                for (message_id, quote_id) in unresolved_quotes {
-                    let Some((sender, sender_name)) = conversation
-                        .message(&quote_id)
-                        .map(|original| (original.sender.clone(), original.sender_name.clone()))
-                    else {
-                        continue;
-                    };
-                    if let Some(quoted) = conversation
-                        .message_mut(&message_id)
-                        .and_then(|message| message.quoted.as_mut())
-                    {
-                        quoted.sender = sender;
-                        quoted.sender_name = sender_name;
+                // `conversations` comes through DerefMut, so its entry borrow
+                // covers all of `self`; keep quote-fetch bookkeeping outside it.
+                let (was_empty, bare, still_unresolved) = {
+                    let conversation = self.conversations.entry(chat.clone()).or_default();
+                    let was_empty = conversation.messages.is_empty();
+                    if older && !messages.is_empty() {
+                        conversation.phone_delivered = true;
                     }
-                }
-                // Quotes whose originals are outside the loaded page are
-                // fetched by id, once per session; failures keep the
-                // generic placeholder rather than re-fetching forever.
-                let still_unresolved: Vec<(String, String)> = unresolved_quotes
-                    .iter()
-                    .filter(|(message_id, quoted_id)| {
-                        !self
-                            .quote_fetches
-                            .contains(&(chat.clone(), quoted_id.clone()))
-                            && conversation
+                    conversation.merge(messages, older);
+                    // A server reply carries only the original's id; resolve its
+                    // author from loaded history when the original is known.
+                    for (message_id, quote_id) in &unresolved_quotes {
+                        let Some((sender, sender_name)) =
+                            conversation.message(quote_id).map(|original| {
+                                (original.sender.clone(), original.sender_name.clone())
+                            })
+                        else {
+                            continue;
+                        };
+                        if let Some(quoted) = conversation
+                            .message_mut(message_id)
+                            .and_then(|message| message.quoted.as_mut())
+                        {
+                            quoted.sender = sender;
+                            quoted.sender_name = sender_name;
+                        }
+                    }
+                    // Quotes whose originals are outside the loaded page are
+                    // fetched by id, once per session; failures keep the
+                    // generic placeholder rather than re-fetching forever.
+                    let still_unresolved: Vec<(String, String)> = unresolved_quotes
+                        .iter()
+                        .filter(|(message_id, _)| {
+                            conversation
                                 .message(message_id)
                                 .and_then(|message| message.quoted.as_ref())
                                 .is_some_and(|quoted| quoted.sender.is_empty())
+                        })
+                        .cloned()
+                        .collect();
+                    if older {
+                        conversation.loading_older = false;
+                        conversation.complete = complete;
+                    } else if was_empty {
+                        conversation.complete = complete;
+                    }
+                    // Request phone history when sync created a chat without messages.
+                    let bare = !older && complete && conversation.messages.is_empty();
+                    (was_empty, bare, still_unresolved)
+                };
+                let still_unresolved: Vec<(String, String)> = still_unresolved
+                    .into_iter()
+                    .filter(|(_, quoted_id)| {
+                        !self
+                            .quote_fetches
+                            .contains(&(chat.clone(), quoted_id.clone()))
                     })
-                    .cloned()
                     .collect();
                 if !still_unresolved.is_empty() {
                     for (_, quoted_id) in &still_unresolved {
@@ -3901,14 +3920,6 @@ impl App {
                         refs: still_unresolved,
                     });
                 }
-                if older {
-                    conversation.loading_older = false;
-                    conversation.complete = complete;
-                } else if was_empty {
-                    conversation.complete = complete;
-                }
-                // Request phone history when sync created a chat without messages.
-                let bare = !older && complete && conversation.messages.is_empty();
                 // A message that arrives while the viewer is open joins its album.
                 if !older {
                     self.refresh_viewer_album(&chat);

@@ -1505,6 +1505,17 @@ mod tests {
         let roster = AccountRoster::load(&dir.path().join("accounts.json")).unwrap();
         assert_eq!(roster, AccountRoster::default());
     }
+
+    #[test]
+    fn touch_id_and_app_nap_default_off_and_survive_save() {
+        let mut settings: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.app_lock_touch_id && !settings.allow_app_nap);
+        settings.app_lock_touch_id = true;
+        settings.allow_app_nap = true;
+        let loaded: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(loaded.app_lock_touch_id && loaded.allow_app_nap);
+    }
 }
 
 #[cfg(test)]
@@ -1631,17 +1642,6 @@ impl BeeperPreferences {
         id.and_then(|id| self.accounts.get(id))
             .cloned()
             .unwrap_or_default()
-    }
-
-    #[test]
-    fn touch_id_and_app_nap_default_off_and_survive_save() {
-        let mut settings: Settings = serde_json::from_str("{}").unwrap();
-        assert!(!settings.app_lock_touch_id && !settings.allow_app_nap);
-        settings.app_lock_touch_id = true;
-        settings.allow_app_nap = true;
-        let loaded: Settings =
-            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
-        assert!(loaded.app_lock_touch_id && loaded.allow_app_nap);
     }
 }
 
