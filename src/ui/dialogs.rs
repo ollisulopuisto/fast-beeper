@@ -35,6 +35,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::PairWithPhone => 380.0,
                 Dialog::NewContact => 380.0,
                 Dialog::NewChat => 420.0,
+                Dialog::Palette => 480.0,
                 Dialog::UnlockLockedChats | Dialog::ConfirmLockChat(_) => 380.0,
                 Dialog::ConfirmDeleteChat(_) | Dialog::JoinGroup | Dialog::ConfirmStartOver => {
                     380.0
@@ -85,6 +86,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::PairWithPhone => pair_with_phone(app, ui),
                 Dialog::NewContact => new_contact(app, ui),
                 Dialog::NewChat => new_chat(app, ui),
+                Dialog::Palette => super::palette::show(app, ui),
                 Dialog::UnlockLockedChats => unlock_locked_chats(app, ui),
                 Dialog::ConfirmLockChat(id) => confirm_lock_chat(app, ui, &id),
                 Dialog::ConfirmDeleteChat(id) => confirm_delete_chat(app, ui, &id),

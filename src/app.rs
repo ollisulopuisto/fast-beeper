@@ -505,6 +505,10 @@ pub struct App {
     pub chat_lock_confirm: String,
     pub chat_lock_error: bool,
     pub new_chat_search: String,
+    /// Command palette query text.
+    pub palette_query: String,
+    /// Highlighted row in the command palette.
+    pub palette_selected: usize,
     /// Last answer from the slow code verifier, keyed by what was checked.
     chat_lock_check: std::cell::RefCell<Option<(String, Option<String>, bool)>>,
     /// Receipts of the message whose "Message info" is open.
@@ -1446,6 +1450,8 @@ impl App {
             chat_lock_confirm: String::new(),
             chat_lock_error: false,
             new_chat_search: String::new(),
+            palette_query: String::new(),
+            palette_selected: 0,
             chat_lock_check: Default::default(),
             message_receipts: None,
             receipts_watch: None,
@@ -8719,6 +8725,10 @@ impl App {
                 if dialog == Dialog::NewChat {
                     self.new_chat_search.clear();
                     self.new_group = None;
+                }
+                if dialog == Dialog::Palette {
+                    self.palette_query.clear();
+                    self.palette_selected = 0;
                 }
                 if let Dialog::AddGroupMembers(chat) = &dialog {
                     let Some(existing) = self

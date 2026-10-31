@@ -2290,6 +2290,9 @@ pub enum Dialog {
     /// Manually entered number for messaging or saving a contact.
     NewContact,
     UnlockLockedChats,
+    /// Keyboard-first command palette: find chats, apply filters, run
+    /// common actions. Message search stays in the search fields.
+    Palette,
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,

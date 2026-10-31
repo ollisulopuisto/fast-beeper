@@ -205,6 +205,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             );
         }
         key(Modifiers::COMMAND, Key::K, Action::FocusSearch);
+        key(
+            Modifiers::COMMAND,
+            Key::P,
+            Action::ShowDialog(Dialog::Palette),
+        );
         if let Some(next_account) = next_account {
             key(Modifiers::COMMAND | Modifiers::SHIFT, Key::A, next_account);
         }
@@ -956,6 +961,7 @@ const MESSAGES_KEYS: &str = if cfg!(target_os = "macos") {
 /// Shortcuts shown in the help dialog.
 pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+K / Ctrl+Shift+F", "Search chats"),
+    ("Ctrl+P", "Command palette: chats, filters, actions"),
     ("Ctrl+F", "Search the open chat or the settings"),
     (
         "↑ / ↓, Enter",
