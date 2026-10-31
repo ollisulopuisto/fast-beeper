@@ -1031,11 +1031,23 @@ pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
 /// They render as ordinary chat rows, so favorite toggles, context menus
 /// and unread badges behave exactly as in the list.
 pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
+    // A chat that is both favorited and pinned shows under Pinned only:
+    // two sections listing the same chat would read as a bug.
+    let pins: Vec<ChatId> = app
+        .beeper_global_pins()
+        .iter()
+        .map(|chat| chat.id.clone())
+        .collect();
     let mut favorites: Vec<Chat> = app
         .chats
         .iter()
         .filter(|c| {
-            c.backend_account.is_some() && c.favorite && !c.is_channel() && !c.locked && !c.archived
+            c.backend_account.is_some()
+                && c.favorite
+                && !c.is_channel()
+                && !c.locked
+                && !c.archived
+                && !pins.contains(&c.id)
         })
         .cloned()
         .collect();
