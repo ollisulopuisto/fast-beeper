@@ -2373,9 +2373,12 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
 
     let now = jiff::Zoned::now();
     let mut chosen: Option<i64> = None;
-    let preset = |ui: &mut egui::Ui, label: &str, due: Option<jiff::Zoned>| {
+    // Every preset names the actual resolved local time, so a preset that
+    // rolled to the next day can never look like today.
+    let preset = |ui: &mut egui::Ui, label: String, due: Option<jiff::Zoned>| {
         if let Some(due) = due {
-            if ui.button(label).clicked() {
+            let when = due.strftime("%a %d %b %H:%M");
+            if ui.button(format!("{label} ({when})")).clicked() {
                 chosen = Some(due.timestamp().as_second());
             }
         }
@@ -2383,7 +2386,7 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         preset(
             ui,
-            "In 1 hour",
+            "In 1 hour".to_string(),
             Some(now.clone() + jiff::SignedDuration::from_hours(1)),
         );
         let evening = now
@@ -2392,14 +2395,14 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
             .to_zoned(now.time_zone())
             .ok()
             .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
-        preset(ui, "This evening", evening);
+        preset(ui, "This evening".to_string(), evening);
         let morning = now
             .date()
             .at(9, 0, 0, 0)
             .to_zoned(now.time_zone())
             .ok()
             .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
-        preset(ui, "Tomorrow morning", morning);
+        preset(ui, "Tomorrow morning".to_string(), morning);
     });
 
     ui.add_space(4.0);
@@ -2412,22 +2415,59 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
     if ui.button("Schedule at this time").clicked() {
         let date = app.send_later_date.trim().parse::<jiff::civil::Date>();
         let time = app.send_later_time.trim().parse::<jiff::civil::Time>();
+        enum Due {
+            Ok(i64),
+            Past,
+            Invalid,
+            Ambiguous,
+            Nonexistent,
+        }
         let due = match (date, time) {
-            (Ok(date), Ok(time)) => date
-                .at(time.hour(), time.minute(), 0, 0)
-                .to_zoned(jiff::TimeZone::system())
-                .ok(),
-            _ => None,
+            (Ok(date), Ok(time)) => {
+                let naive = date.at(time.hour(), time.minute(), 0, 0);
+                let tz = jiff::TimeZone::system();
+                let ambiguous = tz.to_ambiguous_zoned(naive);
+                match ambiguous.compatible().ok() {
+                    // The entered wall time does not exist (jumped over).
+                    Some(zoned) if zoned.datetime() != naive => Due::Nonexistent,
+                    Some(zoned) => {
+                        // Two valid mappings means the wall time repeats.
+                        match (ambiguous.earlier().ok(), ambiguous.later().ok()) {
+                            (Some(a), Some(b)) if a != b => Due::Ambiguous,
+                            _ if zoned.timestamp().as_second()
+                                > now.timestamp().as_second() + 30 =>
+                            {
+                                Due::Ok(zoned.timestamp().as_second())
+                            }
+                            _ => Due::Past,
+                        }
+                    }
+                    None => Due::Invalid,
+                }
+            }
+            _ => Due::Invalid,
         };
         match due {
-            Some(due) if due.timestamp().as_second() > now.timestamp().as_second() + 30 => {
+            Due::Ok(due_at) => {
                 app.send_later_error = None;
-                chosen = Some(due.timestamp().as_second());
+                chosen = Some(due_at);
             }
-            Some(_) => {
+            Due::Past => {
                 app.send_later_error = Some("That time is in the past".into());
             }
-            None => {
+            Due::Ambiguous => {
+                app.send_later_error = Some(
+                    "That local time happens twice (daylight-saving overlap); pick another time"
+                        .into(),
+                );
+            }
+            Due::Nonexistent => {
+                app.send_later_error = Some(
+                    "That local time does not exist (daylight-saving jump); pick another time"
+                        .into(),
+                );
+            }
+            Due::Invalid => {
                 app.send_later_error =
                     Some("Unrecognized date or time; use YYYY-MM-DD and HH:MM".into());
             }
@@ -2449,10 +2489,12 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
         let chat = app.open_chat.clone().unwrap_or_default();
         let text = app.composer.trim().to_string();
         if !text.is_empty() && !chat.is_empty() {
+            let quoting = app.reply_to.as_ref().map(|target| target.id.clone());
             app.actions.push(crate::model::Action::ScheduleSend {
-                chat: chat.into(),
+                chat,
                 text,
                 due_at,
+                quoting,
             });
         }
         app.actions.push(crate::model::Action::CloseDialog);

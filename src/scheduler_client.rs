@@ -18,8 +18,19 @@ pub struct SchedulerClient {
 }
 
 impl SchedulerClient {
-    pub fn new(base_url: &str) -> Result<Self, String> {
+    /// `token` matches the daemon's ZAPFAST_CONTROL_TOKEN; empty means the
+    /// daemon was started without one (still guarded against web-originated
+    /// requests; see the daemon's header comment).
+    pub fn new(base_url: &str, token: &str) -> Result<Self, String> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if !token.is_empty() {
+            let mut auth = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                .map_err(|e| format!("invalid scheduler token characters: {e}"))?;
+            auth.set_sensitive(true);
+            headers.insert(reqwest::header::AUTHORIZATION, auth);
+        }
         let http = Client::builder()
+            .default_headers(headers)
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| format!("http client: {e}"))?;
@@ -185,16 +196,16 @@ mod tests {
     #[test]
     fn available_reflects_health() {
         let stub = stub(vec![ok(r#"{"ok":true}"#)]);
-        let client = SchedulerClient::new(&stub.base_url).unwrap();
+        let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         assert!(client.available());
-        let down = SchedulerClient::new("http://127.0.0.1:1").unwrap();
+        let down = SchedulerClient::new("http://127.0.0.1:1", "").unwrap();
         assert!(!down.available());
     }
 
     #[test]
     fn add_posts_fields_and_returns_id() {
         let stub = stub(vec![ok(r#"{"id":"sl-1"}"#)]);
-        let client = SchedulerClient::new(&stub.base_url).unwrap();
+        let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         let id = client
             .add("wa-main", "chat-1", "hello", Some("reply-1"), 1_762_000_000)
             .unwrap();
@@ -209,7 +220,7 @@ mod tests {
     fn list_parses_queue_items() {
         let body = r#"[{"id":"sl-1","account_id":"wa-main","chat_id":"chat-1","text":"hi","reply_to":null,"due_at":1762000000,"created_at":1761999000,"state":"Scheduled","attempts":0,"error":null,"sent_message_id":null}]"#;
         let stub = stub(vec![ok(body)]);
-        let client = SchedulerClient::new(&stub.base_url).unwrap();
+        let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         let items = client.list().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, "sl-1");
@@ -223,7 +234,7 @@ mod tests {
             ok(r#"{"ok":true}"#),
             ok(r#"{"ok":true}"#),
         ]);
-        let client = SchedulerClient::new(&stub.base_url).unwrap();
+        let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         client.cancel("sl-1").unwrap();
         client.edit("sl-1", None, Some(1_762_000_100)).unwrap();
         client.send_now("sl-1").unwrap();
@@ -252,7 +263,7 @@ mod tests {
         let stub = stub(vec![format!(
             "HTTP/1.1 409 Conflict\r\ncontent-length: 24\r\nconnection: close\r\n\r\n{{\"error\":\"BadState\"}}"
         )]);
-        let client = SchedulerClient::new(&stub.base_url).unwrap();
+        let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         let err = client.cancel("sl-1").unwrap_err();
         assert!(err.starts_with("HTTP 409"));
     }

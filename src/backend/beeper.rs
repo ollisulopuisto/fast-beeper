@@ -2349,15 +2349,66 @@ pub fn run(
                         });
                     }
                 }
+                Command::ListScheduled {
+                    scheduler_url,
+                    scheduler_token,
+                } => {
+                    match crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    )
+                    .and_then(|client| client.list())
+                    {
+                        Ok(items) => emit(Event::ScheduledList(items)),
+                        Err(e) => emit(Event::Info(format!("Send Later list unavailable: {e}"))),
+                    }
+                }
+                Command::ScheduledAction {
+                    scheduler_url,
+                    scheduler_token,
+                    id,
+                    action,
+                } => {
+                    let result = crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    )
+                    .and_then(|client| match action.as_str() {
+                        "cancel" => client.cancel(&id),
+                        "retry" => client.retry(&id),
+                        "send-now" => client.send_now(&id),
+                        other => Err(format!("unknown scheduled action {other}")),
+                    });
+                    if let Err(e) = result {
+                        emit(Event::Info(format!("Scheduled message: {e}")));
+                    }
+                    // The list always follows, so the dialog reflects the
+                    // action's real outcome rather than a hoped-for one.
+                    if let Ok(client) = crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    ) {
+                        if let Ok(items) = client.list() {
+                            emit(Event::ScheduledList(items));
+                        }
+                    }
+                }
                 Command::ScheduleSend {
                     scheduler_url,
+                    scheduler_token,
                     account,
                     chat,
                     text,
                     due_at,
+                    quoting,
                 } => {
-                    let result = crate::scheduler_client::SchedulerClient::new(&scheduler_url)
-                        .and_then(|client| client.add(&account, &chat, &text, None, due_at));
+                    let result = crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    )
+                    .and_then(|client| {
+                        client.add(&account, &chat, &text, quoting.as_deref(), due_at)
+                    });
                     match result {
                         Ok(id) => {
                             let when = jiff::Timestamp::from_second(due_at)
@@ -2368,8 +2419,9 @@ pub fn run(
                                 })
                                 .unwrap_or_else(|_| due_at.to_string());
                             emit(Event::Info(format!(
-                                "Scheduled for {when}; the scheduler service sends it, even while fast-beeper is closed (id {id})"
+                                "Scheduled for {when}; the scheduler service sends it at that time (id {id})"
                             )));
+                            emit(Event::ScheduledAccepted);
                         }
                         Err(e) => emit(Event::Info(format!("Send later failed: {e}"))),
                     }

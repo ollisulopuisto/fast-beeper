@@ -2609,6 +2609,8 @@ pub enum Action {
         text: String,
         /// Unix seconds, local wall time chosen by the user.
         due_at: i64,
+        /// Quoted message id when scheduling a reply.
+        quoting: Option<String>,
     },
     /// Sends a spot as a location message.
     SendLocation {

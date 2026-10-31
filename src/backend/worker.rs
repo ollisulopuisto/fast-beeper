@@ -6477,6 +6477,11 @@ impl Worker {
             Command::SetBeeperReminder { .. } => self.emit(Event::Info(
                 "Beeper reminders require the Beeper backend".into(),
             )),
+            Command::ScheduleSend { .. }
+            | Command::ListScheduled { .. }
+            | Command::ScheduledAction { .. } => {
+                self.emit(Event::Info("Send Later requires the Beeper backend".into()))
+            }
             Command::StartCall {
                 chat,
                 video,

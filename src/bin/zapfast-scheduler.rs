@@ -13,6 +13,15 @@
 //!                         keep this localhost - there is no auth on the
 //!                         control socket beyond the loopback binding)
 //! - ZAPFAST_TICK_SECS     seconds between due checks (default: 15, min 1)
+//! - ZAPFAST_CONTROL_TOKEN optional bearer token required on every request;
+//!                         set one whenever anything else runs on the host
+//!
+//! Socket hardening, even without a token: POSTs require
+//! Content-Type: application/json and any request carrying an Origin or
+//! Referer header is refused, so a web page cannot drive the socket with a
+//! form or fetch (both always send Origin on POST, and neither can set a
+//! bearer token without a CORS preflight this server never answers).
+//! Request bodies are capped at 64 KiB.
 //!
 //! Endpoints:
 //!   GET  /v1/health
@@ -72,7 +81,10 @@ fn json_response(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = stream.write_all(response.as_bytes());
 }
 
-fn read_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
+/// The most a control request's body may carry.
+const MAX_BODY: usize = 1 << 16;
+
+fn read_request(stream: &mut TcpStream) -> Option<(String, String, String, String)> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
@@ -89,6 +101,9 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
                 .find(|l| l.to_ascii_lowercase().starts_with("content-length:"))
                 .and_then(|l| l.split(':').nth(1)?.trim().parse::<usize>().ok())
                 .unwrap_or(0);
+            if length > MAX_BODY {
+                return None;
+            }
             if buf.len() < pos + 4 + length {
                 continue;
             }
@@ -96,18 +111,58 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
             let mut parts = headers.lines().next()?.split_whitespace();
             let method = parts.next()?.to_string();
             let path = parts.next()?.to_string();
-            return Some((method, path, body));
+            return Some((method, path, headers, body));
         }
-        if buf.len() > 1 << 16 {
+        if buf.len() > MAX_BODY {
             return None;
         }
     }
 }
 
-fn handle(stream: &mut TcpStream, queue: &mut Queue, path: &std::path::Path) {
-    let Some((method, req_path, body)) = read_request(stream) else {
+fn header<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+    headers
+        .lines()
+        .find(|l| {
+            l.to_ascii_lowercase()
+                .starts_with(&format!("{}:", name.to_ascii_lowercase()))
+        })
+        .and_then(|l| l.split(':').nth(1))
+        .map(str::trim)
+}
+
+fn handle(stream: &mut TcpStream, queue: &mut Queue, path: &std::path::Path, token: &str) {
+    let Some((method, req_path, headers, body)) = read_request(stream) else {
         return json_response(stream, "400 Bad Request", r#"{"error":"bad request"}"#);
     };
+    // Web pages must not drive the socket: browsers always send Origin on
+    // POST, and a preflight would never be answered here.
+    if header(&headers, "origin").is_some() || header(&headers, "referer").is_some() {
+        return json_response(
+            stream,
+            "403 Forbidden",
+            r#"{"error":"web-originated request refused"}"#,
+        );
+    }
+    if method == "POST" {
+        let json = header(&headers, "content-type")
+            .map(|v| v.to_ascii_lowercase().starts_with("application/json"))
+            .unwrap_or(false);
+        if !json {
+            return json_response(
+                stream,
+                "403 Forbidden",
+                r#"{"error":"json content-type required"}"#,
+            );
+        }
+    }
+    if !token.is_empty() {
+        let ok = header(&headers, "authorization")
+            .map(|v| v == format!("Bearer {token}"))
+            .unwrap_or(false);
+        if !ok {
+            return json_response(stream, "403 Forbidden", r#"{"error":"bad control token"}"#);
+        }
+    }
     let (status, response, changed) =
         zapfast::scheduler_api::control(queue, &method, &req_path, &body, now(), &new_id);
     if changed {
@@ -133,6 +188,7 @@ fn main() {
     let base_url =
         std::env::var("BEEPER_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:23374".into());
     let token = std::env::var("BEEPER_ACCESS_TOKEN").unwrap_or_default();
+    let control_token = std::env::var("ZAPFAST_CONTROL_TOKEN").unwrap_or_default();
     let listen = std::env::var("ZAPFAST_LISTEN").unwrap_or_else(|_| "127.0.0.1:23376".into());
     let tick_secs = std::env::var("ZAPFAST_TICK_SECS")
         .ok()
@@ -188,7 +244,9 @@ fn main() {
         // Drain control requests first so user actions land before sends.
         loop {
             match listener.accept() {
-                Ok((mut stream, _)) => handle(&mut stream, &mut scheduler.queue, &path),
+                Ok((mut stream, _)) => {
+                    handle(&mut stream, &mut scheduler.queue, &path, &control_token)
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(_) => break,
             }

@@ -4625,6 +4625,12 @@ impl App {
                     existing.labelled = quoted.labelled;
                 }
             }
+            Event::ScheduledAccepted => {
+                // The queue owns the message now; an ordinary Send must not
+                // deliver it a second time.
+                self.composer.clear();
+                self.reply_to = None;
+            }
             Event::ClipboardImage(result) => {
                 self.handle_clipboard_image(result, write_clipboard_image);
             }
@@ -8802,18 +8808,23 @@ impl App {
             Action::SetBeeperReminder { chat, at } => {
                 self.backend.send(Command::SetBeeperReminder { chat, at })
             }
-            Action::ScheduleSend { chat, text, due_at } => {
+            Action::ScheduleSend {
+                chat,
+                text,
+                due_at,
+                quoting,
+            } => {
+                // The composer and quote stay until the scheduler confirms
+                // (`Event::ScheduledAccepted`); a failure loses nothing.
                 self.backend.send(Command::ScheduleSend {
                     scheduler_url: self.settings.scheduler_url.clone(),
+                    scheduler_token: self.settings.scheduler_token.clone(),
                     account: self.account().id.clone(),
                     chat,
                     text,
                     due_at,
+                    quoting,
                 });
-                // The composer message is queued elsewhere now; do not also
-                // send it on the next ordinary Send.
-                self.composer.clear();
-                self.reply_to = None;
             }
             Action::SetArchived(chat, archived) => {
                 if let Some(known) = self.chat_mut(&chat) {
