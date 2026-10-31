@@ -29,6 +29,10 @@ use crate::paths::AccountDirs;
 const CHAT_PAGE_LIMIT: u32 = 100;
 /// How often the chat list (ordering, previews, unread counts) is refreshed.
 const CHAT_REFRESH: Duration = Duration::from_secs(60);
+/// Receipt refresh for the open chat. The forward-only live poll never
+/// re-returns already loaded messages, so their delivery/read receipt
+/// fields would stall without an occasional full-page refetch.
+const RECEIPT_REFRESH: Duration = Duration::from_secs(30);
 /// How often the open conversation is polled for new messages.
 const MSG_POLL: Duration = Duration::from_secs(3);
 /// Command-handling latency budget; the loop sleeps this long between drains.
@@ -2060,6 +2064,7 @@ pub fn run(
     let mut watched_chats: Vec<ChatId> = Vec::new();
     let mut last_chat_refresh = Instant::now() - CHAT_REFRESH;
     let mut last_msg_poll = Instant::now();
+    let mut last_receipt_refresh = Instant::now();
     let mut pending_sends: Vec<(ChatId, String, Instant)> = Vec::new();
     let mut pending_storage: Option<(u64, bool)> = None;
 
@@ -2628,6 +2633,33 @@ pub fn run(
         if last_chat_refresh.elapsed() >= CHAT_REFRESH {
             last_chat_refresh = Instant::now();
             refresh_inventory(&api, &mut accounts, &emit);
+        }
+        // Receipt refresh: the forward-only poll never re-returns already
+        // loaded messages, so their delivery/read ticks stall. Refetch the
+        // open chat's newest page on a slow cadence; the UI merge upserts
+        // by id, so scroll position, composer and read state are untouched
+        // and no extra notifications fire (no Incoming events here).
+        if let Some(chat) = &open_chat
+            && last_receipt_refresh.elapsed() >= RECEIPT_REFRESH
+        {
+            last_receipt_refresh = Instant::now();
+            if let Ok(page) = api.list_messages(chat, None, None) {
+                let mut messages: Vec<Message> = page
+                    .items
+                    .iter()
+                    .filter(|m| !m.is_hidden && !m.is_deleted)
+                    .map(|m| api.map_message(m, chat))
+                    .collect();
+                messages.sort_by_key(|m| m.timestamp);
+                if !messages.is_empty() {
+                    emit(Event::Messages {
+                        chat: chat.clone(),
+                        messages,
+                        older: false,
+                        complete: false,
+                    });
+                }
+            }
         }
 
         std::thread::sleep(LOOP_TICK);
