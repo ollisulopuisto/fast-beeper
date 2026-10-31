@@ -63,6 +63,7 @@ impl SchedulerClient {
         text: &str,
         reply_to: Option<&str>,
         due_at: i64,
+        replaces: Option<&str>,
     ) -> Result<String, String> {
         let mut payload = serde_json::json!({
             "account_id": account_id,
@@ -72,6 +73,9 @@ impl SchedulerClient {
         });
         if let Some(reply_to) = reply_to {
             payload["reply_to"] = reply_to.into();
+        }
+        if let Some(replaces) = replaces {
+            payload["replaces"] = replaces.into();
         }
         let body = self.post("/v1/scheduled", payload)?;
         let parsed: serde_json::Value =

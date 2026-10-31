@@ -889,6 +889,7 @@ pub enum Command {
         text: String,
         due_at: i64,
         quoting: Option<String>,
+        replaces: Option<String>,
     },
     /// Leaves a group or channel. `archive` also hides the chat in Archived.
     LeaveGroup {

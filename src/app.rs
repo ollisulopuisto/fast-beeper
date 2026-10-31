@@ -4643,6 +4643,8 @@ impl App {
                 // deliver it a second time.
                 self.composer.clear();
                 self.reply_to = None;
+                self.send_later_replaces = None;
+                self.send_later_draft_backup = None;
             }
             Event::ClipboardImage(result) => {
                 self.handle_clipboard_image(result, write_clipboard_image);
@@ -8845,6 +8847,7 @@ impl App {
                     text,
                     due_at,
                     quoting,
+                    replaces: self.send_later_replaces.clone(),
                 });
             }
             Action::SetArchived(chat, archived) => {

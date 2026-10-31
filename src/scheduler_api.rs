@@ -266,8 +266,16 @@ pub fn control(
                 now,
             );
             let id = item.id.clone();
-            match queue.add(item) {
-                Ok(()) => (200, format!(r#"{{"id":"{id}"}}"#), true),
+            let replaces = parsed.get("replaces").and_then(|v| v.as_str());
+            let result = match replaces {
+                Some(replaces) => queue
+                    .add_replacing(item, replaces)
+                    .map(|id| id)
+                    .map_err(|e| e),
+                None => queue.add(item).map(|_| id),
+            };
+            match result {
+                Ok(id) => (200, format!(r#"{{"id":"{id}"}}"#), true),
                 Err(e) => (409, format!(r#"{{"error":"{e:?}"}}"#), false),
             }
         }

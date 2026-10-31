@@ -2401,13 +2401,21 @@ pub fn run(
                     text,
                     due_at,
                     quoting,
+                    replaces,
                 } => {
                     let result = crate::scheduler_client::SchedulerClient::new(
                         &scheduler_url,
                         &scheduler_token,
                     )
                     .and_then(|client| {
-                        client.add(&account, &chat, &text, quoting.as_deref(), due_at)
+                        client.add(
+                            &account,
+                            &chat,
+                            &text,
+                            quoting.as_deref(),
+                            due_at,
+                            replaces.as_deref(),
+                        )
                     });
                     match result {
                         Ok(id) => {

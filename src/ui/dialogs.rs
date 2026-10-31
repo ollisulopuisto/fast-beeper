@@ -2481,8 +2481,18 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     ui.label(format!("Message: {}", preview_text(&app.composer)));
     ui.add_space(4.0);
+    if app.send_later_replaces.is_some() {
+        ui.label(egui::RichText::new(
+            "Editing a queued message: the original stays queued until this replacement is scheduled.",
+        ));
+    }
     ui.horizontal(|ui| {
         if ui.button("Cancel").clicked() {
+            if let Some(backup) = app.send_later_draft_backup.take() {
+                app.composer = backup;
+                app.reply_to = None;
+            }
+            app.send_later_replaces = None;
             app.actions.push(crate::model::Action::CloseDialog);
         }
     });
@@ -2636,15 +2646,31 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                                 .small_button(crate::i18n::gettext(app.locale, "Edit"))
                                 .clicked()
                             {
-                                // Back to the composer for changes; cancel the
-                                // queued copy so it is not also delivered.
-                                app.dispatch(Action::ScheduledItemAction {
-                                    id: m.id.clone(),
-                                    action: "cancel".into(),
-                                });
+                                // Edit in the Send Later dialog. The queued
+                                // item stays until the daemon acknowledges
+                                // the replacement (it cancels the old one in
+                                // the same step), so dismissing the dialog,
+                                // a crash, or a failed schedule loses
+                                // nothing. A composer draft is stashed and
+                                // restored on dismiss.
+                                if !app.composer.trim().is_empty() {
+                                    app.send_later_draft_backup = Some(app.composer.clone());
+                                }
                                 app.composer = m.text.clone();
-                                app.focus_composer = true;
-                                app.dialog = None;
+                                if let Some(quoting) = &m.quoting {
+                                    app.reply_to = Some(crate::model::ReplyTarget {
+                                        id: quoting.clone(),
+                                        chat: None,
+                                    });
+                                }
+                                if let Ok(zoned) = jiff::Timestamp::from_second(m.due_at)
+                                    .map(|t| t.to_zoned(jiff::TimeZone::system()))
+                                {
+                                    app.send_later_date = zoned.strftime("%Y-%m-%d").to_string();
+                                    app.send_later_time = zoned.strftime("%H:%M").to_string();
+                                }
+                                app.send_later_replaces = Some(m.id.clone());
+                                app.dialog = Some(Dialog::SendLater);
                             }
                         }
                     });

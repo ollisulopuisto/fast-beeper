@@ -165,6 +165,24 @@ impl Queue {
         Ok(())
     }
 
+    /// Queue a replacement for an existing item: the new item is added
+    /// and the old one cancelled in one step. If the old item cannot be
+    /// cancelled (a send is already in flight), the new item is NOT kept:
+    /// queuing it would risk sending both. Returns the new id.
+    pub fn add_replacing(
+        &mut self,
+        message: ScheduledMessage,
+        replaces: &str,
+    ) -> Result<String, QueueError> {
+        let new_id = message.id.clone();
+        self.add(message)?;
+        if let Err(e) = self.cancel(replaces) {
+            self.items.retain(|item| item.id != new_id);
+            return Err(e);
+        }
+        Ok(new_id)
+    }
+
     pub fn cancel(&mut self, id: &str) -> Result<(), QueueError> {
         let item = self
             .get_mut(id)
@@ -598,6 +616,84 @@ mod tests {
             queue.add(item("a", ts(61))),
             Err(QueueError::DuplicateId("a".into()))
         );
+    }
+
+    #[test]
+    fn add_replacing_cancels_the_original() {
+        let mut q = Queue::default();
+        let old = ScheduledMessage::new(
+            "a".into(),
+            "acc".into(),
+            "c".into(),
+            "old".into(),
+            None,
+            100,
+            0,
+        );
+        q.add(old).unwrap();
+        let new = ScheduledMessage::new(
+            "b".into(),
+            "acc".into(),
+            "c".into(),
+            "new".into(),
+            None,
+            200,
+            0,
+        );
+        let id = q.add_replacing(new, "a").unwrap();
+        assert_eq!(id, "b");
+        assert_eq!(q.get("a").unwrap().state, State::Cancelled);
+        assert_eq!(q.get("b").unwrap().state, State::Scheduled);
+    }
+
+    #[test]
+    fn add_replacing_a_sending_item_keeps_neither() {
+        // A send is in flight for the original; queuing the replacement
+        // would risk sending both, so the whole operation fails.
+        let mut q = Queue::default();
+        let old = ScheduledMessage::new(
+            "a".into(),
+            "acc".into(),
+            "c".into(),
+            "old".into(),
+            None,
+            100,
+            0,
+        );
+        q.add(old).unwrap();
+        let claimed = q.claim_due(150).unwrap();
+        assert_eq!(claimed.id, "a");
+        let new = ScheduledMessage::new(
+            "b".into(),
+            "acc".into(),
+            "c".into(),
+            "new".into(),
+            None,
+            200,
+            0,
+        );
+        assert!(q.add_replacing(new, "a").is_err());
+        assert!(q.get("b").is_none());
+        assert_eq!(q.get("a").unwrap().state, State::Sending);
+    }
+
+    #[test]
+    fn cancel_rejects_a_claimed_send() {
+        let mut q = Queue::default();
+        q.add(ScheduledMessage::new(
+            "a".into(),
+            "acc".into(),
+            "c".into(),
+            "hi".into(),
+            None,
+            100,
+            0,
+        ))
+        .unwrap();
+        q.claim_due(150).unwrap();
+        assert!(q.cancel("a").is_err());
+        assert!(q.retry("a").is_err());
+        assert!(q.edit("a", Some("x".into()), None).is_err());
     }
 
     #[test]

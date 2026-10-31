@@ -96,6 +96,12 @@ pub struct Account {
     pub send_later_date: String,
     pub send_later_time: String,
     pub send_later_error: Option<String>,
+    /// Queue item the Send Later dialog is replacing: cancelled by the
+    /// daemon only once the replacement is queued.
+    pub send_later_replaces: Option<String>,
+    /// Composer text stashed while editing a queued message, restored if
+    /// the dialog is dismissed without scheduling.
+    pub send_later_draft_backup: Option<String>,
     /// The scheduler queue as the companion service last reported it;
     /// None while the first fetch is in flight or after a failure.
     pub scheduled_messages: Option<Vec<crate::scheduler::ScheduledMessage>>,
@@ -221,6 +227,8 @@ impl Account {
             send_later_date: String::new(),
             send_later_time: String::new(),
             send_later_error: None,
+            send_later_replaces: None,
+            send_later_draft_backup: None,
             scheduled_messages: None,
             show_archived: false,
             chat_filter,
