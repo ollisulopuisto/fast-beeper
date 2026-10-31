@@ -34,15 +34,16 @@ mod imp {
     static ACTIVITY: Mutex<Option<SendableActivity>> = Mutex::new(None);
 
     pub(super) fn set_allowed(allowed: bool) {
-        let mut slot = ACTIVITY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut slot = ACTIVITY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match (allowed, slot.take()) {
             (true, Some(activity)) => unsafe {
                 NSProcessInfo::processInfo().endActivity(&activity.0);
             },
             (false, None) => {
-                let reason = NSString::from_str(
-                    "Messages keep arriving while ZapFast is in the background",
-                );
+                let reason =
+                    NSString::from_str("Messages keep arriving while ZapFast is in the background");
                 let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
                     NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
                     &reason,
