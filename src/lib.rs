@@ -49,6 +49,7 @@ pub mod qr;
 pub mod safety;
 pub mod scheduler;
 pub mod scheduler_api;
+pub mod scheduler_client;
 pub mod settings;
 pub mod single_instance;
 pub mod sticker_meta;
