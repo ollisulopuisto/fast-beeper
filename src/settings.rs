@@ -569,6 +569,7 @@ impl Default for Settings {
             font: FontChoice::System,
             custom_titlebar: false,
             interface_language: None,
+            last_changelog_version: None,
             custom_theme: None,
             custom_theme_cache: None,
             system_theme_cache: None,
