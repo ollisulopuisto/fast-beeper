@@ -722,7 +722,7 @@ mod tests {
         .unwrap();
         q.get_mut("a").unwrap().state = State::Sending;
         assert!(q.cancel("a").is_err());
-        assert!(q.retry("a").is_err());
+        assert!(q.retry("a", ts(0)).is_err());
         assert!(q.edit("a", Some("x".into()), None).is_err());
     }
 
