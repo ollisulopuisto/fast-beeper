@@ -8,15 +8,19 @@
 - Beeper Python packaging/launcher or harness-only changes run the current-source
   adapter tests plus Python tests on Linux, without recompiling four native apps.
 - Runtime source/assets/native-packaging changes run those portable checks first,
-  then ordinary quality/tests/Nix. PRs keep Linux native/Nix coverage; main keeps
-  Linux, macOS, Windows, Debian12, Windows ARM and three Nix systems, as before.
+  then quality and Ubuntu tests. PRs and routine main source merges no longer fan
+  out to macOS/Windows test legs, Debian12, Windows ARM or the three Nix systems;
+  those full matrices run on version tags, merge queues and manual scope=full,
+  matching the recorded preference that full platform matrices belong to tagged
+  releases or manual runs. Nix inputs (flake/flatpak) still select native+Nix.
 - Cargo/toolchain/build inputs and CI routing changes select every check family.
   Nix inputs select native and Nix checks. Unclassified implementation paths
   conservatively select portable/native/Nix checks. Deleted files count too.
 - Dependency advisories run for dependency changes, full manual CI and a small
   daily audit-only run. New advisories must be detected even without commits.
-- Merge queues and **CI -> Run workflow -> scope=full** select every family.
-  **scope=fast** is portable-only feedback, not native or release acceptance.
+- Merge queues, version tags and **CI -> Run workflow -> scope=full** select every
+  family. **scope=fast** is portable-only feedback, not native or release acceptance.
+  Tagging a release therefore runs the full matrix on the exact release commit.
 - Obsolete checks cancel within their workflow/ref. Flatpak and packaging checks
   now have cancellation too; packaging publication is not cancelled.
 
