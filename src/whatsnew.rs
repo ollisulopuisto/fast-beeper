@@ -45,10 +45,10 @@ pub fn sections() -> Vec<Section> {
             }
             // Any other heading (Unreleased, comments) ends the section
             // above without starting one.
-        } else if let Some(item) = line.strip_prefix("- ") {
-            if let Some(section) = out.last_mut() {
-                section.items.push(item.trim().to_owned());
-            }
+        } else if let Some(item) = line.strip_prefix("- ")
+            && let Some(section) = out.last_mut()
+        {
+            section.items.push(item.trim().to_owned());
         }
     }
     out

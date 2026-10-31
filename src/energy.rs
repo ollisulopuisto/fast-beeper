@@ -12,6 +12,7 @@ pub fn set_app_nap_allowed(allowed: bool) {
 
 /// Whether ZapFast must hold the power assertion: the mirror of the
 /// setting, kept as its own function so the default is testable.
+#[allow(dead_code)]
 pub(crate) fn assertion_required(allow_app_nap: bool) -> bool {
     !allow_app_nap
 }
