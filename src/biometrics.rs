@@ -143,12 +143,14 @@ mod imp {
     pub(super) fn save_password(password: &str) -> anyhow::Result<()> {
         // A re-save replaces; a leftover entry with older flags goes too.
         let _ = delete_password();
-        let access = unsafe { SecAccessControl::with_flags(
-            None,
-            AsRef::<CFType>::as_ref(kSecAttrAccessibleWhenUnlockedThisDeviceOnly),
-            SecAccessControlCreateFlags::BiometryCurrentSet,
-            std::ptr::null_mut(),
-        ) }
+        let access = unsafe {
+            SecAccessControl::with_flags(
+                None,
+                AsRef::<CFType>::as_ref(kSecAttrAccessibleWhenUnlockedThisDeviceOnly),
+                SecAccessControlCreateFlags::BiometryCurrentSet,
+                std::ptr::null_mut(),
+            )
+        }
         .ok_or_else(|| anyhow::anyhow!("The system refused a Touch ID access control"))?;
         let data = CFData::from_bytes(password.as_bytes());
         let attributes = query(&[
@@ -204,9 +206,7 @@ mod imp {
                     None
                 };
                 let password: Option<Zeroizing<String>> = if let Some(data) = data {
-                    String::from_utf8(data.to_vec())
-                        .ok()
-                        .map(Zeroizing::new)
+                    String::from_utf8(data.to_vec()).ok().map(Zeroizing::new)
                 } else {
                     // User cancel, failed biometry, invalidated or missing
                     // entry: all fall back to typing the password.

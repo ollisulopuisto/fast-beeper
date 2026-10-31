@@ -116,8 +116,13 @@ fn password(app: &mut App, ui: &mut egui::Ui) {
                 palette.secondary,
             );
         } else if !checking
-            && theme::pill_button(ui, &palette, &gettext(locale, "Unlock with Touch ID"), false)
-                .clicked()
+            && theme::pill_button(
+                ui,
+                &palette,
+                &gettext(locale, "Unlock with Touch ID"),
+                false,
+            )
+            .clicked()
         {
             app.actions.push(Action::TryTouchId);
         }

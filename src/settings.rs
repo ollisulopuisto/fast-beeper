@@ -1633,4 +1633,3 @@ impl BeeperPreferences {
         assert!(loaded.app_lock_touch_id && loaded.allow_app_nap);
     }
 }
-

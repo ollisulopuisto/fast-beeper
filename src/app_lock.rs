@@ -762,4 +762,3 @@ mod tests {
         assert!(lock.take_pending_save().is_none());
     }
 }
-}

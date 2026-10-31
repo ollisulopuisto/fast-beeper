@@ -9664,7 +9664,8 @@ impl App {
             Action::TryTouchId => {
                 if self.app_lock.can_try_touch_id() {
                     let reason = crate::i18n::gettext(self.locale, "Unlock ZapFast");
-                    self.app_lock.begin_touch_id(crate::biometrics::evaluate(&reason));
+                    self.app_lock
+                        .begin_touch_id(crate::biometrics::evaluate(&reason));
                 }
             }
             Action::SetAppLockTouchId(on) => {
