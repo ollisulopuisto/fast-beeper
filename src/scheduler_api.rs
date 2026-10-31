@@ -402,10 +402,10 @@ mod tests {
         }
 
         fn ids() -> impl Fn() -> String {
-            let mut n = 0u32;
+            let n = std::cell::Cell::new(0u32);
             move || {
-                n += 1;
-                format!("test-{n}")
+                n.set(n.get() + 1);
+                format!("test-{}", n.get())
             }
         }
 
@@ -447,6 +447,7 @@ mod tests {
                 r#"{"account_id":"wa","chat_id":"c1","text":"hi","due_at":100}"#,
                 50,
                 &ids(),
+                &mut |_, _| Ok(()),
             );
             assert_eq!((status, changed), (200, true));
             assert!(body.contains("test-1"));
@@ -458,6 +459,7 @@ mod tests {
                 "",
                 50,
                 &ids(),
+                &mut |_, _| Ok(()),
             );
             assert_eq!((status, changed), (200, true));
             assert_eq!(q.items[0].state, State::Cancelled);
@@ -469,6 +471,7 @@ mod tests {
                 "",
                 50,
                 &ids(),
+                &mut |_, _| Ok(()),
             );
             assert_eq!((status, changed), (409, false));
         }
@@ -493,6 +496,7 @@ mod tests {
                 r#"{"text":"hi"}"#,
                 0,
                 &ids(),
+                &mut |_, _| Ok(()),
             );
             assert_eq!(status, 400);
             assert!(q.items.is_empty());
@@ -518,6 +522,7 @@ mod tests {
                 r#"{"text":"changed","due_at":2000}"#,
                 0,
                 &ids(),
+                &mut |_, _| Ok(()),
             );
             assert_eq!(status, 200);
             assert_eq!(q.items[0].text, "changed");
