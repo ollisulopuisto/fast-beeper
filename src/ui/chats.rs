@@ -33,6 +33,30 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.settings.sidebar_width = width;
         app.actions.push(Action::SettingsChanged);
     }
+    // Resize strip: egui's own panel resize zone is a few pixels wide and
+    // easy to miss, so an explicit wider strip handles hover and drags.
+    let rect = response.response.rect;
+    let strip = Rect::from_min_max(
+        egui::pos2(rect.right() - 2.0, rect.top()),
+        egui::pos2(rect.right() + 6.0, rect.bottom()),
+    );
+    let resize = ui.interact(
+        strip,
+        egui::Id::new("chats-resize-strip"),
+        egui::Sense::click_and_drag(),
+    );
+    if resize.hovered() || resize.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    if resize.dragged()
+        && let Some(pos) = ui.ctx().pointer.latest_pos()
+    {
+        let dragged = (pos.x - rect.left()).clamp(260.0, 520.0);
+        if (dragged - app.settings.sidebar_width).abs() > 1.0 {
+            app.settings.sidebar_width = dragged;
+            app.actions.push(Action::SettingsChanged);
+        }
+    }
     // Separate the panel from the conversation, as the header's line does.
     widgets::paint_edge_beside(ui, &palette, response.response.rect);
 }

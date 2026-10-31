@@ -120,15 +120,34 @@ pub(super) fn docked(
         .frame(Frame::new().fill(palette.panel).inner_margin(Margin::ZERO))
         .show(ui, |ui| contents(app, ui));
     let rect = response.response.rect;
+    // Resize strip: egui's own panel resize zone is a few pixels wide and
+    // easy to miss, so an explicit wider strip handles hover and drags.
+    // The caller persists the reported width once it differs from what it
+    // asked for, so the saved width follows the drag.
+    let strip = Rect::from_min_max(
+        pos2(rect.left() - 6.0, rect.top()),
+        pos2(rect.left() + 2.0, rect.bottom()),
+    );
+    let resize = ui.interact(
+        strip,
+        egui::Id::new((id, "resize-strip")),
+        Sense::click_and_drag(),
+    );
+    if resize.hovered() || resize.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    let mut width = rect.width();
+    if resize.dragged()
+        && let Some(pos) = ui.ctx().pointer.latest_pos()
+    {
+        width = (rect.right() - pos.x).clamp(min, max);
+    }
     ui.painter().vline(
         rect.left(),
         rect.y_range(),
         Stroke::new(1.0, palette.outline),
     );
-    Docking::Docked {
-        width: rect.width(),
-        wanted,
-    }
+    Docking::Docked { width, wanted }
 }
 
 /// A pane over the right of a conversation too narrow to share.
