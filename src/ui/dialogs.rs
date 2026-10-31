@@ -2377,7 +2377,7 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
     let mut chosen: Option<i64> = None;
     // Every preset names the actual resolved local time, so a preset that
     // rolled to the next day can never look like today.
-    let preset = |ui: &mut egui::Ui, label: String, due: Option<jiff::Zoned>| {
+    let mut preset = |ui: &mut egui::Ui, label: String, due: Option<jiff::Zoned>| {
         if let Some(due) = due {
             let when = due.strftime("%a %d %b %H:%M");
             if ui.button(format!("{label} ({when})")).clicked() {
@@ -2429,12 +2429,12 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
                 let naive = date.at(time.hour(), time.minute(), 0, 0);
                 let tz = jiff::tz::TimeZone::system();
                 let ambiguous = tz.to_ambiguous_zoned(naive);
-                match ambiguous.compatible().ok() {
+                match ambiguous.clone().compatible().ok() {
                     // The entered wall time does not exist (jumped over).
                     Some(zoned) if zoned.datetime() != naive => Due::Nonexistent,
                     Some(zoned) => {
                         // Two valid mappings means the wall time repeats.
-                        match (ambiguous.earlier().ok(), ambiguous.later().ok()) {
+                        match (ambiguous.clone().earlier().ok(), ambiguous.later().ok()) {
                             (Some(a), Some(b)) if a != b => Due::Ambiguous,
                             _ if zoned.timestamp().as_second()
                                 > now.timestamp().as_second() + 30 =>
@@ -2587,6 +2587,7 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                                 egui::Color32::from_rgb(236, 170, 60),
                             ),
                             State::Sent => ("sent", egui::Color32::from_rgb(120, 200, 120)),
+                            State::Cancelled => ("cancelled", palette.secondary),
                         };
                         ui.label(egui::RichText::new(state).small().color(color));
                     });
