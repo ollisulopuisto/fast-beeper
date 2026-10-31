@@ -154,6 +154,109 @@ pub fn attach(ctx: &egui::Context) {
     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
 }
 
+/// `applicationShouldHandleReopen:hasVisibleWindows:` injected onto the
+/// application delegate's class: winit deliberately registers no handler for
+/// it (its platform docs assign the decision to the app), and ZapFast's
+/// window is destroyed when it closes to the tray, so activating the app
+/// from the Dock, Cmd-Tab, or an app switcher with no window left surfaced
+/// none. The injected method restores miniaturized windows - the behavior
+/// the absent default handler provided - and otherwise asks for a window
+/// through the same action the tray's Show uses. The delegate instance
+/// stays winit's; only the missing method is added to its class.
+unsafe extern "C-unwind" fn reopen(
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _sender: &NSApplication,
+    has_visible_windows: objc2::runtime::Bool,
+) -> objc2::runtime::Bool {
+    if has_visible_windows.as_bool() {
+        return objc2::runtime::Bool::YES;
+    }
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        return objc2::runtime::Bool::YES;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    // Miniaturized windows are not visible; restore them like the default
+    // handler would. Anything else means the window is gone.
+    let mut restored = false;
+    for window in app.windows().iter() {
+        if window.isMiniaturized() {
+            window.deminiaturize(None);
+            restored = true;
+        }
+    }
+    if !restored {
+        EVENTS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push("show-window".into());
+        if let Some(ctx) = &*REPAINT.lock().unwrap_or_else(|p| p.into_inner()) {
+            ctx.request_repaint();
+        }
+    }
+    objc2::runtime::Bool::YES
+}
+
+/// Adds `reopen` to the application delegate's class once winit has set its
+/// delegate, unless a handler already exists. Called from `drain`, which
+/// runs while the event loop pumps frames.
+fn install_reopen_handler() {
+    use objc2::runtime::{AnyProtocol, Bool, Imp, Sel};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+    if INSTALLED.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(delegate) = app.delegate() else {
+        return;
+    };
+    let Some(protocol) = AnyProtocol::get(c"NSApplicationDelegate") else {
+        return;
+    };
+    let sel = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
+    let class = AsRef::<objc2::runtime::AnyObject>::as_ref(&*delegate).class();
+    // Never override a handler the delegate already implements.
+    if class.instance_method(sel).is_some() {
+        INSTALLED.store(true, Ordering::Relaxed);
+        return;
+    }
+    // The protocol carries the correct encoding for the architecture.
+    let description = unsafe {
+        objc2::ffi::protocol_getMethodDescription(
+            std::ptr::from_ref(protocol),
+            sel,
+            Bool::new(false),
+            Bool::new(true),
+        )
+    };
+    if description.types.is_null() {
+        return;
+    }
+    let added = unsafe {
+        objc2::ffi::class_addMethod(
+            std::ptr::from_ref(class).cast_mut(),
+            sel,
+            std::mem::transmute::<
+                unsafe extern "C-unwind" fn(
+                    &objc2::runtime::AnyObject,
+                    Sel,
+                    &NSApplication,
+                    Bool,
+                ) -> Bool,
+                Imp,
+            >(reopen),
+            description.types,
+        )
+    };
+    if added.as_bool() {
+        INSTALLED.store(true, Ordering::Relaxed);
+    }
+}
+
 /// A native file dialog runs a modal loop, so its text fields must receive
 /// editing commands immediately instead of leaving them queued for egui.
 fn native_edit(id: &str) -> bool {
@@ -240,6 +343,7 @@ fn action(id: &str) -> Option<Action> {
 }
 
 pub fn drain(hidden: bool) -> Vec<Action> {
+    install_reopen_handler();
     if hidden {
         EDIT_EVENTS
             .lock()
