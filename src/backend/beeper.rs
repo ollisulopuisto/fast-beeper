@@ -2299,7 +2299,12 @@ pub fn run(
                         emit(Event::Info("Beeper cross-chat replies are not implemented yet; message kept in composer".into()));
                         continue;
                     }
-                    match api.send_text(&chat, &text, quoting.as_ref().map(|q| q.id.as_str()), &mentions) {
+                    match api.send_text(
+                        &chat,
+                        &text,
+                        quoting.as_ref().map(|q| q.id.as_str()),
+                        &mentions,
+                    ) {
                         Ok(accepted) => {
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
