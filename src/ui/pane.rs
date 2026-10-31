@@ -136,14 +136,23 @@ pub(super) fn docked(
     // The strip reaches onto the conversation's side of the edge, where the
     // conversation's own widgets cover it, so a press there never reaches
     // this interact. Follow the raw pointer instead: a press starting
-    // anywhere in the strip drags the edge while it stays down.
+    // anywhere in the strip drags the edge until the button is released,
+    // even after the moving edge leaves the press point behind.
+    let drag_id = egui::Id::new((id, "resize-strip-active"));
+    let was_dragging = ui
+        .ctx()
+        .data(|data| data.get_temp::<bool>(drag_id))
+        .unwrap_or(false);
     let strip_drag = ui.ctx().input(|input| {
         input.pointer.primary_down()
-            && input
-                .pointer
-                .press_origin()
-                .is_some_and(|origin| strip.contains(origin))
+            && (was_dragging
+                || input
+                    .pointer
+                    .press_origin()
+                    .is_some_and(|origin| strip.contains(origin)))
     });
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(drag_id, strip_drag));
     if resize.hovered() || strip_drag {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
