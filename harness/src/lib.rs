@@ -15,6 +15,8 @@ pub mod new_group;
 pub mod paths;
 pub mod privacy;
 pub mod safety;
+pub mod scheduler;
+pub mod scheduler_client;
 pub mod settings;
 pub mod ui;
 pub mod updates;
