@@ -2421,7 +2421,7 @@ pub fn run(
                         Ok(id) => {
                             let when = jiff::Timestamp::from_second(due_at)
                                 .map(|t| {
-                                    t.to_zoned(jiff::TimeZone::system())
+                                    t.to_zoned(jiff::tz::TimeZone::system())
                                         .strftime("%a %d %b, %H:%M")
                                         .to_string()
                                 })

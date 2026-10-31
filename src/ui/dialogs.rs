@@ -2427,7 +2427,7 @@ fn send_later(app: &mut App, ui: &mut egui::Ui) {
         let due = match (date, time) {
             (Ok(date), Ok(time)) => {
                 let naive = date.at(time.hour(), time.minute(), 0, 0);
-                let tz = jiff::TimeZone::system();
+                let tz = jiff::tz::TimeZone::system();
                 let ambiguous = tz.to_ambiguous_zoned(naive);
                 match ambiguous.compatible().ok() {
                     // The entered wall time does not exist (jumped over).
@@ -2567,7 +2567,7 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                     ui.horizontal(|ui| {
                         let due = jiff::Timestamp::from_second(m.due_at)
                             .map(|t| {
-                                t.to_zoned(jiff::TimeZone::system())
+                                t.to_zoned(jiff::tz::TimeZone::system())
                                     .strftime("%a %d %b %H:%M")
                                     .to_string()
                             })
@@ -2664,7 +2664,7 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
                                     });
                                 }
                                 if let Ok(zoned) = jiff::Timestamp::from_second(m.due_at)
-                                    .map(|t| t.to_zoned(jiff::TimeZone::system()))
+                                    .map(|t| t.to_zoned(jiff::tz::TimeZone::system()))
                                 {
                                     app.send_later_date = zoned.strftime("%Y-%m-%d").to_string();
                                     app.send_later_time = zoned.strftime("%H:%M").to_string();
