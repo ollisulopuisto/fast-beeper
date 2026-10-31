@@ -1450,9 +1450,13 @@ fn plain_rich_text(raw: &str) -> String {
                     if name == "a" {
                         if closing {
                             if let Some(url) = link.take() {
-                                out.push_str(" (");
-                                out.push_str(&url);
-                                out.push(')');
+                                // A matrix.to mention link already carries the
+                                // person's name as its text; the raw URL is noise.
+                                if !url.starts_with("https://matrix.to/#/@") {
+                                    out.push_str(" (");
+                                    out.push_str(&url);
+                                    out.push(')');
+                                }
                             }
                         } else {
                             link = safe_html_href(tag);
@@ -3043,6 +3047,15 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn matrix_mention_links_keep_the_name_without_the_url() {
+        let raw = "<p>hey <a href=\"https://matrix.to/#/@wl_6ds:local-signal.localhost\">Mikael Kasurinen</a> look</p>";
+        assert_eq!(plain_rich_text(raw), "hey Mikael Kasurinen look");
+        // Ordinary links keep their destination beside the label.
+        let raw = "<p>see <a href=\"https://example.com/page\">this</a></p>";
+        assert_eq!(plain_rich_text(raw), "see this (https://example.com/page)");
+    }
+
     fn inline_html_keeps_link_labels_destinations_and_breaks() {
         assert_eq!(plain_rich_text("Hello<br>next"), "Hello\nnext");
         assert_eq!(
