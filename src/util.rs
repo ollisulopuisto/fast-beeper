@@ -520,13 +520,17 @@ pub fn search_key(text: &str) -> String {
     if text.is_ascii() {
         return text.to_ascii_lowercase();
     }
-    DecomposingNormalizerBorrowed::new_nfd()
+    // Performance optimization: Instantiate `CodePointMapData` once outside
+    // the iterator filter closure instead of constructing it per character,
+    // and pre-allocate the output string with `text.len()` bytes.
+    let categories = CodePointMapData::<GeneralCategory>::new();
+    let mut key = String::with_capacity(text.len());
+    let filtered_chars = DecomposingNormalizerBorrowed::new_nfd()
         .normalize_iter(text.chars())
-        .filter(|c| {
-            CodePointMapData::<GeneralCategory>::new().get(*c) != GeneralCategory::NonspacingMark
-        })
-        .flat_map(char::to_lowercase)
-        .collect()
+        .filter(|c| categories.get(*c) != GeneralCategory::NonspacingMark)
+        .flat_map(char::to_lowercase);
+    key.extend(filtered_chars);
+    key
 }
 
 /// Duration such as "0:12".
@@ -1202,6 +1206,15 @@ mod tests {
     fn both_marks_render() {
         assert!(render_mark(MARK, 128).is_some());
         assert!(render_mark(SMALL_MARK, 22).is_some());
+    }
+
+    #[test]
+    fn search_key_normalizes_ascii_and_unicode_accents() {
+        assert_eq!(super::search_key("Hello World"), "hello world");
+        assert_eq!(super::search_key("CAFÉ"), "cafe");
+        assert_eq!(super::search_key("São Paulo"), "sao paulo");
+        assert_eq!(super::search_key("München"), "munchen");
+        assert_eq!(super::search_key("Crème Brûlée"), "creme brulee");
     }
 }
 
