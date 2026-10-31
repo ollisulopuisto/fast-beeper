@@ -427,6 +427,9 @@ pub struct App {
     watched_beeper_chats: Vec<ChatId>,
     pub beeper_history_errors: HashMap<ChatId, String>,
     pub beeper_live_errors: HashMap<ChatId, String>,
+    /// Profile names observed on incoming messages, by sender id, for people
+    /// the contact book does not know (group members on server accounts).
+    pub sender_names: HashMap<String, String>,
     pub beeper_search_state: Option<(String, Option<String>, bool)>,
     composer_mentions: Vec<ComposerMention>,
     /// Byte offset of the `:` starting the active emoji query.
@@ -1406,6 +1409,7 @@ impl App {
             watched_beeper_chats: Vec::new(),
             beeper_history_errors: HashMap::new(),
             beeper_live_errors: HashMap::new(),
+            sender_names: HashMap::new(),
             beeper_search_state: None,
             composer_mentions: Vec::new(),
             emoji_start: None,
@@ -2744,6 +2748,13 @@ impl App {
         if let Some(name) = saved.or_else(|| called.map(|name| format!("~{name}"))) {
             return name;
         }
+        if let Some(name) = self.sender_names.get(id).filter(|name| !name.is_empty()) {
+            return if name.starts_with('~') {
+                name.clone()
+            } else {
+                format!("~{name}")
+            };
+        }
         // A name of digits alone is no name. When the id carries the number,
         // neither is one as `util::phone` grouped it when the chat was filed:
         // that is formatted afresh from the id.
@@ -3795,12 +3806,45 @@ impl App {
                 {
                     self.backend.send(Command::LoadCallLog);
                 }
+                for message in &messages {
+                    if !message.from_me && !message.sender_name.is_empty() {
+                        self.sender_names
+                            .entry(message.sender.clone())
+                            .or_insert_with(|| message.sender_name.clone());
+                    }
+                }
+                let unresolved_quotes: Vec<(String, String)> = messages
+                    .iter()
+                    .filter_map(|message| {
+                        message.quoted.as_ref().and_then(|quoted| {
+                            (quoted.sender.is_empty() && !quoted.id.is_empty())
+                                .then(|| (message.id.clone(), quoted.id.clone()))
+                        })
+                    })
+                    .collect();
                 let conversation = self.conversations.entry(chat.clone()).or_default();
                 let was_empty = conversation.messages.is_empty();
                 if older && !messages.is_empty() {
                     conversation.phone_delivered = true;
                 }
                 conversation.merge(messages, older);
+                // A server reply carries only the original's id; resolve its
+                // author from loaded history when the original is known.
+                for (message_id, quote_id) in unresolved_quotes {
+                    let Some((sender, sender_name)) = conversation
+                        .message(&quote_id)
+                        .map(|original| (original.sender.clone(), original.sender_name.clone()))
+                    else {
+                        continue;
+                    };
+                    if let Some(quoted) = conversation
+                        .message_mut(&message_id)
+                        .and_then(|message| message.quoted.as_mut())
+                    {
+                        quoted.sender = sender;
+                        quoted.sender_name = Some(sender_name);
+                    }
+                }
                 if older {
                     conversation.loading_older = false;
                     conversation.complete = complete;
@@ -18703,6 +18747,57 @@ mod tests {
             forwarded: false,
             thumbnail: None,
         }
+    }
+
+    /// Server replies carry only the quoted message's id: the author is
+    /// resolved from loaded history, and observed sender names feed the
+    /// display-name fallback used by the mention picker.
+    #[test]
+    fn server_replies_resolve_quoted_authors_and_sender_names_from_history() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, _commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let chat = "group@local-signal.localhost";
+        let mut original = message(chat, "orig", 1);
+        original.sender = "wl_uuid:local-signal.localhost".into();
+        original.sender_name = "~Mikael Kasurinen".into();
+        events
+            .send(Event::Messages {
+                chat: chat.into(),
+                messages: vec![original],
+                older: false,
+                complete: false,
+            })
+            .unwrap();
+        let mut reply = message(chat, "reply", 2);
+        reply.from_me = true;
+        reply.quoted = Some(crate::model::Quoted {
+            chat: None,
+            id: "orig".into(),
+            sender: String::new(),
+            sender_name: None,
+            summary: "Reply to earlier message".into(),
+            labelled: Some(false),
+            mentions: Vec::new(),
+        });
+        events
+            .send(Event::Messages {
+                chat: chat.into(),
+                messages: vec![reply],
+                older: false,
+                complete: false,
+            })
+            .unwrap();
+        app.handle_events();
+        let quoted = app.conversations[chat]
+            .message("reply")
+            .and_then(|message| message.quoted.as_ref())
+            .expect("the reply keeps its quote");
+        assert_eq!(quoted.sender, "wl_uuid:local-signal.localhost");
+        assert_eq!(quoted.sender_name.as_deref(), Some("~Mikael Kasurinen"));
+        // The observed profile name resolves group members the contacts lack.
+        assert_eq!(app.display_name("wl_uuid:local-signal.localhost"), "~Mikael Kasurinen");
     }
 
     /// Settings measures the account's media cache as it opens; Clear empties
