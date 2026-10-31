@@ -412,6 +412,15 @@ pub fn ticks_in(ui: &Ui, palette: &Palette, rect: Rect, status: Delivery, plain:
         _ => plain,
     };
     theme::paint_icon(ui, icon, rect, rect.height(), color);
+    if status == Delivery::Unknown {
+        let response = ui.interact(
+            rect,
+            ui.id()
+                .with(("delivery-ticks", rect.min.x.to_bits(), rect.min.y.to_bits())),
+            Sense::hover(),
+        );
+        response.on_hover_text("Delivery status unavailable");
+    }
 }
 
 /// The glyph for a delivery state: our own ticks, both as tall as each
@@ -419,6 +428,7 @@ pub fn ticks_in(ui: &Ui, palette: &Palette, rect: Rect, status: Delivery, plain:
 pub fn tick_icon(status: Delivery) -> Option<Icon> {
     Some(match status {
         Delivery::None => return None,
+        Delivery::Unknown => Icon::Minus,
         Delivery::Pending => Icon::Clock,
         Delivery::Sent => Icon::DeliveryTick,
         Delivery::Delivered | Delivery::Read | Delivery::Played => Icon::DeliveryTicks,
@@ -2022,6 +2032,7 @@ mod tests {
     /// glyphs, where the second tick reaches as high as the first (#249).
     #[test]
     fn delivery_ticks_are_our_own_equal_height_glyphs() {
+        assert_eq!(tick_icon(Delivery::Unknown), Some(Icon::Minus));
         assert_eq!(tick_icon(Delivery::Sent), Some(Icon::DeliveryTick));
         for status in [Delivery::Delivered, Delivery::Read, Delivery::Played] {
             assert_eq!(tick_icon(status), Some(Icon::DeliveryTicks));

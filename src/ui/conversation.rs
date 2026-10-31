@@ -10465,6 +10465,7 @@ pub fn has_messages(conversation: &Conversation) -> bool {
 fn status_label(status: Delivery) -> &'static str {
     match status {
         Delivery::None => "",
+        Delivery::Unknown => "delivery status unavailable",
         Delivery::Pending => "sending",
         Delivery::Sent => "sent",
         Delivery::Delivered => "delivered",
