@@ -108,89 +108,19 @@ fn handle(stream: &mut TcpStream, queue: &mut Queue, path: &std::path::Path) {
     let Some((method, req_path, body)) = read_request(stream) else {
         return json_response(stream, "400 Bad Request", r#"{"error":"bad request"}"#);
     };
-    let save = |queue: &Queue| {
-        if let Err(e) = queue.save(path) {
-            eprintln!("queue save failed: {e}");
-        }
-    };
-    let segments: Vec<&str> = req_path.split('/').filter(|s| !s.is_empty()).collect();
-    match (method.as_str(), segments.as_slice()) {
-        ("GET", ["v1", "health"]) => json_response(stream, "200 OK", r#"{"ok":true}"#),
-        ("GET", ["v1", "scheduled"]) => {
-            let body = serde_json::to_string(&queue.items).unwrap_or_else(|_| "[]".into());
-            json_response(stream, "200 OK", &body)
-        }
-        ("POST", ["v1", "scheduled"]) => {
-            let parsed: serde_json::Value = match serde_json::from_str(&body) {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        stream,
-                        "400 Bad Request",
-                        &format!(r#"{{"error":"invalid json: {e}"}}"#),
-                    );
-                }
-            };
-            let get_str = |key: &str| parsed.get(key).and_then(|v| v.as_str()).map(str::to_string);
-            let (Some(account_id), Some(chat_id), Some(text), Some(due_at)) = (
-                get_str("account_id"),
-                get_str("chat_id"),
-                get_str("text"),
-                parsed.get("due_at").and_then(|v| v.as_i64()),
-            ) else {
-                return json_response(
-                    stream,
-                    "400 Bad Request",
-                    r#"{"error":"need account_id, chat_id, text, due_at"}"#,
-                );
-            };
-            let item = ScheduledMessage::new(
-                new_id(),
-                account_id,
-                chat_id,
-                text,
-                get_str("reply_to"),
-                due_at,
-                now(),
-            );
-            let id = item.id.clone();
-            match queue.add(item) {
-                Ok(()) => {
-                    save(queue);
-                    json_response(stream, "200 OK", &format!(r#"{{"id":"{id}"}}"#))
-                }
-                Err(e) => json_response(stream, "409 Conflict", &format!(r#"{{"error":"{e:?}"}}"#)),
-            }
-        }
-        ("POST", ["v1", "scheduled", id, action]) => {
-            let result = match *action {
-                "cancel" => queue.cancel(id),
-                "retry" => queue.retry(id),
-                "edit" => {
-                    let parsed: serde_json::Value =
-                        serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
-                    let text = parsed
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    let due_at = parsed.get("due_at").and_then(|v| v.as_i64());
-                    queue.edit(id, text, due_at)
-                }
-                "send-now" => queue.edit(id, None, Some(now())),
-                _ => {
-                    return json_response(stream, "404 Not Found", r#"{"error":"unknown action"}"#);
-                }
-            };
-            match result {
-                Ok(()) => {
-                    save(queue);
-                    json_response(stream, "200 OK", r#"{"ok":true}"#)
-                }
-                Err(e) => json_response(stream, "409 Conflict", &format!(r#"{{"error":"{e:?}"}}"#)),
-            }
-        }
-        _ => json_response(stream, "404 Not Found", r#"{"error":"not found"}"#),
+    let (status, response, changed) =
+        zapfast::scheduler_api::control(queue, &method, &req_path, &body, now(), &new_id);
+    if changed {
+        persist(queue, path);
     }
+    let status_text = match status {
+        200 => "200 OK",
+        400 => "400 Bad Request",
+        404 => "404 Not Found",
+        409 => "409 Conflict",
+        _ => "500 Internal Server Error",
+    };
+    json_response(stream, status_text, &response);
 }
 
 fn persist(queue: &Queue, path: &std::path::Path) {

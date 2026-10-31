@@ -174,6 +174,85 @@ fn encode_segment(segment: &str) -> String {
     out
 }
 
+/// The daemon's control protocol, without the socket: one request in,
+/// (HTTP status, response body, queue changed) out. The daemon persists
+/// when `changed` is true. Testable without a listener.
+pub fn control(
+    queue: &mut crate::scheduler::Queue,
+    method: &str,
+    path: &str,
+    body: &str,
+    now: i64,
+    new_id: &dyn Fn() -> String,
+) -> (u16, String, bool) {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    match (method, segments.as_slice()) {
+        ("GET", ["v1", "health"]) => (200, r#"{"ok":true}"#.to_string(), false),
+        ("GET", ["v1", "scheduled"]) => {
+            let body = serde_json::to_string(&queue.items).unwrap_or_else(|_| "[]".into());
+            (200, body, false)
+        }
+        ("POST", ["v1", "scheduled"]) => {
+            let parsed: serde_json::Value = match serde_json::from_str(body) {
+                Ok(v) => v,
+                Err(e) => {
+                    return (400, format!(r#"{{"error":"invalid json: {e}"}}"#), false);
+                }
+            };
+            let get_str = |key: &str| parsed.get(key).and_then(|v| v.as_str()).map(str::to_string);
+            let (Some(account_id), Some(chat_id), Some(text), Some(due_at)) = (
+                get_str("account_id"),
+                get_str("chat_id"),
+                get_str("text"),
+                parsed.get("due_at").and_then(|v| v.as_i64()),
+            ) else {
+                return (
+                    400,
+                    r#"{"error":"need account_id, chat_id, text, due_at"}"#.to_string(),
+                    false,
+                );
+            };
+            let item = crate::scheduler::ScheduledMessage::new(
+                new_id(),
+                account_id,
+                chat_id,
+                text,
+                get_str("reply_to"),
+                due_at,
+                now,
+            );
+            let id = item.id.clone();
+            match queue.add(item) {
+                Ok(()) => (200, format!(r#"{{"id":"{id}"}}"#), true),
+                Err(e) => (409, format!(r#"{{"error":"{e:?}"}}"#), false),
+            }
+        }
+        ("POST", ["v1", "scheduled", id, action]) => {
+            let result = match *action {
+                "cancel" => queue.cancel(id),
+                "retry" => queue.retry(id),
+                "edit" => {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+                    let text = parsed
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let due_at = parsed.get("due_at").and_then(|v| v.as_i64());
+                    queue.edit(id, text, due_at)
+                }
+                "send-now" => queue.edit(id, None, Some(now)),
+                _ => return (404, r#"{"error":"unknown action"}"#.to_string(), false),
+            };
+            match result {
+                Ok(()) => (200, r#"{"ok":true}"#.to_string(), true),
+                Err(e) => (409, format!(r#"{{"error":"{e:?}"}}"#), false),
+            }
+        }
+        _ => (404, r#"{"error":"not found"}"#.to_string(), false),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +339,148 @@ mod tests {
 
     fn sender(base_url: &str) -> ServerSender {
         ServerSender::new(base_url.to_string(), "secret-token").unwrap()
+    }
+
+    mod protocol {
+        use super::super::control;
+        use crate::scheduler::{Queue, ScheduledMessage, State};
+
+        fn queue() -> Queue {
+            Queue::default()
+        }
+
+        fn ids() -> impl Fn() -> String {
+            let mut n = 0u32;
+            move || {
+                n += 1;
+                format!("test-{n}")
+            }
+        }
+
+        #[test]
+        fn health_and_empty_list() {
+            let mut q = queue();
+            assert_eq!(
+                control(&mut q, "GET", "/v1/health", "", 0, &|| "x".into()).0,
+                200
+            );
+            let (status, body, changed) =
+                control(&mut q, "GET", "/v1/scheduled", "", 0, &|| "x".into());
+            assert_eq!((status, body.as_str(), changed), (200, "[]", false));
+        }
+
+        #[test]
+        fn add_then_list_then_cancel() {
+            let mut q = queue();
+            let (status, body, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled",
+                r#"{"account_id":"wa","chat_id":"c1","text":"hi","due_at":100}"#,
+                50,
+                &ids(),
+            );
+            assert_eq!((status, changed), (200, true));
+            assert!(body.contains("test-1"));
+            assert_eq!(q.items.len(), 1);
+            let (status, _, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/test-1/cancel",
+                "",
+                50,
+                &ids(),
+            );
+            assert_eq!((status, changed), (200, true));
+            assert_eq!(q.items[0].state, State::Cancelled);
+            // A cancelled item cannot be cancelled again.
+            let (status, _, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/test-1/cancel",
+                "",
+                50,
+                &ids(),
+            );
+            assert_eq!((status, changed), (409, false));
+        }
+
+        #[test]
+        fn missing_fields_and_bad_json_are_400() {
+            let mut q = queue();
+            let (status, _, _) = control(&mut q, "POST", "/v1/scheduled", "{not json", 0, &ids());
+            assert_eq!(status, 400);
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled",
+                r#"{"text":"hi"}"#,
+                0,
+                &ids(),
+            );
+            assert_eq!(status, 400);
+            assert!(q.items.is_empty());
+        }
+
+        #[test]
+        fn edit_and_send_now() {
+            let mut q = queue();
+            q.add(ScheduledMessage::new(
+                "a".into(),
+                "wa".into(),
+                "c1".into(),
+                "hi".into(),
+                None,
+                1_000,
+                0,
+            ))
+            .unwrap();
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/edit",
+                r#"{"text":"changed","due_at":2000}"#,
+                0,
+                &ids(),
+            );
+            assert_eq!(status, 200);
+            assert_eq!(q.items[0].text, "changed");
+            assert_eq!(q.items[0].due_at, 2000);
+            let (status, _, _) =
+                control(&mut q, "POST", "/v1/scheduled/a/send-now", "", 555, &ids());
+            assert_eq!(status, 200);
+            assert_eq!(q.items[0].due_at, 555);
+            assert_eq!(q.items[0].state, State::Scheduled);
+        }
+
+        #[test]
+        fn unknown_paths_and_actions_are_404() {
+            let mut q = queue();
+            assert_eq!(control(&mut q, "GET", "/v1/nope", "", 0, &ids()).0, 404);
+            assert_eq!(
+                control(&mut q, "POST", "/v1/scheduled/a/explode", "", 0, &ids()).0,
+                404
+            );
+        }
+
+        #[test]
+        fn retry_of_failed_item() {
+            let mut q = queue();
+            let mut item = ScheduledMessage::new(
+                "a".into(),
+                "wa".into(),
+                "c1".into(),
+                "hi".into(),
+                None,
+                100,
+                0,
+            );
+            item.state = State::Failed;
+            q.add(item).unwrap();
+            let (status, _, _) = control(&mut q, "POST", "/v1/scheduled/a/retry", "", 0, &ids());
+            assert_eq!(status, 200);
+            assert_eq!(q.items[0].state, State::Scheduled);
+        }
     }
 
     #[test]
