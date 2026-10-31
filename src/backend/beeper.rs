@@ -3242,9 +3242,9 @@ mod tests {
         assert_eq!(plain_rich_text("Hello<br>next"), "Hello\nnext");
         assert_eq!(
             plain_rich_text(
-                r#"Hello <a href="https://matrix.to/#/@fixture:example.org" rel="noreferrer">Fixture Name</a>!"#
+                r#"Hello <a href="https://example.com/page" rel="noreferrer">Fixture Name</a>!"#
             ),
-            "Hello Fixture Name (https://matrix.to/#/@fixture:example.org)!"
+            "Hello Fixture Name (https://example.com/page)!"
         );
         assert_eq!(
             plain_rich_text(r#"Before <a href="javascript:alert(1)">safe label</a> after"#),
