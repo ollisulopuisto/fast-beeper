@@ -38,6 +38,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::Palette => 480.0,
                 Dialog::WhatsNew => 480.0,
                 Dialog::SendLater => 460.0,
+                Dialog::ScheduledList => 480.0,
                 Dialog::UnlockLockedChats | Dialog::ConfirmLockChat(_) => 380.0,
                 Dialog::ConfirmDeleteChat(_) | Dialog::JoinGroup | Dialog::ConfirmStartOver => {
                     380.0
@@ -91,6 +92,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::Palette => super::palette::show(app, ui),
                 Dialog::WhatsNew => whats_new(app, ui),
                 Dialog::SendLater => send_later(app, ui),
+                Dialog::ScheduledList => scheduled_list(app, ui),
                 Dialog::UnlockLockedChats => unlock_locked_chats(app, ui),
                 Dialog::ConfirmLockChat(id) => confirm_lock_chat(app, ui, &id),
                 Dialog::ConfirmDeleteChat(id) => confirm_delete_chat(app, ui, &id),
@@ -2510,4 +2512,144 @@ fn preview_text(text: &str) -> String {
     } else {
         preview
     }
+}
+
+/// The Send Later queue: what is waiting, when it goes out, and the
+/// per-item cancel / retry / send-now / edit actions. Edit puts the text
+/// back in the composer and cancels the queued item, so a message is
+/// never both queued and composed.
+fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
+    use crate::scheduler::State;
+
+    title(
+        ui,
+        app,
+        &crate::i18n::gettext(app.locale, "Send Later queue"),
+    );
+    let palette = app.palette;
+    ui.label("The scheduler service sends these at their times, even while fast-beeper is closed.");
+    ui.add_space(6.0);
+    let Some(items) = &app.scheduled_messages else {
+        ui.label(egui::RichText::new(crate::i18n::gettext(
+            app.locale,
+            "Loading the queue…",
+        )));
+        return;
+    };
+    let mut items = items.clone();
+    items.sort_by_key(|m| m.due_at);
+    if items.is_empty() {
+        ui.label(
+            "Nothing scheduled. Right-click or long-press the Send button to schedule a message.",
+        );
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .max_height(360.0)
+        .show(ui, |ui| {
+            for m in &items {
+                let frame = Frame::new()
+                    .stroke(Stroke::new(1.0, palette.outline))
+                    .corner_radius(CornerRadius::same(theme::RADIUS))
+                    .inner_margin(Margin::same(8));
+                frame.show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        let due = jiff::Timestamp::from_second(m.due_at)
+                            .map(|t| {
+                                t.to_zoned(jiff::TimeZone::system())
+                                    .strftime("%a %d %b %H:%M")
+                                    .to_string()
+                            })
+                            .unwrap_or_else(|_| "invalid time".to_string());
+                        ui.label(egui::RichText::new(due).strong());
+                        let (state, color) = match m.state {
+                            State::Scheduled => ("scheduled", palette.secondary),
+                            State::Sending => ("sending…", palette.secondary),
+                            State::Failed => ("failed", egui::Color32::from_rgb(228, 90, 80)),
+                            State::Missed => (
+                                "missed - needs a decision",
+                                egui::Color32::from_rgb(236, 170, 60),
+                            ),
+                            State::Uncertain => (
+                                "unknown - check the chat",
+                                egui::Color32::from_rgb(236, 170, 60),
+                            ),
+                            State::Sent => ("sent", egui::Color32::from_rgb(120, 200, 120)),
+                        };
+                        ui.label(egui::RichText::new(state).small().color(color));
+                    });
+                    let preview: String = m.text.chars().take(120).collect();
+                    ui.label(preview);
+                    if m.quoting.is_some() {
+                        ui.label(
+                            egui::RichText::new("reply")
+                                .small()
+                                .color(palette.secondary),
+                        );
+                    }
+                    if let Some(error) = &m.error {
+                        ui.label(
+                            egui::RichText::new(error)
+                                .small()
+                                .color(egui::Color32::from_rgb(228, 90, 80)),
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if matches!(m.state, State::Scheduled)
+                            && ui
+                                .small_button(crate::i18n::gettext(app.locale, "Cancel"))
+                                .clicked()
+                        {
+                            app.dispatch(Action::ScheduledItemAction {
+                                id: m.id.clone(),
+                                action: "cancel".into(),
+                            });
+                            app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                        }
+                        if matches!(m.state, State::Failed | State::Missed | State::Uncertain)
+                            && ui
+                                .small_button(crate::i18n::gettext(app.locale, "Retry"))
+                                .clicked()
+                        {
+                            app.dispatch(Action::ScheduledItemAction {
+                                id: m.id.clone(),
+                                action: "retry".into(),
+                            });
+                            app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                        }
+                        if matches!(
+                            m.state,
+                            State::Scheduled | State::Failed | State::Missed | State::Uncertain
+                        ) {
+                            if ui
+                                .small_button(crate::i18n::gettext(app.locale, "Send now"))
+                                .clicked()
+                            {
+                                app.dispatch(Action::ScheduledItemAction {
+                                    id: m.id.clone(),
+                                    action: "send-now".into(),
+                                });
+                                app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                            }
+                            if ui
+                                .small_button(crate::i18n::gettext(app.locale, "Edit"))
+                                .clicked()
+                            {
+                                // Back to the composer for changes; cancel the
+                                // queued copy so it is not also delivered.
+                                app.dispatch(Action::ScheduledItemAction {
+                                    id: m.id.clone(),
+                                    action: "cancel".into(),
+                                });
+                                app.composer = m.text.clone();
+                                app.focus_composer = true;
+                                app.dialog = None;
+                            }
+                        }
+                    });
+                });
+                ui.add_space(6.0);
+            }
+        });
 }
