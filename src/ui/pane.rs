@@ -158,7 +158,13 @@ pub(super) fn docked(
     }
     let mut width = rect.width();
     if strip_drag && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos()) {
-        width = (rect.right() - pos.x).clamp(min, max);
+        // Anchor the drag where it started, as the chat list's strip does:
+        // a press beside the exact edge must not jump the pane's width.
+        let grab_id = egui::Id::new((id, "resize-strip-grab"));
+        let existing = ui.ctx().data(|data| data.get_temp::<(f32, f32)>(grab_id));
+        let grab = existing.unwrap_or((pos.x, rect.width()));
+        ui.ctx().data_mut(|data| data.insert_temp(grab_id, grab));
+        width = (grab.1 + grab.0 - pos.x).clamp(min, max);
     }
     ui.painter().vline(
         rect.left(),
