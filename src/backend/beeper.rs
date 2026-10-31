@@ -1127,6 +1127,7 @@ impl Api {
         chat: &str,
         text: &str,
         reply: Option<&str>,
+        mentions: &[String],
     ) -> Result<SendAccepted, String> {
         if self.read_only {
             return Err("Beeper read-only mode: no changes were sent".into());
@@ -1134,6 +1135,9 @@ impl Api {
         let mut payload = serde_json::json!({"text":text});
         if let Some(reply) = reply {
             payload["replyToMessageID"] = reply.into();
+        }
+        if !mentions.is_empty() {
+            payload["mentions"] = mentions.into();
         }
         let response = self
             .http
@@ -1450,9 +1454,13 @@ fn plain_rich_text(raw: &str) -> String {
                     if name == "a" {
                         if closing {
                             if let Some(url) = link.take() {
-                                out.push_str(" (");
-                                out.push_str(&url);
-                                out.push(')');
+                                // A matrix.to mention link already carries the
+                                // person's name as its text; the raw URL is noise.
+                                if !url.starts_with("https://matrix.to/#/@") {
+                                    out.push_str(" (");
+                                    out.push_str(&url);
+                                    out.push(')');
+                                }
                             }
                         } else {
                             link = safe_html_href(tag);
@@ -2276,7 +2284,6 @@ pub fn run(
                     if quoting
                         .as_ref()
                         .is_some_and(|q| q.source_chat(&chat) != chat)
-                        || !mentions.is_empty()
                     {
                         emit(Event::SendRefused {
                             chat,
@@ -2284,10 +2291,10 @@ pub fn run(
                             unsent: super::Unsent::Text(text),
                             reason: super::Refusal::QuoteUnavailable,
                         });
-                        emit(Event::Info("Beeper cross-chat replies and mentions are not implemented yet; message kept in composer".into()));
+                        emit(Event::Info("Beeper cross-chat replies are not implemented yet; message kept in composer".into()));
                         continue;
                     }
-                    match api.send_text(&chat, &text, quoting.as_ref().map(|q| q.id.as_str())) {
+                    match api.send_text(&chat, &text, quoting.as_ref().map(|q| q.id.as_str()), &mentions) {
                         Ok(accepted) => {
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
@@ -3037,12 +3044,51 @@ mod tests {
             token: "fixture".into(),
         })
         .unwrap();
-        let result = api.send_text("fixture", "hello", None);
+        let result = api.send_text("fixture", "hello", None, &[]);
         server.join().unwrap();
         assert!(result.is_ok());
     }
 
     #[test]
+    fn mentions_are_posted_as_user_id_list() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0u8; 8192];
+            let n = stream.read(&mut bytes).unwrap();
+            let request = String::from_utf8_lossy(&bytes[..n]);
+            let body: serde_json::Value =
+                serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            let mentions_ok = body["mentions"]
+                == serde_json::json!(["@wl_1:local-signal.localhost", "3585@s.whatsapp.net"]);
+            let status = if mentions_ok { 200 } else { 400 };
+            let response = r#"{"pendingMessageID":"fixture"}"#;
+            write!(stream,"HTTP/1.1 {status} Status\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).unwrap();
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let mentions = vec![
+            "@wl_1:local-signal.localhost".to_string(),
+            "3585@s.whatsapp.net".to_string(),
+        ];
+        let result = api.send_text("fixture", "hi @m", None, &mentions);
+        server.join().unwrap();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn matrix_mention_links_keep_the_name_without_the_url() {
+        let raw = "<p>hey <a href=\"https://matrix.to/#/@wl_6ds:local-signal.localhost\">Mikael Kasurinen</a> look</p>";
+        assert_eq!(plain_rich_text(raw), "hey Mikael Kasurinen look");
+        // Ordinary links keep their destination beside the label.
+        let raw = "<p>see <a href=\"https://example.com/page\">this</a></p>";
+        assert_eq!(plain_rich_text(raw), "see this (https://example.com/page)");
+    }
+
     fn inline_html_keeps_link_labels_destinations_and_breaks() {
         assert_eq!(plain_rich_text("Hello<br>next"), "Hello\nnext");
         assert_eq!(
@@ -4898,7 +4944,7 @@ mod tests {
         assert!(api.mark_read("chat").is_err());
         assert!(api.mark_unread("chat").is_err());
         assert!(api.typing("chat", true).is_err());
-        assert!(api.send_text("chat", "hello", None).is_err());
+        assert!(api.send_text("chat", "hello", None, &[]).is_err());
         assert!(
             api.send_file("chat", std::path::Path::new("missing"), false, None)
                 .is_err()
@@ -5087,7 +5133,7 @@ mod tests {
         })
         .unwrap();
         let error = api
-            .send_text("fixture-chat", "fixture-message", None)
+            .send_text("fixture-chat", "fixture-message", None, &[])
             .unwrap_err();
         assert!(error.contains("16 MB"));
         assert!(error.contains("check history before retrying"));
