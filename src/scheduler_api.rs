@@ -268,10 +268,7 @@ pub fn control(
             let id = item.id.clone();
             let replaces = parsed.get("replaces").and_then(|v| v.as_str());
             let result = match replaces {
-                Some(replaces) => queue
-                    .add_replacing(item, replaces)
-                    .map(|id| id)
-                    .map_err(|e| e),
+                Some(replaces) => queue.add_replacing(item, replaces),
                 None => queue.add(item).map(|_| id),
             };
             match result {

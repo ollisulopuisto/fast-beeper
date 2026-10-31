@@ -10326,7 +10326,12 @@ mod tests {
 
         press_labelled(&mut app, &ctx, "View once", egui::accesskit::Role::CheckBox);
         app.backend.take_demo_commands();
-        press_labelled(&mut app, &ctx, "Send", egui::accesskit::Role::Button);
+        press_labelled(
+            &mut app,
+            &ctx,
+            "Send (right-click or hold: send later)",
+            egui::accesskit::Role::Button,
+        );
         assert!(
             app.backend
                 .take_demo_commands()

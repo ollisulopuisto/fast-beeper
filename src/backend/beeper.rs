@@ -2387,10 +2387,9 @@ pub fn run(
                     if let Ok(client) = crate::scheduler_client::SchedulerClient::new(
                         &scheduler_url,
                         &scheduler_token,
-                    ) {
-                        if let Ok(items) = client.list() {
-                            emit(Event::ScheduledList(items));
-                        }
+                    ) && let Ok(items) = client.list()
+                    {
+                        emit(Event::ScheduledList(items));
                     }
                 }
                 Command::ScheduleSend {
@@ -3238,6 +3237,7 @@ mod tests {
         assert_eq!(plain_rich_text(raw), "see this (https://example.com/page)");
     }
 
+    #[test]
     fn inline_html_keeps_link_labels_destinations_and_breaks() {
         assert_eq!(plain_rich_text("Hello<br>next"), "Hello\nnext");
         assert_eq!(
