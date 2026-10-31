@@ -1,0 +1,19 @@
+# systemd user unit for the Studio machine (daemon next to the Beeper server).
+# Install: mkdir -p ~/.config/systemd/user && cp this file there,
+# systemctl --user daemon-reload && systemctl --user enable --now zapfast-scheduler
+[Unit]
+Description=zapfast Send Later scheduler
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/zapfast-scheduler
+Environment=ZAPFAST_LISTEN=127.0.0.1:23376
+Environment=BEEPER_BASE_URL=http://127.0.0.1:23374
+Environment=BEEPER_ACCESS_TOKEN_FILE=%h/.config/zapfast/beeper-token
+Environment=ZAPFAST_CONTROL_TOKEN_FILE=%h/.config/zapfast/scheduler-token
+Environment=ZAPFAST_QUEUE_PATH=%h/.config/zapfast/queue.json
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

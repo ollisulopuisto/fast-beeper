@@ -225,7 +225,17 @@ fn persist(queue: &Queue, path: &std::path::Path) {
 fn main() {
     let base_url =
         std::env::var("BEEPER_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:23374".into());
-    let token = std::env::var("BEEPER_ACCESS_TOKEN").unwrap_or_default();
+    let token = std::env::var("BEEPER_ACCESS_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())
+        .or_else(|| {
+            std::env::var("BEEPER_ACCESS_TOKEN_FILE")
+                .ok()
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+        })
+        .unwrap_or_default();
     let control_token = match control_token() {
         Some(token) => token,
         None => {
