@@ -2299,6 +2299,11 @@ pub enum Dialog {
     /// Release notes: automatically once after an upgrade, and any time
     /// from Help.
     WhatsNew,
+    /// Schedules the composer's message for later delivery through the
+    /// zapfast-scheduler companion service.
+    SendLater,
+    /// The Send Later queue: pending scheduled messages with their states.
+    ScheduledList,
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,
@@ -2598,6 +2603,24 @@ pub enum Action {
         text: String,
         /// Quoted message id.
         quoting: Option<crate::model::ReplyTarget>,
+    },
+    /// Acts on one queued Send Later item (cancel, retry, send-now).
+    ScheduledItemAction {
+        id: String,
+        action: String,
+    },
+    /// Schedules a message for later delivery through the companion
+    /// scheduler service.
+    ScheduleSend {
+        chat: ChatId,
+        text: String,
+        /// Unix seconds, local wall time chosen by the user.
+        due_at: i64,
+        /// Quoted message id when scheduling a reply.
+        quoting: Option<String>,
+        /// Queue item this schedule replaces; the daemon cancels it only
+        /// once the replacement is queued.
+        replaces: Option<String>,
     },
     /// Sends a spot as a location message.
     SendLocation {

@@ -18,6 +18,10 @@ path = "src/lib.rs"
 name = "zapfast"
 path = "src/main.rs"
 
+[[bin]]
+name = "zapfast-scheduler"
+path = "src/bin/zapfast-scheduler.rs"
+
 [dependencies]
 anyhow = "1"
 # Hashes saved stickers by content. Already included through wacore.

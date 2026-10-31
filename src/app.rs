@@ -1312,6 +1312,16 @@ impl App {
     }
 
     /// Creates a disconnected app and event sender for demos and tests.
+    /// The scheduler socket's control token, read from the config-dir
+    /// file the installer writes (0600). Never stored in settings.json,
+    /// logged, or shown. Empty when absent: the daemon refuses tokenless
+    /// control anyway, and the UI explains Send Later is not set up.
+    pub fn scheduler_token(&self) -> String {
+        std::fs::read_to_string(self.dirs.config.join("scheduler-token"))
+            .map(|t| t.trim().to_string())
+            .unwrap_or_default()
+    }
+
     pub fn headless(dirs: AppDirs, settings: Settings) -> (Self, std::sync::mpsc::Sender<Event>) {
         let (account, events) = Account::detached(
             &dirs,
@@ -4624,6 +4634,17 @@ impl App {
                     existing.summary = quoted.summary.clone();
                     existing.labelled = quoted.labelled;
                 }
+            }
+            Event::ScheduledList(items) => {
+                self.scheduled_messages = Some(items);
+            }
+            Event::ScheduledAccepted => {
+                // The queue owns the message now; an ordinary Send must not
+                // deliver it a second time.
+                self.composer.clear();
+                self.reply_to = None;
+                self.send_later_replaces = None;
+                self.send_later_draft_backup = None;
             }
             Event::ClipboardImage(result) => {
                 self.handle_clipboard_image(result, write_clipboard_image);
@@ -8802,6 +8823,33 @@ impl App {
             Action::SetBeeperReminder { chat, at } => {
                 self.backend.send(Command::SetBeeperReminder { chat, at })
             }
+            Action::ScheduledItemAction { id, action } => {
+                self.backend.send(Command::ScheduledAction {
+                    scheduler_url: self.settings.scheduler_url.clone(),
+                    scheduler_token: self.scheduler_token(),
+                    id,
+                    action,
+                });
+            }
+            Action::ScheduleSend {
+                chat,
+                text,
+                due_at,
+                quoting,
+            } => {
+                // The composer and quote stay until the scheduler confirms
+                // (`Event::ScheduledAccepted`); a failure loses nothing.
+                self.backend.send(Command::ScheduleSend {
+                    scheduler_url: self.settings.scheduler_url.clone(),
+                    scheduler_token: self.scheduler_token(),
+                    account: self.account().id.clone(),
+                    chat,
+                    text,
+                    due_at,
+                    quoting,
+                    replaces: self.send_later_replaces.clone(),
+                });
+            }
             Action::SetArchived(chat, archived) => {
                 if let Some(known) = self.chat_mut(&chat) {
                     known.archived = archived;
@@ -8911,6 +8959,13 @@ impl App {
                 }
                 if dialog == Dialog::PairWithPhone {
                     self.pair_phone.clear();
+                }
+                if dialog == Dialog::ScheduledList {
+                    self.scheduled_messages = None;
+                    self.backend.send(Command::ListScheduled {
+                        scheduler_url: self.settings.scheduler_url.clone(),
+                        scheduler_token: self.scheduler_token(),
+                    });
                 }
                 if dialog == Dialog::NewContact {
                     self.new_contact_to_phone = self.account().settings.save_contacts_to_phone;

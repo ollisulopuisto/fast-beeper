@@ -1881,11 +1881,21 @@ pub(crate) fn composer_with_capabilities(
                     } else {
                         Icon::Send
                     };
-                    if ui.add_enabled_ui(ready, |ui| theme::circle_button(ui, icon_kind, button_width, fill, hover, icon, "Send")
-                        .tab_stop(Stop::Send)).inner
-                        .clicked()
-                    {
+                    let send_response = ui
+                        .add_enabled_ui(ready, |ui| {
+                            theme::circle_button(ui, icon_kind, button_width, fill, hover, icon, "Send (right-click or hold: send later)")
+                                .tab_stop(Stop::Send)
+                        })
+                        .inner;
+                    if send_response.clicked() {
                         send_click = true;
+                    }
+                    // Right-click or a long press schedules instead of
+                    // sending; an ordinary click is untouched.
+                    if app.editing.is_none()
+                        && (send_response.secondary_clicked() || send_response.long_touched())
+                    {
+                        app.actions.push(Action::ShowDialog(Dialog::SendLater));
                     }
                 });
             },

@@ -2349,6 +2349,91 @@ pub fn run(
                         });
                     }
                 }
+                Command::ListScheduled {
+                    scheduler_url,
+                    scheduler_token,
+                } => {
+                    match crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    )
+                    .and_then(|client| client.list())
+                    {
+                        Ok(items) => emit(Event::ScheduledList(items)),
+                        Err(e) => emit(Event::Info(format!("Send Later list unavailable: {e}"))),
+                    }
+                }
+                Command::ScheduledAction {
+                    scheduler_url,
+                    scheduler_token,
+                    id,
+                    action,
+                } => {
+                    let result = crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    )
+                    .and_then(|client| match action.as_str() {
+                        "cancel" => client.cancel(&id),
+                        "retry" => client.retry(&id),
+                        "send-now" => client.send_now(&id),
+                        other => Err(format!("unknown scheduled action {other}")),
+                    });
+                    if let Err(e) = result {
+                        emit(Event::Info(format!("Scheduled message: {e}")));
+                    }
+                    // The list always follows, so the dialog reflects the
+                    // action's real outcome rather than a hoped-for one.
+                    if let Ok(client) = crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    ) {
+                        if let Ok(items) = client.list() {
+                            emit(Event::ScheduledList(items));
+                        }
+                    }
+                }
+                Command::ScheduleSend {
+                    scheduler_url,
+                    scheduler_token,
+                    account,
+                    chat,
+                    text,
+                    due_at,
+                    quoting,
+                    replaces,
+                } => {
+                    let result = crate::scheduler_client::SchedulerClient::new(
+                        &scheduler_url,
+                        &scheduler_token,
+                    )
+                    .and_then(|client| {
+                        client.add(
+                            &account,
+                            &chat,
+                            &text,
+                            quoting.as_deref(),
+                            due_at,
+                            replaces.as_deref(),
+                        )
+                    });
+                    match result {
+                        Ok(id) => {
+                            let when = jiff::Timestamp::from_second(due_at)
+                                .map(|t| {
+                                    t.to_zoned(jiff::tz::TimeZone::system())
+                                        .strftime("%a %d %b, %H:%M")
+                                        .to_string()
+                                })
+                                .unwrap_or_else(|_| due_at.to_string());
+                            emit(Event::Info(format!(
+                                "Scheduled for {when}; the scheduler service sends it at that time (id {id})"
+                            )));
+                            emit(Event::ScheduledAccepted);
+                        }
+                        Err(e) => emit(Event::Info(format!("Send later failed: {e}"))),
+                    }
+                }
                 Command::SetBeeperReminder { chat, at } => {
                     let path = format!("/v1/chats/{}/reminders", encode_segment(&chat));
                     let result = if let Some(at) = at {

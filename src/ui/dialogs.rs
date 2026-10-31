@@ -37,6 +37,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::NewChat => 420.0,
                 Dialog::Palette => 480.0,
                 Dialog::WhatsNew => 480.0,
+                Dialog::SendLater => 460.0,
+                Dialog::ScheduledList => 480.0,
                 Dialog::UnlockLockedChats | Dialog::ConfirmLockChat(_) => 380.0,
                 Dialog::ConfirmDeleteChat(_) | Dialog::JoinGroup | Dialog::ConfirmStartOver => {
                     380.0
@@ -89,6 +91,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::NewChat => new_chat(app, ui),
                 Dialog::Palette => super::palette::show(app, ui),
                 Dialog::WhatsNew => whats_new(app, ui),
+                Dialog::SendLater => send_later(app, ui),
+                Dialog::ScheduledList => scheduled_list(app, ui),
                 Dialog::UnlockLockedChats => unlock_locked_chats(app, ui),
                 Dialog::ConfirmLockChat(id) => confirm_lock_chat(app, ui, &id),
                 Dialog::ConfirmDeleteChat(id) => confirm_delete_chat(app, ui, &id),
@@ -2356,4 +2360,322 @@ mod deletion_count_tests {
             );
         }
     }
+}
+
+/// Send Later: schedule the composer's message through the
+/// zapfast-scheduler companion service. Presets cover the common cases;
+/// custom entry takes a local date and time. The scheduler delivers even
+/// while fast-beeper is closed.
+fn send_later(app: &mut App, ui: &mut egui::Ui) {
+    title(ui, app, &crate::i18n::gettext(app.locale, "Send Later"));
+    ui.label(
+        "The scheduler service sends the message at the chosen time, even while fast-beeper is closed. Times are this device's local time.",
+    );
+    ui.add_space(6.0);
+
+    let now = jiff::Zoned::now();
+    let mut chosen: Option<i64> = None;
+    // Every preset names the actual resolved local time, so a preset that
+    // rolled to the next day can never look like today.
+    let preset = |ui: &mut egui::Ui, label: String, due: Option<jiff::Zoned>| {
+        if let Some(due) = due {
+            let when = due.strftime("%a %d %b %H:%M");
+            if ui.button(format!("{label} ({when})")).clicked() {
+                chosen = Some(due.timestamp().as_second());
+            }
+        }
+    };
+    ui.horizontal_wrapped(|ui| {
+        preset(
+            ui,
+            "In 1 hour".to_string(),
+            Some(now.clone() + jiff::SignedDuration::from_hours(1)),
+        );
+        let evening = now
+            .date()
+            .at(20, 0, 0, 0)
+            .to_zoned(now.time_zone())
+            .ok()
+            .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
+        preset(ui, "This evening".to_string(), evening);
+        let morning = now
+            .date()
+            .at(9, 0, 0, 0)
+            .to_zoned(now.time_zone())
+            .ok()
+            .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
+        preset(ui, "Tomorrow morning".to_string(), morning);
+    });
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("Date (YYYY-MM-DD):");
+        ui.text_edit_singleline(&mut app.send_later_date);
+        ui.label("Time (HH:MM):");
+        ui.text_edit_singleline(&mut app.send_later_time);
+    });
+    if ui.button("Schedule at this time").clicked() {
+        let date = app.send_later_date.trim().parse::<jiff::civil::Date>();
+        let time = app.send_later_time.trim().parse::<jiff::civil::Time>();
+        enum Due {
+            Ok(i64),
+            Past,
+            Invalid,
+            Ambiguous,
+            Nonexistent,
+        }
+        let due = match (date, time) {
+            (Ok(date), Ok(time)) => {
+                let naive = date.at(time.hour(), time.minute(), 0, 0);
+                let tz = jiff::tz::TimeZone::system();
+                let ambiguous = tz.to_ambiguous_zoned(naive);
+                match ambiguous.compatible().ok() {
+                    // The entered wall time does not exist (jumped over).
+                    Some(zoned) if zoned.datetime() != naive => Due::Nonexistent,
+                    Some(zoned) => {
+                        // Two valid mappings means the wall time repeats.
+                        match (ambiguous.earlier().ok(), ambiguous.later().ok()) {
+                            (Some(a), Some(b)) if a != b => Due::Ambiguous,
+                            _ if zoned.timestamp().as_second()
+                                > now.timestamp().as_second() + 30 =>
+                            {
+                                Due::Ok(zoned.timestamp().as_second())
+                            }
+                            _ => Due::Past,
+                        }
+                    }
+                    None => Due::Invalid,
+                }
+            }
+            _ => Due::Invalid,
+        };
+        match due {
+            Due::Ok(due_at) => {
+                app.send_later_error = None;
+                chosen = Some(due_at);
+            }
+            Due::Past => {
+                app.send_later_error = Some("That time is in the past".into());
+            }
+            Due::Ambiguous => {
+                app.send_later_error = Some(
+                    "That local time happens twice (daylight-saving overlap); pick another time"
+                        .into(),
+                );
+            }
+            Due::Nonexistent => {
+                app.send_later_error = Some(
+                    "That local time does not exist (daylight-saving jump); pick another time"
+                        .into(),
+                );
+            }
+            Due::Invalid => {
+                app.send_later_error =
+                    Some("Unrecognized date or time; use YYYY-MM-DD and HH:MM".into());
+            }
+        }
+    }
+    if let Some(error) = &app.send_later_error {
+        ui.colored_label(app.palette.danger, error);
+    }
+    ui.add_space(6.0);
+    ui.label(format!("Message: {}", preview_text(&app.composer)));
+    ui.add_space(4.0);
+    if app.send_later_replaces.is_some() {
+        ui.label(egui::RichText::new(
+            "Editing a queued message: the original stays queued until this replacement is scheduled.",
+        ));
+    }
+    ui.horizontal(|ui| {
+        if ui.button("Cancel").clicked() {
+            if let Some(backup) = app.send_later_draft_backup.take() {
+                app.composer = backup;
+                app.reply_to = None;
+            }
+            app.send_later_replaces = None;
+            app.actions.push(crate::model::Action::CloseDialog);
+        }
+    });
+
+    if let Some(due_at) = chosen {
+        let chat = app.open_chat.clone().unwrap_or_default();
+        let text = app.composer.trim().to_string();
+        if !text.is_empty() && !chat.is_empty() {
+            let quoting = app.reply_to.as_ref().map(|target| target.id.clone());
+            app.actions.push(crate::model::Action::ScheduleSend {
+                chat,
+                text,
+                due_at,
+                quoting,
+            });
+        }
+        app.actions.push(crate::model::Action::CloseDialog);
+    }
+}
+
+fn preview_text(text: &str) -> String {
+    let one_line = text.replace('\n', " ");
+    let trimmed = one_line.trim();
+    let preview: String = trimmed.chars().take(80).collect();
+    if trimmed.chars().count() > 80 {
+        format!("{preview}…")
+    } else {
+        preview
+    }
+}
+
+/// The Send Later queue: what is waiting, when it goes out, and the
+/// per-item cancel / retry / send-now / edit actions. Edit puts the text
+/// back in the composer and cancels the queued item, so a message is
+/// never both queued and composed.
+fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
+    use crate::scheduler::State;
+
+    title(
+        ui,
+        app,
+        &crate::i18n::gettext(app.locale, "Send Later queue"),
+    );
+    let palette = app.palette;
+    ui.label("The scheduler service sends these at their times, even while fast-beeper is closed.");
+    ui.add_space(6.0);
+    let Some(items) = &app.scheduled_messages else {
+        ui.label(egui::RichText::new(crate::i18n::gettext(
+            app.locale,
+            "Loading the queue…",
+        )));
+        return;
+    };
+    let mut items = items.clone();
+    items.sort_by_key(|m| m.due_at);
+    if items.is_empty() {
+        ui.label(
+            "Nothing scheduled. Right-click or long-press the Send button to schedule a message.",
+        );
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .max_height(360.0)
+        .show(ui, |ui| {
+            for m in &items {
+                let frame = Frame::new()
+                    .stroke(Stroke::new(1.0, palette.outline))
+                    .corner_radius(CornerRadius::same(theme::RADIUS))
+                    .inner_margin(Margin::same(8));
+                frame.show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        let due = jiff::Timestamp::from_second(m.due_at)
+                            .map(|t| {
+                                t.to_zoned(jiff::tz::TimeZone::system())
+                                    .strftime("%a %d %b %H:%M")
+                                    .to_string()
+                            })
+                            .unwrap_or_else(|_| "invalid time".to_string());
+                        ui.label(egui::RichText::new(due).strong());
+                        let (state, color) = match m.state {
+                            State::Scheduled => ("scheduled", palette.secondary),
+                            State::Sending => ("sending…", palette.secondary),
+                            State::Failed => ("failed", egui::Color32::from_rgb(228, 90, 80)),
+                            State::Missed => (
+                                "missed - needs a decision",
+                                egui::Color32::from_rgb(236, 170, 60),
+                            ),
+                            State::Uncertain => (
+                                "unknown - check the chat",
+                                egui::Color32::from_rgb(236, 170, 60),
+                            ),
+                            State::Sent => ("sent", egui::Color32::from_rgb(120, 200, 120)),
+                        };
+                        ui.label(egui::RichText::new(state).small().color(color));
+                    });
+                    let preview: String = m.text.chars().take(120).collect();
+                    ui.label(preview);
+                    if m.quoting.is_some() {
+                        ui.label(
+                            egui::RichText::new("reply")
+                                .small()
+                                .color(palette.secondary),
+                        );
+                    }
+                    if let Some(error) = &m.error {
+                        ui.label(
+                            egui::RichText::new(error)
+                                .small()
+                                .color(egui::Color32::from_rgb(228, 90, 80)),
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if matches!(m.state, State::Scheduled)
+                            && ui
+                                .small_button(crate::i18n::gettext(app.locale, "Cancel"))
+                                .clicked()
+                        {
+                            app.dispatch(Action::ScheduledItemAction {
+                                id: m.id.clone(),
+                                action: "cancel".into(),
+                            });
+                            app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                        }
+                        if matches!(m.state, State::Failed | State::Missed | State::Uncertain)
+                            && ui
+                                .small_button(crate::i18n::gettext(app.locale, "Retry"))
+                                .clicked()
+                        {
+                            app.dispatch(Action::ScheduledItemAction {
+                                id: m.id.clone(),
+                                action: "retry".into(),
+                            });
+                            app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                        }
+                        if matches!(
+                            m.state,
+                            State::Scheduled | State::Failed | State::Missed | State::Uncertain
+                        ) {
+                            if ui
+                                .small_button(crate::i18n::gettext(app.locale, "Send now"))
+                                .clicked()
+                            {
+                                app.dispatch(Action::ScheduledItemAction {
+                                    id: m.id.clone(),
+                                    action: "send-now".into(),
+                                });
+                                app.dispatch(Action::ShowDialog(Dialog::ScheduledList));
+                            }
+                            if ui
+                                .small_button(crate::i18n::gettext(app.locale, "Edit"))
+                                .clicked()
+                            {
+                                // Edit in the Send Later dialog. The queued
+                                // item stays until the daemon acknowledges
+                                // the replacement (it cancels the old one in
+                                // the same step), so dismissing the dialog,
+                                // a crash, or a failed schedule loses
+                                // nothing. A composer draft is stashed and
+                                // restored on dismiss.
+                                if !app.composer.trim().is_empty() {
+                                    app.send_later_draft_backup = Some(app.composer.clone());
+                                }
+                                app.composer = m.text.clone();
+                                if let Some(quoting) = &m.quoting {
+                                    app.reply_to = Some(crate::model::ReplyTarget {
+                                        id: quoting.clone(),
+                                        chat: None,
+                                    });
+                                }
+                                if let Ok(zoned) = jiff::Timestamp::from_second(m.due_at)
+                                    .map(|t| t.to_zoned(jiff::tz::TimeZone::system()))
+                                {
+                                    app.send_later_date = zoned.strftime("%Y-%m-%d").to_string();
+                                    app.send_later_time = zoned.strftime("%H:%M").to_string();
+                                }
+                                app.send_later_replaces = Some(m.id.clone());
+                                app.dialog = Some(Dialog::SendLater);
+                            }
+                        }
+                    });
+                });
+                ui.add_space(6.0);
+            }
+        });
 }

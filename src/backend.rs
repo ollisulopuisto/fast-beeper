@@ -868,6 +868,29 @@ pub enum Command {
         chat: ChatId,
         at: Option<String>,
     },
+    /// Lists the companion scheduler's queue.
+    ListScheduled {
+        scheduler_url: String,
+        scheduler_token: String,
+    },
+    /// Acts on one scheduled item (cancel, retry, send-now).
+    ScheduledAction {
+        scheduler_url: String,
+        scheduler_token: String,
+        id: String,
+        action: String,
+    },
+    /// Schedules a message through the zapfast-scheduler companion service.
+    ScheduleSend {
+        scheduler_url: String,
+        scheduler_token: String,
+        account: String,
+        chat: ChatId,
+        text: String,
+        due_at: i64,
+        quoting: Option<String>,
+        replaces: Option<String>,
+    },
     /// Leaves a group or channel. `archive` also hides the chat in Archived.
     LeaveGroup {
         chat: ChatId,
@@ -1455,6 +1478,11 @@ pub enum Event {
         message: String,
         quoted: crate::model::Quoted,
     },
+    /// The companion scheduler's queue, after `Command::ListScheduled` or a
+    /// `ScheduledAction` (which always re-lists so the UI stays current).
+    ScheduledList(Vec<crate::scheduler::ScheduledMessage>),
+    /// The scheduler accepted the message; the UI clears the composer.
+    ScheduledAccepted,
     /// A decoded image ready to be written to the clipboard on the interface thread.
     ClipboardImage(Result<crate::model::DecodedImage, String>),
     /// A newer release than this build exists.
