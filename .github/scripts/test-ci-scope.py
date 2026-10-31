@@ -31,7 +31,7 @@ class ScopeTests(unittest.TestCase):
             git('add', '-u')
             git('commit', '-m', 'remove')
             result = subprocess.check_output([sys.executable, str(script), '--base', base], cwd=tmp)
-            self.assertEqual(json.loads(result), dict(portable=True, native=True, audit=False, nix=True))
+            self.assertEqual(json.loads(result), dict(portable=True, native=True, audit=False, nix=False))
             same = subprocess.check_output([sys.executable, str(script), '--base', 'HEAD'], cwd=tmp)
             self.assertFalse(any(json.loads(same).values()))
 
@@ -42,10 +42,11 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(scope.classify(['contrib/beeper-tools/package_dmg.py']),
                          dict(portable=True, native=False, audit=False, nix=False))
 
-    def test_runtime_keeps_native_matrix(self):
+    def test_runtime_keeps_native_without_nix_fanout(self):
         for path in ('src/app.rs', 'assets/icon.png', 'tests/native.rs', 'packaging/macos/bundle.sh'):
             self.assertTrue(scope.classify([path])['native'])
-            self.assertTrue(scope.classify([path])['nix'])
+            self.assertTrue(scope.classify([path])['portable'])
+            self.assertFalse(scope.classify([path])['nix'])
 
     def test_dependencies_and_ci_routing_require_all_checks(self):
         for path in ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml', 'build.rs', '.github/workflows/ci.yml', '.github/scripts/ci-scope.py'):

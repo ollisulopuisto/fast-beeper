@@ -64,6 +64,14 @@ class WorkflowTests(unittest.TestCase):
                 actual = dict(line.split('=') for line in Path(out.name).read_text().splitlines())
                 self.assertEqual(actual, {k: str(v).lower() for k, v in expected.items()})
 
+    def test_full_matrices_belong_to_tags_and_manual_runs(self):
+        text = workflow('ci.yml')
+        trigger = text.split('on:', 1)[1].split('permissions:', 1)[0]
+        self.assertIn('tags: ["v*"]', trigger)
+        self.assertIn("github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')", text)
+        # The heavy compile legs skip routine main pushes and PRs alike.
+        self.assertEqual(text.count("(github.event_name != 'push' || startsWith(github.ref, 'refs/tags/'))"), 2)
+
     def test_expensive_checks_follow_selection_and_portable_failure(self):
         text = workflow('ci.yml')
         self.assertEqual(text.count('needs: [changes, portable]'), 6)

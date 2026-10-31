@@ -1,10 +1,15 @@
 name: CI
 
 # Fast portable feedback first; expensive checks selected by changed inputs.
-# Policy always reports separately. Manual full runs retain every platform.
+# Policy always reports separately. Routine main source merges run portable
+# checks, quality and Ubuntu tests; full platform matrices (macOS/Windows
+# tests, Debian 12, Windows ARM, all three Nix systems) belong to version
+# tags, merge queues and manual full runs.
 on:
   push:
     branches: [main]
+    # Version tags select every check family on the exact release commit.
+    tags: ["v*"]
   pull_request:
   merge_group:
   # New advisories can appear without a dependency change. Daily audit only.
@@ -141,7 +146,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))) && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -184,7 +189,7 @@ jobs:
   debian-12:
     needs: [changes, portable]
     name: compile (Debian 12)
-    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' && github.event_name != 'pull_request' && (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
     container: debian:12
     timeout-minutes: 45
@@ -203,7 +208,7 @@ jobs:
   windows-arm64:
     needs: [changes, portable]
     name: compile (Windows arm64)
-    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.native == 'true' && github.event_name != 'pull_request' && (github.event_name != 'push' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: windows-latest
     timeout-minutes: 40
     steps:

@@ -21,7 +21,9 @@ def classify(paths, full=False):
         elif path in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'build.rs'):
             flags.update(dict.fromkeys(flags, True))
         elif path.startswith(('src/', 'assets/', 'tests/', 'examples/', 'packaging/macos/', 'packaging/windows/')):
-            flags['portable'] = flags['native'] = flags['nix'] = True
+            # Routine source merges keep portable+native quality feedback; the
+            # three-system Nix fan-out belongs to Nix inputs, tags and full runs.
+            flags['portable'] = flags['native'] = True
         elif path.startswith('harness/'):
             flags['portable'] = True
         elif path in ('.github/workflows/ci.yml', '.github/scripts/ci-scope.py', '.github/scripts/test-ci-scope.py', '.github/scripts/test-ci-workflows.py'):
