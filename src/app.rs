@@ -8802,6 +8802,19 @@ impl App {
             Action::SetBeeperReminder { chat, at } => {
                 self.backend.send(Command::SetBeeperReminder { chat, at })
             }
+            Action::ScheduleSend { chat, text, due_at } => {
+                self.backend.send(Command::ScheduleSend {
+                    scheduler_url: self.settings.scheduler_url.clone(),
+                    account: self.account().id.clone(),
+                    chat,
+                    text,
+                    due_at,
+                });
+                // The composer message is queued elsewhere now; do not also
+                // send it on the next ordinary Send.
+                self.composer.clear();
+                self.reply_to = None;
+            }
             Action::SetArchived(chat, archived) => {
                 if let Some(known) = self.chat_mut(&chat) {
                     known.archived = archived;

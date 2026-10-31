@@ -868,6 +868,14 @@ pub enum Command {
         chat: ChatId,
         at: Option<String>,
     },
+    /// Schedules a message through the zapfast-scheduler companion service.
+    ScheduleSend {
+        scheduler_url: String,
+        account: String,
+        chat: ChatId,
+        text: String,
+        due_at: i64,
+    },
     /// Leaves a group or channel. `archive` also hides the chat in Archived.
     LeaveGroup {
         chat: ChatId,

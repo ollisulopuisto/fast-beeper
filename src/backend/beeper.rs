@@ -2349,6 +2349,31 @@ pub fn run(
                         });
                     }
                 }
+                Command::ScheduleSend {
+                    scheduler_url,
+                    account,
+                    chat,
+                    text,
+                    due_at,
+                } => {
+                    let result = crate::scheduler_client::SchedulerClient::new(&scheduler_url)
+                        .and_then(|client| client.add(&account, &chat, &text, None, due_at));
+                    match result {
+                        Ok(id) => {
+                            let when = jiff::Timestamp::from_second(due_at)
+                                .map(|t| {
+                                    t.to_zoned(jiff::TimeZone::system())
+                                        .strftime("%a %d %b, %H:%M")
+                                        .to_string()
+                                })
+                                .unwrap_or_else(|_| due_at.to_string());
+                            emit(Event::Info(format!(
+                                "Scheduled for {when}; the scheduler service sends it, even while fast-beeper is closed (id {id})"
+                            )));
+                        }
+                        Err(e) => emit(Event::Info(format!("Send later failed: {e}"))),
+                    }
+                }
                 Command::SetBeeperReminder { chat, at } => {
                     let path = format!("/v1/chats/{}/reminders", encode_segment(&chat));
                     let result = if let Some(at) = at {

@@ -2299,6 +2299,9 @@ pub enum Dialog {
     /// Release notes: automatically once after an upgrade, and any time
     /// from Help.
     WhatsNew,
+    /// Schedules the composer's message for later delivery through the
+    /// zapfast-scheduler companion service.
+    SendLater,
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,
@@ -2598,6 +2601,14 @@ pub enum Action {
         text: String,
         /// Quoted message id.
         quoting: Option<crate::model::ReplyTarget>,
+    },
+    /// Schedules a message for later delivery through the companion
+    /// scheduler service. Replies are not supported in this slice.
+    ScheduleSend {
+        chat: ChatId,
+        text: String,
+        /// Unix seconds, local wall time chosen by the user.
+        due_at: i64,
     },
     /// Sends a spot as a location message.
     SendLocation {

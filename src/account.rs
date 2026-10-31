@@ -91,6 +91,11 @@ pub struct Account {
     /// its group and opens nothing.
     pub(crate) new_group_request: Option<u64>,
     pub pair_phone: String,
+    /// Send Later dialog draft: custom date (YYYY-MM-DD) and time (HH:MM),
+    /// plus a validation error to show. Prefilled when the dialog opens.
+    pub send_later_date: String,
+    pub send_later_time: String,
+    pub send_later_error: Option<String>,
     pub show_archived: bool,
     pub chat_filter: ChatFilter,
     /// The chip the Calls page's history shows.
@@ -210,6 +215,9 @@ impl Account {
             new_group_sequence: 0,
             new_group_request: None,
             pair_phone: String::new(),
+            send_later_date: String::new(),
+            send_later_time: String::new(),
+            send_later_error: None,
             show_archived: false,
             chat_filter,
             call_filter,

@@ -37,6 +37,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::NewChat => 420.0,
                 Dialog::Palette => 480.0,
                 Dialog::WhatsNew => 480.0,
+                Dialog::SendLater => 460.0,
                 Dialog::UnlockLockedChats | Dialog::ConfirmLockChat(_) => 380.0,
                 Dialog::ConfirmDeleteChat(_) | Dialog::JoinGroup | Dialog::ConfirmStartOver => {
                     380.0
@@ -89,6 +90,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::NewChat => new_chat(app, ui),
                 Dialog::Palette => super::palette::show(app, ui),
                 Dialog::WhatsNew => whats_new(app, ui),
+                Dialog::SendLater => send_later(app, ui),
                 Dialog::UnlockLockedChats => unlock_locked_chats(app, ui),
                 Dialog::ConfirmLockChat(id) => confirm_lock_chat(app, ui, &id),
                 Dialog::ConfirmDeleteChat(id) => confirm_delete_chat(app, ui, &id),
@@ -2355,5 +2357,115 @@ mod deletion_count_tests {
                 expected
             );
         }
+    }
+}
+
+/// Send Later: schedule the composer's message through the
+/// zapfast-scheduler companion service. Presets cover the common cases;
+/// custom entry takes a local date and time. The scheduler delivers even
+/// while fast-beeper is closed.
+fn send_later(app: &mut App, ui: &mut egui::Ui) {
+    title(ui, app, &crate::i18n::gettext(app.locale, "Send Later"));
+    ui.label(
+        "The scheduler service sends the message at the chosen time, even while fast-beeper is closed. Times are this device's local time.",
+    );
+    ui.add_space(6.0);
+
+    let now = jiff::Zoned::now();
+    let mut chosen: Option<i64> = None;
+    let preset = |ui: &mut egui::Ui, label: &str, due: Option<jiff::Zoned>| {
+        if let Some(due) = due {
+            if ui.button(label).clicked() {
+                chosen = Some(due.timestamp().as_second());
+            }
+        }
+    };
+    ui.horizontal_wrapped(|ui| {
+        preset(
+            ui,
+            "In 1 hour",
+            Some(now.clone() + jiff::SignedDuration::from_hours(1)),
+        );
+        let evening = now
+            .date()
+            .at(20, 0, 0, 0)
+            .to_zoned(now.time_zone())
+            .ok()
+            .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
+        preset(ui, "This evening", evening);
+        let morning = now
+            .date()
+            .at(9, 0, 0, 0)
+            .to_zoned(now.time_zone())
+            .ok()
+            .and_then(|z| if z <= now { z.tomorrow().ok() } else { Some(z) });
+        preset(ui, "Tomorrow morning", morning);
+    });
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("Date (YYYY-MM-DD):");
+        ui.text_edit_singleline(&mut app.send_later_date);
+        ui.label("Time (HH:MM):");
+        ui.text_edit_singleline(&mut app.send_later_time);
+    });
+    if ui.button("Schedule at this time").clicked() {
+        let date = app.send_later_date.trim().parse::<jiff::civil::Date>();
+        let time = app.send_later_time.trim().parse::<jiff::civil::Time>();
+        let due = match (date, time) {
+            (Ok(date), Ok(time)) => date
+                .at(time.hour(), time.minute(), 0, 0)
+                .to_zoned(jiff::TimeZone::system())
+                .ok(),
+            _ => None,
+        };
+        match due {
+            Some(due) if due.timestamp().as_second() > now.timestamp().as_second() + 30 => {
+                app.send_later_error = None;
+                chosen = Some(due.timestamp().as_second());
+            }
+            Some(_) => {
+                app.send_later_error = Some("That time is in the past".into());
+            }
+            None => {
+                app.send_later_error =
+                    Some("Unrecognized date or time; use YYYY-MM-DD and HH:MM".into());
+            }
+        }
+    }
+    if let Some(error) = &app.send_later_error {
+        ui.colored_label(app.palette.danger, error);
+    }
+    ui.add_space(6.0);
+    ui.label(format!("Message: {}", preview_text(&app.composer)));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        if ui.button("Cancel").clicked() {
+            app.actions.push(crate::model::Action::CloseDialog);
+        }
+    });
+
+    if let Some(due_at) = chosen {
+        let chat = app.open_chat.clone().unwrap_or_default();
+        let text = app.composer.trim().to_string();
+        if !text.is_empty() && !chat.is_empty() {
+            app.actions.push(crate::model::Action::ScheduleSend {
+                chat: chat.into(),
+                text,
+                due_at,
+            });
+        }
+        app.actions.push(crate::model::Action::CloseDialog);
+    }
+}
+
+fn preview_text(text: &str) -> String {
+    let one_line = text.replace('\n', " ");
+    let trimmed = one_line.trim();
+    let preview: String = trimmed.chars().take(80).collect();
+    if trimmed.chars().count() > 80 {
+        format!("{preview}…")
+    } else {
+        preview
     }
 }

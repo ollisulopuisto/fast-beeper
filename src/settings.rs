@@ -410,6 +410,11 @@ pub struct Settings {
     /// [`SETTINGS_VERSION`] when written; missing, and so 0, in older files.
     #[serde(default)]
     pub version: u32,
+    /// Where the zapfast-scheduler companion service answers. Localhost by
+    /// default; a remote scheduler is reached through an SSH tunnel, so the
+    /// value stays a loopback URL.
+    #[serde(default = "default_scheduler_url")]
+    pub scheduler_url: String,
     pub theme: ThemeChoice,
     /// Whether a `"system"` theme is really Messages. The file says
     /// `"system"` for Messages, which releases before it read as Follow
@@ -564,6 +569,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: SETTINGS_VERSION,
+            scheduler_url: default_scheduler_url(),
             theme: ThemeChoice::System,
             messages_theme: false,
             font: FontChoice::System,
@@ -1637,4 +1643,8 @@ impl BeeperPreferences {
             serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         assert!(loaded.app_lock_touch_id && loaded.allow_app_nap);
     }
+}
+
+fn default_scheduler_url() -> String {
+    "http://127.0.0.1:23376".into()
 }
