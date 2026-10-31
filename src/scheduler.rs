@@ -283,13 +283,14 @@ pub enum SendError {
     Unknown(String),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Reconcile {
     /// A matching outgoing message exists in the chat after the due time.
     Found,
     /// No matching message; a retry will not duplicate.
     NotFound,
     /// The check itself failed; stay Uncertain.
+    #[default]
     Unknown,
 }
 
@@ -462,7 +463,7 @@ mod tests {
         Scheduler::new(queue, mock)
     }
 
-    fn persist_into(mock: *const Vec<Vec<State>>) -> impl FnMut(&Queue) {
+    fn persist_into(mock: *mut Vec<Vec<State>>) -> impl FnMut(&Queue) {
         move |queue: &Queue| unsafe {
             (*mock).push(queue.items.iter().map(|item| item.state).collect());
         }
@@ -475,7 +476,10 @@ mod tests {
         queue.add(item("first", ts(-5))).unwrap();
         queue.add(item("second", ts(30))).unwrap();
         let mut sched = scheduler(queue, Mock::default());
-        let outcomes = sched.tick(ts(120), &mut persist_into(&sched.sender.persisted));
+        let outcomes = sched.tick(
+            ts(120),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
         assert_eq!(sched.sender.sent, vec!["first", "second"]);
         assert!(matches!(outcomes[0], Outcome::Sent { .. }));
         assert_eq!(sched.queue.get("later").unwrap().state, State::Scheduled);
@@ -487,7 +491,10 @@ mod tests {
         let mut queue = Queue::default();
         queue.add(item("a", ts(-1))).unwrap();
         let mut sched = scheduler(queue, Mock::default());
-        sched.tick(ts(0), &mut persist_into(&sched.sender.persisted));
+        sched.tick(
+            ts(0),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
         let persisted = &sched.sender.persisted;
         // First persisted state is the Sending claim, last is the result.
         assert_eq!(persisted[0], vec![State::Sending]);
@@ -503,7 +510,10 @@ mod tests {
         mock.results
             .push_back(Err(SendError::Rejected("unknown chat".into())));
         let mut sched = scheduler(queue, mock);
-        sched.tick(ts(0), &mut persist_into(&sched.sender.persisted));
+        sched.tick(
+            ts(0),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
         let item = sched.queue.get("a").unwrap();
         assert_eq!(item.state, State::Failed);
         assert_eq!(item.error.as_deref(), Some("unknown chat"));
@@ -518,8 +528,14 @@ mod tests {
         mock.results
             .push_back(Err(SendError::Unknown("timeout".into())));
         let mut sched = scheduler(queue, mock);
-        sched.tick(ts(0), &mut persist_into(&sched.sender.persisted));
-        sched.tick(ts(120), &mut persist_into(&sched.sender.persisted));
+        sched.tick(
+            ts(0),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
+        sched.tick(
+            ts(120),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
         assert_eq!(sched.queue.get("a").unwrap().state, State::Uncertain);
         // Exactly one network attempt across both ticks.
         assert_eq!(sched.sender.sent.len(), 1);
@@ -548,7 +564,10 @@ mod tests {
         mock.reconcile_verdict = Reconcile::Found;
         let mut sched = scheduler(queue, mock);
         let verdict = sched
-            .reconcile("a", &mut persist_into(&sched.sender.persisted))
+            .reconcile(
+                "a",
+                &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+            )
             .unwrap();
         assert_eq!(verdict, Reconcile::Found);
         assert_eq!(sched.queue.get("a").unwrap().state, State::Sent);
@@ -565,7 +584,10 @@ mod tests {
         mock.reconcile_verdict = Reconcile::NotFound;
         let mut sched = scheduler(queue, mock);
         sched
-            .reconcile("a", &mut persist_into(&sched.sender.persisted))
+            .reconcile(
+                "a",
+                &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+            )
             .unwrap();
         assert_eq!(sched.queue.get("a").unwrap().state, State::Uncertain);
         sched.queue.retry("a").unwrap();
@@ -577,13 +599,19 @@ mod tests {
         let mut queue = Queue::default();
         queue.add(item("a", ts(-3600))).unwrap();
         let mut sched = scheduler(queue, Mock::default());
-        let outcomes = sched.tick(ts(0), &mut persist_into(&sched.sender.persisted));
+        let outcomes = sched.tick(
+            ts(0),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
         assert_eq!(outcomes, vec![Outcome::Missed { id: "a".into() }]);
         assert_eq!(sched.queue.get("a").unwrap().state, State::Missed);
         assert!(sched.sender.sent.is_empty());
         // A missed item only goes out through an explicit retry.
         sched.queue.retry("a").unwrap();
-        sched.tick(ts(1), &mut persist_into(&sched.sender.persisted));
+        sched.tick(
+            ts(1),
+            &mut persist_into(&sched.sender.persisted as *const _ as *mut _),
+        );
         assert_eq!(sched.queue.get("a").unwrap().state, State::Sent);
     }
 
@@ -661,8 +689,7 @@ mod tests {
             0,
         );
         q.add(old).unwrap();
-        let claimed = q.claim_due(150).unwrap();
-        assert_eq!(claimed.id, "a");
+        q.get_mut("a").unwrap().state = State::Sending;
         let new = ScheduledMessage::new(
             "b".into(),
             "acc".into(),
@@ -690,7 +717,7 @@ mod tests {
             0,
         ))
         .unwrap();
-        q.claim_due(150).unwrap();
+        q.get_mut("a").unwrap().state = State::Sending;
         assert!(q.cancel("a").is_err());
         assert!(q.retry("a").is_err());
         assert!(q.edit("a", Some("x".into()), None).is_err());

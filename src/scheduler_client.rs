@@ -211,7 +211,14 @@ mod tests {
         let stub = stub(vec![ok(r#"{"id":"sl-1"}"#)]);
         let client = SchedulerClient::new(&stub.base_url, "").unwrap();
         let id = client
-            .add("wa-main", "chat-1", "hello", Some("reply-1"), 1_762_000_000)
+            .add(
+                "wa-main",
+                "chat-1",
+                "hello",
+                Some("reply-1"),
+                1_762_000_000,
+                None,
+            )
             .unwrap();
         assert_eq!(id, "sl-1");
         let request = stub.requests.recv().unwrap();
