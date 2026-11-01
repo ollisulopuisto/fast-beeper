@@ -3803,11 +3803,26 @@ impl Worker {
                 let chat = self.canonical(&update.jid);
                 // The update can arrive before history creates the chat.
                 self.ensure_chat(&chat, None);
-                let _ = self.archive.set_archived_at(
-                    &chat,
-                    update.action.archived.unwrap_or(false),
-                    update.timestamp.timestamp_millis(),
-                );
+                // The phone also unarchives on a new message when its own
+                // keep-archived is off, and that sync event looks identical
+                // to a manual unarchive. A forever-muted (Silence) chat only
+                // leaves the archive through an explicit local Unarchive or
+                // Unmute, not through synced state.
+                let unarchives = !update.action.archived.unwrap_or(false);
+                let forever_muted = self
+                    .archive
+                    .chat(&chat)
+                    .ok()
+                    .flatten()
+                    .and_then(|entry| entry.muted_until)
+                    == Some(0);
+                if !(unarchives && forever_muted) {
+                    let _ = self.archive.set_archived_at(
+                        &chat,
+                        update.action.archived.unwrap_or(false),
+                        update.timestamp.timestamp_millis(),
+                    );
+                }
                 self.emit_chat(&chat);
             }
             E::PinUpdate(update) => {
@@ -20783,6 +20798,39 @@ mod receipt_tests {
             .archive
             .set_archived_at(&id, false, time.timestamp_millis() + 1)
             .unwrap();
+        assert!(!worker.archive.chat(PEER).unwrap().unwrap().archived);
+    }
+
+    #[tokio::test]
+    async fn a_forever_muted_chat_stays_archived_through_sync_unarchives() {
+        let (mut worker, _events, _inbox, _wa) = worker();
+        let time = whatsapp_rust::wacore::time::now_utc();
+        let sync_unarchive = |timestamp: jiff::Timestamp| {
+            Arc::new(wa_events::Event::ArchiveUpdate(
+                wa_events::ArchiveUpdate::builder()
+                    .jid(PEER.parse().unwrap())
+                    .timestamp(timestamp)
+                    .from_full_sync(false)
+                    .action(Box::new({
+                        let mut proto = wa::sync_action_value::ArchiveChatAction::default();
+                        proto.archived = Some(false);
+                        proto
+                    }))
+                    .build(),
+            ))
+        };
+        worker.store_message(incoming("before", 100), None, None);
+        worker.archive.set_archived_at(PEER, true, 200_000).unwrap();
+        worker.archive.set_muted_at(PEER, Some(0), 200_000).unwrap();
+        // The phone unarchiving on a new message cannot undo a Silence.
+        worker.handle_wa_event(sync_unarchive(time)).await;
+        assert!(worker.archive.chat(PEER).unwrap().unwrap().archived);
+        // Once the mute is cleared, synced unarchives apply again.
+        worker
+            .archive
+            .set_muted_at(PEER, None, time.timestamp_millis() + 1)
+            .unwrap();
+        worker.handle_wa_event(sync_unarchive(time)).await;
         assert!(!worker.archive.chat(PEER).unwrap().unwrap().archived);
     }
 
