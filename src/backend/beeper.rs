@@ -1418,7 +1418,7 @@ fn rich_text_mentions(raw: &str) -> Vec<crate::model::MentionRef> {
     let mut rest = raw;
     while let Some(start) = rest.find(MARK) {
         let after = &rest[start + MARK.len()..];
-        let Some(id_end) = after.find(|c| c == '"' || c == '\'') else {
+        let Some(id_end) = after.find(['"', '\'']) else {
             break;
         };
         let id = format!("@{}", &after[..id_end]);
