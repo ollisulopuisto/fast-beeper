@@ -23,7 +23,7 @@ const MIN_WIDTH: f32 = 300.0;
 const MAX_WIDTH: f32 = 520.0;
 /// The narrowest conversation a docked pane leaves beside it. Below this the
 /// pane lies over the conversation instead of squeezing it.
-const CONVERSATION_MIN: f32 = 360.0;
+pub(super) const CONVERSATION_MIN: f32 = 360.0;
 /// The info panel always takes a column of its own outside the narrow
 /// window mode, so it may be narrower than the search pane, and the
 /// conversation beside it too.

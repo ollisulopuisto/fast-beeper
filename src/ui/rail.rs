@@ -16,9 +16,12 @@ use crate::theme::{self, Icon, Palette};
 use super::focus::{Stop, TabStop};
 use super::widgets;
 
-/// Width of the rail, on every platform.
-/// The combined sidebar's fixed width: room for filter chips and chat rows.
+/// Width of the combined sidebar beside the chat list: room for filter
+/// chips and chat rows.
 pub const WIDTH: f32 = 216.0;
+/// Width of the compact rail: icons and avatars only, while the list is
+/// hidden or the window leaves the conversation too little room beside it.
+pub const COMPACT: f32 = 52.0;
 /// Height of one destination at the top: the list header's title and
 /// search field sit level with Chats and Calls.
 const CELL: f32 = 48.0;
@@ -34,6 +37,13 @@ const GAP: f32 = 8.0;
 /// How far below the window's top the macOS traffic lights end, centred as
 /// they are in the 60-point title bar, with a little room under them.
 const LIGHTS_CLEARANCE: f32 = theme::TOP_BAR_HEIGHT / 2.0 + 12.0;
+/// The least room the expanded sidebar keeps for its filters, favorites and
+/// pins before it lets the window's height scroll them.
+const MIDDLE_MIN: f32 = 120.0;
+/// The least room the chats' avatars keep while the list is hidden.
+const MIN_AVATARS: f32 = 64.0;
+/// Width of the hairline between the destinations and the avatars.
+const DIVIDER: f32 = 24.0;
 
 /// Where the rail was laid out, for layout tests.
 pub(crate) fn rect_id() -> egui::Id {
@@ -53,7 +63,16 @@ pub fn lights_overhang(ctx: &egui::Context) -> f32 {
     if !theme::macos_chrome(ctx) {
         return 0.0;
     }
-    (theme::traffic_light_inset(ctx) - WIDTH).max(0.0)
+    let width = ctx
+        .data(|data| data.get_temp::<f32>(width_id()))
+        .unwrap_or(COMPACT);
+    (theme::traffic_light_inset(ctx) - width).max(0.0)
+}
+
+/// This frame's rail width, written by the layout before the headers draw,
+/// for the traffic-light clearance above.
+pub(crate) fn width_id() -> egui::Id {
+    egui::Id::new("nav-rail-width")
 }
 
 /// A place the rail leads to.
@@ -156,74 +175,113 @@ impl Destination {
 /// The combined sidebar as a fixed panel on the left of the chat list.
 /// `hidden` says the chat list is hidden: the sidebar then offers to show
 /// it again and stands beside the conversation.
-pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
+pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
     let palette = app.palette;
+    let width = if compact { COMPACT } else { WIDTH };
     // Its own panel id: sharing the list's would hand that resizable panel
     // this width, and it would save it as the list's width.
     let panel = egui::Panel::left("chat-rail")
         .resizable(false)
-        .exact_size(WIDTH)
+        .exact_size(width)
         .show_separator_line(false)
         .frame(Frame::new().fill(palette.rail()).inner_margin(Margin::ZERO));
     let response = panel.show(ui, |ui| {
+        // The avatars keep the spacing they always had; the rest is tight.
+        let row_gap = ui.spacing().item_spacing.y;
+        ui.spacing_mut().item_spacing.y = 0.0;
         if theme::traffic_light_inset(ui.ctx()) > 0.0 {
             // The traffic lights, or the caption buttons ZapFast draws where
             // the desktop puts them on the left (GNOME's round ones end 42
-            // points down), take the sidebar's top; it starts under them.
-            let (strip, _) = ui
-                .allocate_exact_size(vec2(ui.available_width(), LIGHTS_CLEARANCE), Sense::hover());
+            // points down), take the rail's top; it starts under them.
+            let (strip, _) = ui.allocate_exact_size(vec2(width, LIGHTS_CLEARANCE), Sense::hover());
             super::titlebar_drag(ui, strip);
         } else {
             ui.add_space(GAP);
         }
+        let bottom: Vec<Destination> = [
+            Destination::Starred,
+            Destination::Archived,
+            Destination::Locked,
+            Destination::Settings,
+        ]
+        .into_iter()
+        .filter(|destination| destination.offered(app))
+        .collect();
+        let top_height = 2.0 * CELL;
+        let foot = bottom.len() as f32 * (PLATE + GAP) + GAP + AVATAR + GAP;
+        let minimum = top_height
+            + foot
+            + if hidden {
+                CELL + GAP + MIN_AVATARS
+            } else {
+                0.0
+            }
+            + if compact { 0.0 } else { MIDDLE_MIN };
+        let height = ui.available_height().max(minimum);
         egui::ScrollArea::vertical()
             .id_salt("navigation-rail")
             .auto_shrink([false, false])
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
-                // Destinations across the top, wrapped when the sidebar is
-                // too narrow for one row.
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                    // Collected first: the filter borrows the app, the
-                    // buttons mutate it.
-                    let destinations: Vec<Destination> = [
-                        Destination::Chats,
-                        Destination::Calls,
-                        Destination::Starred,
-                        Destination::Archived,
-                        Destination::Locked,
-                        Destination::Settings,
-                    ]
-                    .into_iter()
-                    .filter(|destination| destination.offered(app))
-                    .collect();
-                    for destination in destinations {
-                        destination_button(app, ui, &palette, destination, PLATE + GAP);
-                    }
-                    ui.vertical_centered(|ui| {
-                        super::accounts::avatar_button(app, ui, AVATAR).tab_stop(Stop::Profile);
-                    });
-                });
-                ui.add_space(GAP);
+                // Keep the usual spacing in a tall window. In a short one
+                // the content keeps its minimum height and scrolls instead
+                // of leaving the bottom buttons beyond the window.
+                ui.set_height(height);
+                destination_button(app, ui, &palette, Destination::Chats, CELL);
+                destination_button(app, ui, &palette, Destination::Calls, CELL);
                 if hidden {
-                    // A cell of its own under the destinations: nothing above
-                    // it moves when the list comes and goes.
+                    // A cell of its own under Calls: nothing above it moves
+                    // when the list comes and goes.
                     show_list_button(app, ui, &palette);
                     ui.add_space(GAP / 2.0);
-                    super::chats::compact_list(app, ui);
+                    let line = Rect::from_center_size(
+                        ui.cursor().min + vec2(width / 2.0, 0.0),
+                        vec2(DIVIDER, 1.0),
+                    );
+                    ui.painter().rect_filled(line, 0.0, palette.outline);
+                    ui.add_space(GAP / 2.0);
+                    let middle = (ui.available_height() - foot).max(MIN_AVATARS);
+                    ui.allocate_ui_with_layout(
+                        vec2(width, middle),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.y = row_gap;
+                            super::chats::compact_list(app, ui);
+                        },
+                    );
                 }
-                // Quick filters and the favorite/pinned chats live here, so
-                // the chat-list column keeps only its search field and chats.
-                super::chats::filter_chips(app, ui);
-                super::chats::favorites_row(app, ui);
-                super::chats::pinned_row(app, ui);
+                if !compact {
+                    // Quick filters and the favorite/pinned chats live here,
+                    // so the chat-list column keeps only its search field
+                    // and chats.
+                    ui.spacing_mut().item_spacing.y = row_gap;
+                    super::chats::filter_chips(app, ui);
+                    super::chats::favorites_row(app, ui);
+                    super::chats::pinned_row(app, ui);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                }
+                let rest = (ui.available_height() - foot).max(0.0);
+                ui.add_space(rest);
+                for destination in bottom {
+                    ui.add_space(GAP);
+                    destination_button(app, ui, &palette, destination, PLATE);
+                }
+                ui.add_space(GAP);
+                // The account button holds the plates' column, so widening
+                // the sidebar beside the list moves nothing.
+                ui.allocate_ui_with_layout(
+                    vec2(COMPACT, AVATAR),
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| {
+                        super::accounts::avatar_button(app, ui, AVATAR).tab_stop(Stop::Profile);
+                    },
+                );
             });
     });
     let rect = response.response.rect;
     ui.ctx().data_mut(|data| data.insert_temp(rect_id(), rect));
-    // No line between the sidebar and the list, whose shades tell them
-    // apart; beside the conversation the sidebar ends as the list does.
+    // No line between the rail and the list, whose shades tell them apart;
+    // beside the conversation the rail ends as the list does.
     if hidden {
         widgets::paint_edge_beside(ui, &palette, rect);
     }
@@ -314,8 +372,13 @@ fn destination_button(
             }),
         ),
     };
-    let (cell, _) = ui.allocate_exact_size(vec2(PLATE + GAP, height), Sense::hover());
-    let plate = Rect::from_center_size(cell.center(), Vec2::splat(PLATE));
+    let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    // The plate holds the compact rail's column whichever width the rail
+    // has, so the list coming and going moves nothing.
+    let plate = Rect::from_center_size(
+        egui::pos2(cell.min.x + COMPACT / 2.0, cell.center().y),
+        Vec2::splat(PLATE),
+    );
     let response = ui
         .interact(plate, destination_id(destination), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
