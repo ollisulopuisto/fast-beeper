@@ -107,9 +107,15 @@ impl egui::plugin::Plugin for DetachedLinks {
             let egui::OutputCommand::OpenUrl(link) = command else {
                 return true;
             };
-            if let Err(error) = (self.open)(&link.url) {
-                // The address may come from a message, so it is not logged.
-                log::warn!("could not open a link: {error}");
+            // Defense-in-depth: only open verified safe external URLs (http, https, mailto).
+            // Reject local file access, dangerous protocol handlers, and control characters.
+            if let Some(safe_url) = crate::safety::external_url(&link.url) {
+                if let Err(error) = (self.open)(&safe_url) {
+                    // The address may come from a message, so it is not logged.
+                    log::warn!("could not open a link: {error}");
+                }
+            } else {
+                log::warn!("blocked attempt to open untrusted link scheme");
             }
             false
         });
@@ -269,6 +275,33 @@ mod tests {
             output.platform_output.commands.as_slice(),
             [egui::OutputCommand::CopyText(text)] if text == "kept"
         ));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn unsafe_link_schemes_are_rejected_before_launch() {
+        use std::sync::Mutex;
+        static OPENED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        OPENED.lock().unwrap().clear();
+        let ctx = egui::Context::default();
+        ctx.add_plugin(DetachedLinks {
+            open: |url| {
+                OPENED.lock().unwrap().push(url.to_owned());
+                Ok(())
+            },
+        });
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab("file:///etc/passwd"));
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab("javascript:alert(1)"));
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab("shell:AppsFolder"));
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab("https://example.com/safe"));
+        });
+        output.textures_delta.clear();
+        assert_eq!(*OPENED.lock().unwrap(), ["https://example.com/safe"]);
     }
 
     /// A launcher's exit status decides: a failure is reported, a success
