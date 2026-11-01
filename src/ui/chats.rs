@@ -646,159 +646,142 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
     widgets::chip_scroll_row(ui, "chat-filters", |ui| {
-        // Clearly separated sections of full-width rows, not a chip wall:
-        // filters, then networks (accounts indent under the active one),
-        // then the follow-up queues.
-        ui.spacing_mut().item_spacing.y = 1.0;
-        ui.label(
-            egui::RichText::new("Filters")
-                .small()
-                .color(palette.secondary),
-        );
-        for filter in ChatFilter::EVERY {
-            let count = match filter {
-                ChatFilter::All => 0,
-                _ => app.unread_chats(filter),
-            };
-            let selected = !app.locked_folder_open()
-                && !app.show_archived
-                && app.label_filter.is_none()
-                && app.chat_filter == filter;
-            let row = widgets::filter_row(
-                ui,
-                &palette,
-                filter.label(app.locale).as_ref(),
-                count,
-                selected,
-                0.0,
-            )
-            .tab_stop(match filter {
-                ChatFilter::All => Stop::All,
-                ChatFilter::Unread => Stop::Unread,
-                ChatFilter::Private => Stop::Private,
-                ChatFilter::Favorites => Stop::Favorites,
-                ChatFilter::Groups => Stop::Groups,
-                ChatFilter::Channels => Stop::Channels,
-            });
-            // Store the row rect for interaction tests.
-            ui.ctx()
-                .data_mut(|data| data.insert_temp(filter_chip_id(filter), row.rect));
-            let row = if filter == ChatFilter::Channels {
-                let now = crate::util::now();
-                let all_muted = app
-                    .chats
-                    .iter()
-                    .filter(|chat| chat.is_channel())
-                    .all(|chat| chat.muted(now));
-                row.context_menu(|ui| {
-                    let (icon, label) = if all_muted {
-                        (Icon::Bell, "Unmute all channels")
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
+            for filter in ChatFilter::EVERY {
+                let count = match filter {
+                    ChatFilter::All => 0,
+                    _ => app.unread_chats(filter),
+                };
+                let selected = !app.locked_folder_open()
+                    && !app.show_archived
+                    && app.label_filter.is_none()
+                    && app.chat_filter == filter;
+                let chip = widgets::filter_chip(
+                    ui,
+                    &palette,
+                    filter.label(app.locale).as_ref(),
+                    count,
+                    selected,
+                )
+                .tab_stop(match filter {
+                    ChatFilter::All => Stop::All,
+                    ChatFilter::Unread => Stop::Unread,
+                    ChatFilter::Private => Stop::Private,
+                    ChatFilter::Favorites => Stop::Favorites,
+                    ChatFilter::Groups => Stop::Groups,
+                    ChatFilter::Channels => Stop::Channels,
+                });
+                // Store the chip rect for interaction tests.
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(filter_chip_id(filter), chip.rect));
+                let chip = if filter == ChatFilter::Channels {
+                    let now = crate::util::now();
+                    let all_muted = app
+                        .chats
+                        .iter()
+                        .filter(|chat| chat.is_channel())
+                        .all(|chat| chat.muted(now));
+                    chip.context_menu(|ui| {
+                        let (icon, label) = if all_muted {
+                            (Icon::Bell, "Unmute all channels")
+                        } else {
+                            (Icon::BellOff, "Mute all channels")
+                        };
+                        if widgets::menu_item(ui, &palette, Some(icon), label) {
+                            app.actions.push(Action::MuteAllChannels(!all_muted));
+                            ui.close();
+                        }
+                    });
+                    chip
+                } else {
+                    chip
+                };
+                if chip.clicked() {
+                    // A second click on the active chip returns to every chat.
+                    let next = if selected { ChatFilter::All } else { filter };
+                    app.beeper_unreplied=false;app.beeper_reply_later_filter=false;
+                    app.actions.push(Action::SetChatFilter(next));
+                }
+            }
+            let networks = app.beeper_browse_networks();
+            if !networks.is_empty() {
+                ui.add_space(6.0);
+                // Network quick filters replace the rail's network
+                // selector; the first ten keep their Ctrl+1..0 shortcuts.
+                for (index, network) in networks.iter().enumerate() {
+                    let selected = app.beeper_network_filter.as_ref() == Some(network);
+                    let name: &str = if network.is_empty() {
+                        "Network not supplied"
                     } else {
-                        (Icon::BellOff, "Mute all channels")
+                        network
                     };
-                    if widgets::menu_item(ui, &palette, Some(icon), label) {
-                        app.actions.push(Action::MuteAllChannels(!all_muted));
-                        ui.close();
+                    let chip = widgets::filter_chip(ui, &palette, name, 0, selected);
+                    let chip = if index < 10 {
+                        chip.on_hover_text(format!(
+                            "{name} ({})",
+                            super::keys::label(&format!("Ctrl+{}", (index + 1) % 10))
+                        ))
+                    } else {
+                        chip
+                    };
+                    if chip.clicked() {
+                        // A second click on the active network shows every network again.
+                        let next = if selected { None } else { Some(network.clone()) };
+                        app.select_beeper_scope(next, None);
                     }
-                })
-            } else {
-                row
-            };
-            if row.clicked() {
-                // A second click on the active row returns to every chat.
-                let next = if selected { ChatFilter::All } else { filter };
-                app.beeper_unreplied = false;
-                app.beeper_reply_later_filter = false;
-                app.actions.push(Action::SetChatFilter(next));
-            }
-        }
-        let networks = app.beeper_browse_networks();
-        if !networks.is_empty() {
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Networks")
-                    .small()
-                    .color(palette.secondary),
-            );
-            // Every network is directly reachable; the first ten keep their
-            // Ctrl+1..0 shortcuts.
-            for (index, network) in networks.iter().enumerate() {
-                let selected = app.beeper_network_filter.as_ref() == Some(network);
-                let name: &str = if network.is_empty() {
-                    "Network not supplied"
-                } else {
-                    network
-                };
-                let row = widgets::filter_row(ui, &palette, name, 0, selected, 0.0);
-                let row = if index < 10 {
-                    row.on_hover_text(format!(
-                        "{name} ({})",
-                        super::keys::label(&format!("Ctrl+{}", (index + 1) % 10))
-                    ))
-                } else {
-                    row
-                };
-                if row.clicked() {
-                    // A second click on the active network shows every network again.
-                    let next = if selected { None } else { Some(network.clone()) };
-                    app.select_beeper_scope(next, None);
                 }
-            }
-            // With a network chosen, its accounts indent under it, as they
-            // did under the rail's network buttons.
-            if let Some(network) = app.beeper_network_filter.clone() {
-                for (key, label) in app.beeper_browse_accounts() {
-                    let selected = app.beeper_account_filter.as_ref() == Some(&key);
-                    let short = label
-                        .split(" \u{00b7} ")
-                        .nth(1)
-                        .unwrap_or(&label)
-                        .split(" [")
-                        .next()
-                        .unwrap_or(&label);
-                    if widgets::filter_row(ui, &palette, short, 0, selected, 12.0)
-                        .on_hover_text(&label)
-                        .clicked()
-                    {
-                        let account = if selected { None } else { Some(key) };
-                        app.select_beeper_scope(Some(network.clone()), account);
+                // With a network chosen, its accounts appear as chips, as
+                // they did under the rail's network buttons.
+                if let Some(network) = app.beeper_network_filter.clone() {
+                    for (key, label) in app.beeper_browse_accounts() {
+                        let selected = app.beeper_account_filter.as_ref() == Some(&key);
+                        let short = label
+                            .split(" · ")
+                            .nth(1)
+                            .unwrap_or(&label)
+                            .split(" [")
+                            .next()
+                            .unwrap_or(&label);
+                        if widgets::filter_chip(ui, &palette, short, 0, selected)
+                            .on_hover_text(&label)
+                            .clicked()
+                        {
+                            let account = if selected { None } else { Some(key) };
+                            app.select_beeper_scope(Some(network.clone()), account);
+                        }
                     }
                 }
             }
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Queues")
-                    .small()
-                    .color(palette.secondary),
-            );
-            if widgets::filter_row(ui, &palette, "Unreplied", 0, app.beeper_unreplied, 0.0)
-                .on_hover_text("Latest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R")
-                .clicked()
-            {
-                app.beeper_reply_later_filter = false;
-                app.beeper_unreplied = !app.beeper_unreplied;
-                app.actions.push(Action::SetChatFilter(ChatFilter::All));
-            }
-            if widgets::filter_row(ui, &palette, "Reply later", 0, app.beeper_reply_later_filter, 0.0)
-                .on_hover_text("Local queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat.")
-                .clicked()
-            {
-                app.beeper_reply_later_filter = !app.beeper_reply_later_filter;
-                app.beeper_unreplied = false;
-                app.actions.push(Action::SetChatFilter(ChatFilter::All));
-            }
-            if let Some(chat) = app.current_chat() {
-                let queued = app.reply_later_contains(chat);
-                if ui
-                    .small_button(if queued { "Remove from later" } else { "Reply later +" })
-                    .on_hover_text("Cmd+Shift+L: toggle current chat in local queue")
+            if !networks.is_empty() {
+                if widgets::filter_chip(ui, &palette, "Unreplied", 0, app.beeper_unreplied)
+                    .on_hover_text("Latest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R")
                     .clicked()
                 {
-                    app.toggle_reply_later();
+                    app.beeper_reply_later_filter = false;
+                    app.beeper_unreplied = !app.beeper_unreplied;
+                    app.actions.push(Action::SetChatFilter(ChatFilter::All));
+                }
+                if widgets::filter_chip(ui, &palette, "Reply later", 0, app.beeper_reply_later_filter)
+                    .on_hover_text("Local queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat.")
+                    .clicked()
+                {
+                    app.beeper_reply_later_filter = !app.beeper_reply_later_filter;
+                    app.beeper_unreplied = false;
+                    app.actions.push(Action::SetChatFilter(ChatFilter::All));
+                }
+                if let Some(chat) = app.current_chat() {
+                    let queued = app.reply_later_contains(chat);
+                    if ui.small_button(if queued { "Remove from later" } else { "Reply later +" })
+                        .on_hover_text("Cmd+Shift+L: toggle current chat in local queue")
+                        .clicked()
+                    {
+                        app.toggle_reply_later();
+                    }
                 }
             }
-        }
-        ui.add_space(4.0);
+            ui.add_space(4.0);
+        })
     });
     labels::chip_row(app, ui, &palette);
 }
