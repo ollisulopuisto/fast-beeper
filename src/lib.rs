@@ -58,6 +58,7 @@ pub mod target;
 pub mod theme;
 pub mod timestretch;
 pub mod transcriber;
+pub mod transcriber_engine;
 pub mod transcript;
 pub mod transport;
 pub mod ui;
