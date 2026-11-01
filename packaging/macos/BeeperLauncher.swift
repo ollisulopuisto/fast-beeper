@@ -110,23 +110,60 @@ func launch(_ connection: Connection) throws {
 
     // The remote ready marker is emitted only after SSH has established forwarding.
     // Merely checking isRunning before authentication could send a token to an old listener.
-    let tunnel = ssh(connection, extra: ["-T", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:23374:127.0.0.1:23374"])
-    tunnel.arguments! += ["printf READY; cat >/dev/null"]
-    let hold = Pipe()
-    let ready = Pipe()
-    tunnel.standardInput = hold
-    tunnel.standardOutput = ready
-    try tunnel.run()
-    defer { stop(tunnel) }
-    let tunnelTimeout = DispatchWorkItem { stop(tunnel) }
-    DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: tunnelTimeout)
-    var marker = Data()
-    while marker.count < 5 {
-        guard let chunk = try ready.fileHandleForReading.read(upToCount: 5 - marker.count), !chunk.isEmpty else { break }
-        marker.append(chunk)
+    // Send Later rides the same SSH trust: forward the scheduler socket too,
+    // but never let an occupied local 23376 break the Server connection.
+    func openTunnel(_ forwards: [String]) -> (Process, Pipe)? {
+        var extra = ["-T", "-o", "ExitOnForwardFailure=yes"]
+        for forward in forwards { extra += ["-L", forward] }
+        let tunnel = ssh(connection, extra: extra)
+        tunnel.arguments! += ["printf READY; cat >/dev/null"]
+        let hold = Pipe()
+        let ready = Pipe()
+        tunnel.standardInput = hold
+        tunnel.standardOutput = ready
+        do { try tunnel.run() } catch { return nil }
+        let tunnelTimeout = DispatchWorkItem { stop(tunnel) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: tunnelTimeout)
+        var marker = Data()
+        while marker.count < 5 {
+            guard let chunk = try? ready.fileHandleForReading.read(upToCount: 5 - marker.count), !chunk.isEmpty else { break }
+            marker.append(chunk)
+        }
+        tunnelTimeout.cancel()
+        guard tunnel.isRunning, marker == Data("READY".utf8) else { stop(tunnel); return nil }
+        return (tunnel, hold)
     }
-    tunnelTimeout.cancel()
-    guard tunnel.isRunning, marker == Data("READY".utf8) else { throw LaunchError.tunnel }
+    let forwards = ["127.0.0.1:23374:127.0.0.1:23374", "127.0.0.1:23376:127.0.0.1:23376"]
+    guard let (tunnel, hold) = openTunnel(forwards) ?? openTunnel(Array(forwards.prefix(1))) else { throw LaunchError.tunnel }
+    defer { stop(tunnel) }
+    _ = hold
+
+    // Best effort: the scheduler's control token lives only on the Server Mac
+    // and reaches this Mac through the same SSH trust, 0600 on both ends.
+    // Without one the app simply keeps Send Later unavailable.
+    let tokenQuery = ssh(connection, extra: [])
+    tokenQuery.arguments! += ["cat \"$HOME/Library/Application Support/zapfast/scheduler-token\" 2>/dev/null || cat \"$HOME/.config/zapfast/scheduler-token\" 2>/dev/null || true"]
+    let tokenOut = Pipe()
+    tokenQuery.standardOutput = tokenOut
+    if (try? tokenQuery.run()) != nil {
+        let tokenTimeout = DispatchWorkItem { stop(tokenQuery) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: tokenTimeout)
+        let tokenData = tokenOut.fileHandleForReading.readDataToEndOfFile()
+        tokenTimeout.cancel()
+        tokenQuery.waitUntilExit()
+        if tokenQuery.terminationStatus == 0, let tokenData,
+           let schedulerToken = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !schedulerToken.isEmpty, schedulerToken.count <= 256,
+           valid(schedulerToken, pattern: "^[A-Za-z0-9._~+-]+$") {
+            let configDir = profile.appendingPathComponent("config")
+            try? manager.createDirectory(at: configDir, withIntermediateDirectories: true,
+                                         attributes: [.posixPermissions: 0o700])
+            try? schedulerToken.write(to: configDir.appendingPathComponent("scheduler-token"),
+                                      atomically: true, encoding: .utf8)
+            try? manager.setAttributes([.posixPermissions: 0o600],
+                                       ofItemAtPath: configDir.appendingPathComponent("scheduler-token").path)
+        }
+    }
     let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")
     guard manager.isExecutableFile(atPath: binary.path) else { throw LaunchError.missingBinary }
     try manager.createDirectory(at: profile, withIntermediateDirectories: true,
