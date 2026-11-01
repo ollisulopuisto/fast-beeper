@@ -2407,7 +2407,7 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
             ui,
             palette,
             Some(Icon::BellOff),
-            &crate::i18n::gettext(locale, "Silence"),
+            &crate::i18n::gettext(locale, "Hide and mute indefinitely"),
         )
     {
         app.actions.push(Action::SetMuted(chat.id.clone(), Some(0)));
@@ -2917,13 +2917,13 @@ mod tests {
     }
 
     #[test]
-    fn silence_in_the_list_menu_mutes_and_archives_the_chat() {
+    fn hide_and_mute_in_the_list_menu_mutes_and_archives_the_chat() {
         let directory = tempfile::tempdir().unwrap();
         let (mut app, _events) =
             App::headless(AppDirs::under(directory.path()), Settings::default());
         let chat = Chat::new("noisy@g.us".into(), "Noisy group".into());
 
-        let label = crate::i18n::gettext(app.locale, "Silence");
+        let label = crate::i18n::gettext(app.locale, "Hide and mute indefinitely");
         click_item_in_the_list_menu(&mut app, &chat, label.as_ref());
 
         assert_eq!(
