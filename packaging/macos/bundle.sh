@@ -27,6 +27,7 @@ scheduler="${5:-}"
 if [[ "$mode" == beeper ]]; then
     mv "$app/Contents/MacOS/zapfast" "$app/Contents/MacOS/zapfast-client"
     xcrun swiftc -swift-version 5 -framework AppKit "$here/BeeperLauncher.swift" -o "$app/Contents/MacOS/zapfast"
+    cp "$here/scheduler-health.sh" "$app/Contents/Resources/scheduler-health.sh"
     # Optional Send Later sidecar, bundled for the one-time in-app Studio
     # install (still approval-gated in the launcher before any install).
     if [[ -n "$scheduler" ]]; then

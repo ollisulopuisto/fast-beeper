@@ -89,6 +89,10 @@ jobs:
       - name: Launcher and package tests
         shell: bash
         run: python -m unittest discover -s contrib/beeper-tools -p 'test_*.py'
+      - name: Type-check native launcher before the Rust build
+        if: runner.os == 'macOS'
+        shell: bash
+        run: xcrun swiftc -swift-version 5 -framework AppKit -typecheck packaging/macos/BeeperLauncher.swift
       - name: Build real release binary
         shell: bash
         run: cargo build --locked --release --bin zapfast --target '${{ matrix.target }}'

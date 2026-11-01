@@ -20,8 +20,8 @@ class SchedulerInstallTests(unittest.TestCase):
         self.assertIn('alertFirstButtonReturn else { return }', SOURCE)
 
     def test_install_checks_remote_architecture(self):
-        self.assertIn('"uname -m"', SOURCE)
-        self.assertIn('== "arm64"', SOURCE)
+        self.assertIn('uname -s; uname -m', SOURCE)
+        self.assertIn('Darwin\\narm64', SOURCE)
 
     def test_tokens_travel_on_stdin_never_argv(self):
         self.assertIn('stdin: Data(beeperToken.utf8)', SOURCE)
@@ -31,8 +31,8 @@ class SchedulerInstallTests(unittest.TestCase):
 
     def test_install_uses_launchd_and_verifies_health_with_token(self):
         self.assertIn('launchctl load "$PLIST"', SOURCE)
-        self.assertIn('http://127.0.0.1:23376/v1/health', SOURCE)
-        self.assertIn('Authorization: Bearer', SOURCE)
+        self.assertIn('schedulerHealthScript', SOURCE)
+        self.assertNotIn('Authorization: Bearer', SOURCE)
 
     def test_decline_has_a_discoverable_retry_route(self):
         self.assertIn('scheduler-install-declined', SOURCE)

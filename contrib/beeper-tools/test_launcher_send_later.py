@@ -10,9 +10,9 @@ class SendLaterSafetyTests(unittest.TestCase):
         # An occupied local 23376 must not receive a previously synced token:
         # the cached file is removed, and removal happens before the client
         # binary is launched.
-        removal = SOURCE.index('removeItem(at: profile.appendingPathComponent("config/scheduler-token")')
+        removal = SOURCE.index('try manager.removeItem(at: cachedSchedulerToken)')
         launch = SOURCE.index('Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")')
-        guard = SOURCE.index('if !schedulerForwarded {')
+        guard = SOURCE.index('let cachedSchedulerToken =')
         self.assertLess(guard, removal)
         self.assertLess(removal, launch)
 
