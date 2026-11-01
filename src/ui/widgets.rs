@@ -1756,6 +1756,76 @@ pub fn chip(ui: &mut Ui, palette: &Palette, label: &str) -> egui::Response {
 }
 
 /// Selectable pill with an optional count, used for the chat-list filters.
+/// A full-width sidebar filter row: label on the left, optional count on
+/// the right, the selection filled like an active destination. `indent`
+/// shifts the row right (accounts under their network).
+pub fn filter_row(
+    ui: &mut Ui,
+    palette: &Palette,
+    label: &str,
+    count: usize,
+    selected: bool,
+    indent: f32,
+) -> egui::Response {
+    let height = 26.0;
+    let width = ui.available_width();
+    let (outer, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let rect = Rect::from_min_size(
+        pos2(outer.left() + indent, outer.top()),
+        vec2((width - indent).max(0.0), height),
+    );
+    theme::reveal_focus(&response);
+    theme::focus_outline(ui, response.id, rect, 6.0.into());
+    if ui.is_rect_visible(rect) {
+        let color = if selected {
+            palette.accent
+        } else {
+            palette.text
+        };
+        if selected {
+            ui.painter().rect_filled(
+                rect.shrink2(vec2(2.0, 1.0)),
+                6.0,
+                palette.accent.gamma_multiply(0.18),
+            );
+        } else if response.hovered() {
+            let hover = if palette.vibrant() {
+                palette.tint(theme::TINT_HOVER)
+            } else {
+                palette.surface
+            };
+            ui.painter().rect_filled(rect.shrink2(vec2(2.0, 1.0)), 6.0, hover);
+        }
+        let painter = ui.painter().with_clip_rect(rect);
+        let number = (count > 0)
+            .then(|| painter.layout_no_wrap(count.to_string(), theme::regular(11.5), color));
+        let number_width = number.as_ref().map_or(0.0, |galley| galley.size().x + 12.0);
+        let text_width = (rect.width() - 14.0 - number_width).max(10.0);
+        let text = painter.layout_no_wrap(label.to_owned(), theme::medium(12.5), color);
+        let text = if text.size().x > text_width {
+            painter.layout(label.to_owned(), theme::medium(12.5), color, text_width)
+        } else {
+            text
+        };
+        painter.galley(
+            pos2(rect.left() + 7.0, rect.center().y - text.size().y / 2.0),
+            text,
+            color,
+        );
+        if let Some(number) = number {
+            painter.galley(
+                pos2(
+                    rect.right() - 7.0 - number.size().x,
+                    rect.center().y - number.size().y / 2.0,
+                ),
+                number,
+                color,
+            );
+        }
+    }
+    response
+}
+
 pub fn filter_chip(
     ui: &mut Ui,
     palette: &Palette,
