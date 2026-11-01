@@ -23,16 +23,9 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$binary" "$app/Contents/MacOS/zapfast"
 chmod 755 "$app/Contents/MacOS/zapfast"
-scheduler="${5:-}"
 if [[ "$mode" == beeper ]]; then
     mv "$app/Contents/MacOS/zapfast" "$app/Contents/MacOS/zapfast-client"
     xcrun swiftc -swift-version 5 -framework AppKit "$here/BeeperLauncher.swift" -o "$app/Contents/MacOS/zapfast"
-    # Optional Send Later sidecar, bundled for the one-time in-app Studio
-    # install (still approval-gated in the launcher before any install).
-    if [[ -n "$scheduler" ]]; then
-        cp "$scheduler" "$app/Contents/MacOS/zapfast-scheduler"
-        chmod 755 "$app/Contents/MacOS/zapfast-scheduler"
-    fi
 fi
 sed "s/__VERSION__/$numeric_version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 
@@ -69,9 +62,6 @@ cp "$sounds/alert.wav" "$app/Contents/Resources/zapfast-alert.wav"
 # Sign both executables in the fork, then the containing app.
 if [[ "$mode" == beeper ]]; then
     codesign --force --entitlements "$here/entitlements.plist" --sign "${CODESIGN_IDENTITY:--}" "$app/Contents/MacOS/zapfast-client"
-    if [[ -f "$app/Contents/MacOS/zapfast-scheduler" ]]; then
-        codesign --force --sign "${CODESIGN_IDENTITY:--}" "$app/Contents/MacOS/zapfast-scheduler"
-    fi
 fi
 
 # Attach the microphone entitlement before native-packages preserves it when

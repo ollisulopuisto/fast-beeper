@@ -11,18 +11,15 @@ import tempfile
 from pathlib import Path
 
 
-def assemble(root, binary, app, version, scheduler=None):
+def assemble(root, binary, app, version):
     if platform.system() != 'Darwin':
         raise ValueError('Native app assembly requires macOS')
     if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,3}', version):
         raise ValueError('Expected numeric app version')
     if app.exists() or app.is_symlink():
         raise FileExistsError('App output exists')
-    command = ['bash', str(root / 'packaging/macos/bundle.sh'),
-               str(binary.resolve()), str(app.resolve()), version, 'beeper']
-    if scheduler is not None:
-        command.append(str(scheduler.resolve()))
-    subprocess.run(command, check=True)
+    subprocess.run(['bash', str(root / 'packaging/macos/bundle.sh'),
+                    str(binary.resolve()), str(app.resolve()), version, 'beeper'], check=True)
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     if (info.get('CFBundleIdentifier') != 'fi.sulopuisto.fast-beeper'
             or info.get('CFBundleExecutable') != 'zapfast'
@@ -30,11 +27,9 @@ def assemble(root, binary, app, version, scheduler=None):
             or not (app / 'Contents/Resources/zapfast.icns').is_file()
             or not (app / 'Contents/MacOS/zapfast-client').is_file()):
         raise ValueError('Beeper app metadata or payload did not match')
-    if scheduler is not None and not (app / 'Contents/MacOS/zapfast-scheduler').is_file():
-        raise ValueError('Scheduler sidecar missing from app')
 
 
-def create(root, binary, output, version, commit, scheduler=None):
+def create(root, binary, output, version, commit):
     if output.exists() or output.is_symlink():
         raise FileExistsError('Output exists')
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
@@ -44,7 +39,7 @@ def create(root, binary, output, version, commit, scheduler=None):
         stage = Path(temporary)
         payload = stage / 'payload'
         payload.mkdir()
-        assemble(root, binary, payload / 'ZapFast Beeper.app', version, scheduler)
+        assemble(root, binary, payload / 'ZapFast Beeper.app', version)
         (payload / 'Applications').symlink_to('/Applications')
         (payload / 'READ-ME.txt').write_text(
             'Drag ZapFast Beeper.app to Applications, then open it.\n'
@@ -52,9 +47,7 @@ def create(root, binary, output, version, commit, scheduler=None):
             'The first-run window needs your existing Server Mac SSH host and username.\n'
             'Existing SSH key/host trust is required. Close the old manual port23374 tunnel first.\n'
             'No passwords or API credentials are bundled or saved by the launcher.\n'
-            'Server stays on the other Mac; no network relink or account reset.\n'
-            'Send Later: the app offers a one-time scheduler install on the Server Mac;\n'
-            'nothing is installed or started without your approval.\n'
+            'Server stays on the other Mac; no install, network relink or account reset.\n'
             'Choose write mode explicitly; it defaults to read-only.\n')
         publish = stage / 'publish'
         publish.mkdir()
@@ -79,7 +72,6 @@ def create(root, binary, output, version, commit, scheduler=None):
             'commit': commit, 'version': version, 'installable_app': True,
             'signed': 'ad-hoc', 'notarized': False, 'native_runtime_verified': False,
             'server_bundled': False,
-            'scheduler_bundled': scheduler is not None,
         }, indent=2) + '\n')
         publish.rename(output)
     return output
@@ -91,7 +83,5 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--commit', required=True)
-    parser.add_argument('--scheduler-binary', type=Path)
     args = parser.parse_args()
-    create(Path(__file__).resolve().parents[2], args.binary, args.output, args.version,
-           args.commit, args.scheduler_binary)
+    create(Path(__file__).resolve().parents[2], args.binary, args.output, args.version, args.commit)
