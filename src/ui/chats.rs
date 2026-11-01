@@ -1072,10 +1072,17 @@ pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(4.0);
 }
 
+/// Side of a favorite chip: the avatar, its badges and a little air.
+const FAVORITE_CELL: f32 = 44.0;
+/// The avatar inside a favorite chip.
+const FAVORITE_AVATAR: f32 = 36.0;
+
 /// Favorite chats span network/account navigation exactly like the compact
 /// pins: the phone's favorites list, as direct jumps from the sidebar.
-/// They render as ordinary chat rows, so favorite toggles, context menus
-/// and unread badges behave exactly as in the list.
+/// Each favorite is its avatar and unread count only, never a message
+/// preview, so the bar stays a strip of quick jump targets rather than a
+/// second chat list. Favorite toggles, context menus and unread badges
+/// behave exactly as in the list.
 pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
     // A chat that is both favorited and pinned shows under Pinned only:
     // two sections listing the same chat would read as a bug.
@@ -1112,23 +1119,154 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
             .small()
             .color(palette.secondary),
     );
-    let row_height = if app.settings.beeper.compact_list {
-        56.0
-    } else {
-        theme::ROW_HEIGHT
-    };
     ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical()
         .id_salt("beeper-global-favorites")
-        .max_height(row_height * 3.5)
+        .max_height(FAVORITE_CELL * 3.5)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for chat in favorites {
-                row(app, ui, &chat);
-            }
+            ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+            ui.horizontal_wrapped(|ui| {
+                for chat in &favorites {
+                    ui.push_id(("favorite", &chat.id), |ui| favorite_chip(app, ui, chat));
+                }
+            });
         });
     ui.add_space(4.0);
+}
+
+/// One favorite in the sidebar's bar: the chat's avatar with its unread
+/// count, opening the chat on click. The hover text names the chat and the
+/// right-click menu is the chat row's, so nothing the full row offered is
+/// lost with the preview.
+fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
+    let palette = app.palette;
+    let title = app.chat_title(chat);
+    let selected = app.open_chat.as_deref() == Some(chat.id.as_str());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(FAVORITE_CELL), Sense::click());
+    theme::reveal_focus(&response);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            selected,
+            unread_announcement(&title, chat),
+        )
+    });
+    if ui.is_rect_visible(rect) {
+        if response.hovered() {
+            ui.painter().rect_filled(
+                Rect::from_center_size(rect.center(), Vec2::splat(FAVORITE_CELL - 4.0)),
+                egui::CornerRadius::same(theme::RADIUS),
+                palette.surface_hover,
+            );
+        }
+        let avatar_rect = Rect::from_center_size(rect.center(), Vec2::splat(FAVORITE_AVATAR));
+        let picture = app.avatar(&chat.id);
+        widgets::paint_avatar(
+            ui,
+            &palette,
+            avatar_rect,
+            &title,
+            &chat.id,
+            picture.as_deref(),
+        );
+        if chat.disappearing_timer().is_some() {
+            widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
+        }
+        if selected {
+            // A short accent bar stands in for the selected row's background.
+            ui.painter().rect_filled(
+                Rect::from_min_size(
+                    pos2(rect.left() + 1.0, rect.center().y - 11.0),
+                    vec2(3.0, 22.0),
+                ),
+                1.5,
+                palette.accent,
+            );
+        }
+        if chat.looks_unread() {
+            // The badge respects the same settings as the chat list: a dot
+            // only when counts are off, dimmed in a muted chat.
+            widgets::unread_indicator(
+                ui,
+                &palette,
+                compact_badge_center(avatar_rect),
+                if app.settings.beeper.show_unread_counts {
+                    chat.unread
+                } else {
+                    0
+                },
+                chat.marked_unread || !app.settings.beeper.show_unread_counts,
+                chat.muted(crate::util::now()),
+            );
+        }
+    }
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(favorite_chip_id(&chat.id), response.rect));
+    // With no name or preview on screen, the hover names the chat (and its
+    // network when the backend supplied one).
+    let response = response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(match &chat.network {
+            Some(network) => format!("{}\n{}", title, network),
+            None => title,
+        });
+    if response.clicked() {
+        app.actions.push(Action::OpenChat(chat.id.clone()));
+    }
+    let menu_palette = palette;
+    // The favorite item is translated, so its width counts in the reader's
+    // language.
+    let favorite_label = if chat.favorite {
+        crate::i18n::gettext(app.locale, "Remove from favorites")
+    } else {
+        crate::i18n::gettext(app.locale, "Add to favorites")
+    };
+    let menu_width = widgets::menu_width(
+        ui,
+        &[
+            "Mark as read",
+            "Mark as unread",
+            "Pin to top",
+            favorite_label.as_ref(),
+            "Unarchive",
+            &crate::i18n::gettext(app.locale, "Leave group"),
+            &crate::i18n::gettext(app.locale, "Leave channel"),
+            "Unlock chat",
+            "Copy number",
+            &crate::i18n::gettext(app.locale, "Clear chat"),
+            &crate::i18n::gettext(app.locale, "Delete chat"),
+        ],
+        true,
+    )
+    // Submenu rows also carry a chevron.
+    .max(
+        widgets::menu_width(
+            ui,
+            &[
+                &crate::i18n::gettext(app.locale, "Mute"),
+                "Notification sound",
+                "Voice message speed",
+                &crate::i18n::gettext(app.locale, "Labels"),
+            ],
+            true,
+        ) + 24.0,
+    )
+    .max(190.0);
+    let popup = egui::Popup::context_menu(&response)
+        .width(menu_width)
+        .frame(widgets::menu_frame(&menu_palette));
+    #[cfg(any(test, feature = "demo"))]
+    let popup = if app.open_chat_menu.as_deref() == Some(chat.id.as_str()) {
+        popup
+            .open_memory(Some(egui::SetOpenCommand::Bool(true)))
+            .at_position(response.rect.left_top() + vec2(12.0, 8.0))
+    } else {
+        popup
+    };
+    popup.show(|ui| context_menu(app, ui, chat, &menu_palette));
+    response
 }
 
 fn list(app: &mut App, ui: &mut egui::Ui) {
@@ -2117,6 +2255,11 @@ const COMPACT_FADE: f32 = 16.0;
 /// Where one avatar in the collapsed chat list was drawn.
 pub fn compact_chat_id(chat: &str) -> egui::Id {
     egui::Id::new(("chat-rail", chat))
+}
+
+/// Where one favorite chip in the sidebar's favorites bar was drawn.
+pub fn favorite_chip_id(chat: &str) -> egui::Id {
+    egui::Id::new(("favorite-chip", chat))
 }
 
 /// Width of the compact rail, which the chats' avatars fill while the
@@ -3514,5 +3657,55 @@ mod tests {
         let center = compact_badge_center(avatar);
         assert!(center.x + width / 2.0 <= rail.right(), "{width} too wide");
         assert!(center.y - 10.0 >= rail.top(), "the badge fits its cell");
+    }
+
+    #[test]
+    fn the_favorites_bar_draws_avatar_chips_without_rows() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let mut app = App::headless(AppDirs::under(directory.path()), Settings::default());
+        let mut favorite = Chat::new("491700000101@s.whatsapp.net".into(), "Fave".into());
+        favorite.favorite = true;
+        favorite.backend_account = Some("wa-personal".into());
+        favorite.unread = 4;
+        favorite.last_activity = 20;
+        app.chats.push(favorite.clone());
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut frame = |events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 600.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| super::super::rail::show(&mut app, ui, false, false),
+            );
+            output.textures_delta.clear();
+        };
+        frame(vec![]);
+        let rect = ctx
+            .data(|data| data.get_temp::<Rect>(favorite_chip_id(&favorite.id)))
+            .expect("the bar draws the favorite");
+        assert!(
+            (rect.width() - FAVORITE_CELL).abs() < 1.0
+                && (rect.height() - FAVORITE_CELL).abs() < 1.0,
+            "a favorite is one avatar chip of {FAVORITE_CELL} points, not a chat row"
+        );
+        let position = rect.center();
+        for pressed in [true, false] {
+            frame(vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]);
+        }
+        assert!(
+            app.actions.contains(&Action::OpenChat(favorite.id.clone())),
+            "clicking a favorite chip opens the chat"
+        );
     }
 }
