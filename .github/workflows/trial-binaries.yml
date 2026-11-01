@@ -179,6 +179,11 @@ jobs:
           # Populated multi-network sidebar: Networks with the active
           # network's accounts, and the Queues section it reveals.
           shot chat-networks-1180x780 1180x780 chat,networks
+          # Per-account appearance: the open chat's account draws its
+          # conversation with its own theme, then its own background,
+          # while the window keeps the global theme.
+          shot chat-account-theme-1180x780 1180x780 chat,networks,account-theme
+          shot chat-account-background-1180x780 1180x780 chat,networks,account-background
           # The same populated sidebar on a dark preset.
           shot chat-dark-networks-1180x780 1180x780 chat,networks,theme=Catppuccin.json
           # The populated rail scrolled to its end: Pinned and the bottom
