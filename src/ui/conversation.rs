@@ -70,7 +70,7 @@ pub(super) fn beeper_live_warning(app: &App, ui: &mut egui::Ui, chat: &str) {
                 egui::RichText::new(format!(
                     "{source}: {error}. Updates may be incomplete. Retrying automatically."
                 ))
-                .color(app.palette.warning),
+                .color(app.conversation_palette().warning),
             )
             .wrap(),
         );
@@ -88,10 +88,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if super::merged::show(app, ui, &chat) {
         return;
     }
-    wallpaper::paint(ui, &app.wallpaper());
+    wallpaper::paint(ui, &app.conversation_wallpaper());
     // On a vibrant window the messages scroll on under the header, as in
     // Messages: the header and any banner go on a layer above them.
-    if app.palette.vibrant() {
+    if app.conversation_palette().vibrant() {
         let layer = egui::LayerId::new(egui::Order::Middle, ui.id().with("chat-header"));
         let bar = ui
             .scope_builder(egui::UiBuilder::new().layer_id(layer), |ui| {
@@ -110,8 +110,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 let frosted = bar.with_max_y(bar.bottom() + HEADER_TAIL);
                 let ease = HEADER_TAIL + bar.height() * HEADER_EASE;
                 ui.painter().set(glass, super::glass::shape(frosted, ease));
-                ui.painter()
-                    .set(veil, header_veil(&app.palette, frosted, ease));
+                ui.painter().set(
+                    veil,
+                    header_veil(&app.conversation_palette(), frosted, ease),
+                );
                 bar
             })
             .inner;
@@ -134,7 +136,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // Over the messages, which scroll under the header.
     widgets::paint_shadow_below(
         ui,
-        &app.palette,
+        &app.conversation_palette(),
         header.left(),
         header.right(),
         header.bottom(),
@@ -145,7 +147,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if !super::narrow(ui.ctx()) {
         widgets::paint_shadow_beside(
             ui,
-            &app.palette,
+            &app.conversation_palette(),
             header.left(),
             header.bottom(),
             ui.max_rect().bottom(),
@@ -221,7 +223,7 @@ fn pin_banner(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
     let cursor = ui.ctx().data(|data| data.get_temp::<String>(cursor_id));
     let shown = shown_pin(&rows, cursor.as_deref());
     let row = &rows[shown];
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let (bar, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), PIN_ROW_HEIGHT), Sense::click());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -295,7 +297,7 @@ fn pin_cursor_id(chat: &str) -> egui::Id {
 }
 
 fn empty(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let rect = ui.max_rect();
     let center = rect.center() - vec2(0.0, 30.0);
     theme::logo(
@@ -416,7 +418,7 @@ fn glass(palette: &Palette, rect: Rect, radius: f32) -> egui::Shape {
 }
 
 fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let title = app.chat_title(chat);
     egui::Panel::top("chat-header")
         .show_separator_line(false)
@@ -913,7 +915,7 @@ pub(crate) fn header_row_id() -> egui::Id {
 
 /// Chat-header subtitle.
 fn subtitle(app: &App, chat: &Chat) -> (String, Color32) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     // Beeper account identity stays visible even when the sidebar is narrow.
     if let Some(network) = &chat.network {
         return (network.clone(), palette.secondary);
@@ -1137,7 +1139,7 @@ fn emoji_suggestions(app: &mut App, ui: &mut egui::Ui, field: egui::Id) {
     app.emoji_selected = app.emoji_selected.min(candidates.len() - 1);
     let submit = take_plain_key(ui, Key::Enter) || take_plain_key(ui, Key::Tab);
     let mut picked = submit.then(|| candidates[app.emoji_selected].clone());
-    let palette = app.palette;
+    let palette = app.conversation_palette();
 
     let list = widgets::raised(ui, &palette, suggestion_frame(&palette), |ui| {
         let row_height = 36.0;
@@ -1250,7 +1252,7 @@ fn mention_picker(app: &mut App, ui: &mut egui::Ui, chat: &Chat, field: egui::Id
     app.mention_selected = app.mention_selected.min(candidates.len() - 1);
     let submit = take_plain_key(ui, Key::Enter) || take_plain_key(ui, Key::Tab);
     let mut picked = submit.then(|| candidates[app.mention_selected].clone());
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let everyone_alias = crate::mentions::everyone_alias(app.locale);
 
     let list = widgets::raised(ui, &palette, suggestion_frame(&palette), |ui| {
@@ -1379,7 +1381,7 @@ pub(crate) fn composer_with_capabilities(
     chat: &Chat,
     attachments: bool,
 ) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let shown = egui::Panel::bottom("composer")
         .show_separator_line(false)
         .frame(
@@ -1476,7 +1478,7 @@ pub(crate) fn composer_with_capabilities(
                         // Losing the source page must never silently turn a
                         // private reply into an unquoted send. The worker
                         // resolves the original from the archive on Send.
-                        let palette = app.palette;
+                        let palette = app.conversation_palette();
                         let strip = widgets::raised(ui, &palette, strip_frame(&palette), |ui| {
                             ui.set_width(ui.available_width().max(0.0));
                             ui.horizontal(|ui| {
@@ -2155,25 +2157,45 @@ fn composer_tools_menu(app: &mut App, chat: &Chat, plus: &egui::Response) {
             .open_bool(&mut draw_open)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
             .width(190.0)
-            .frame(widgets::menu_frame(&app.palette))
+            .frame(widgets::menu_frame(&app.conversation_palette()))
             .show(|ui| {
                 let send_files = crate::i18n::gettext(app.locale, "Send files");
-                if widgets::menu_item(ui, &app.palette, Some(Icon::Paperclip), &send_files) {
+                if widgets::menu_item(
+                    ui,
+                    &app.conversation_palette(),
+                    Some(Icon::Paperclip),
+                    &send_files,
+                ) {
                     app.actions.push(Action::Attach { documents: false });
                 }
                 // Pictures picked here keep their own bytes instead of
                 // becoming compressed photos.
                 let document = crate::i18n::gettext(app.locale, "Send as document");
-                if widgets::menu_item(ui, &app.palette, Some(Icon::FileText), &document) {
+                if widgets::menu_item(
+                    ui,
+                    &app.conversation_palette(),
+                    Some(Icon::FileText),
+                    &document,
+                ) {
                     app.actions.push(Action::Attach { documents: true });
                 }
                 let send_location = crate::i18n::gettext(app.locale, "Send location");
-                if widgets::menu_item(ui, &app.palette, Some(Icon::MapPin), &send_location) {
+                if widgets::menu_item(
+                    ui,
+                    &app.conversation_palette(),
+                    Some(Icon::MapPin),
+                    &send_location,
+                ) {
                     app.actions
                         .push(Action::ShowDialog(Dialog::SendLocation(chat.id.clone())));
                 }
                 let create_poll = crate::i18n::gettext(app.locale, "Create poll");
-                if widgets::menu_item(ui, &app.palette, Some(Icon::ListChecks), &create_poll) {
+                if widgets::menu_item(
+                    ui,
+                    &app.conversation_palette(),
+                    Some(Icon::ListChecks),
+                    &create_poll,
+                ) {
                     app.actions
                         .push(Action::ShowDialog(Dialog::CreatePoll(chat.id.clone())));
                 }
@@ -2230,7 +2252,7 @@ const SUGGESTION_INSET: i8 = 4;
 const SUGGESTION_ROW_RADIUS: f32 = (STRIP_RADIUS as i8 - SUGGESTION_INSET) as f32;
 
 fn unsent_voice_strip(app: &mut App, ui: &mut egui::Ui, samples: usize) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let seconds = (samples as f64 / f64::from(crate::voice::RATE))
         .round()
         .max(1.0) as u32;
@@ -2265,7 +2287,7 @@ fn unsent_voice_strip(app: &mut App, ui: &mut egui::Ui, samples: usize) {
 }
 
 fn edit_strip(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     widgets::raised(ui, &palette, strip_frame(&palette), |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
@@ -2291,7 +2313,7 @@ fn edit_strip(app: &mut App, ui: &mut egui::Ui) {
 }
 
 fn reply_strip(app: &mut App, ui: &mut egui::Ui, quoted: &Message) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let who = if quoted.from_me {
         "You".to_owned()
     } else {
@@ -2622,7 +2644,7 @@ fn sticky_date<R>(
 /// The conversation's messages. `under` is how much of the list's top lies
 /// beneath the header, which a vibrant window lays over it.
 fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     // Taken up front: `names_or` below borrows the rest of `app` for the
     // whole function, so a pending scroll must come out before that.
     let pending_scroll = app.scroll_page.take();
@@ -6239,7 +6261,7 @@ pub(crate) fn list_menu(
     let avatars = HashMap::new();
     let keyboard_navigation = std::cell::Cell::new(false);
     let view = View {
-        palette: app.palette,
+        palette: app.conversation_palette(),
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
@@ -6292,7 +6314,7 @@ pub(crate) fn linked_bubble(
     let avatars = HashMap::new();
     let keyboard_navigation = std::cell::Cell::new(false);
     let view = View {
-        palette: app.palette,
+        palette: app.conversation_palette(),
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
@@ -10318,7 +10340,7 @@ fn voice_player(
 
 /// Voice-recording controls and live waveform.
 fn recording_strip(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let (elapsed, levels, listening) = match app.recording.as_ref() {
         Some(recorder) => (recorder.elapsed(), recorder.levels(), recorder.listening()),
         None => return,
@@ -10427,7 +10449,7 @@ fn select_box(ui: &egui::Ui, palette: &Palette, rect: Rect, checked: bool) {
 
 /// Replaces the composer while messages are selected.
 fn selection_bar(app: &mut App, ui: &mut egui::Ui, chat: &str, selected: &[String]) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let locale = app.locale;
     ui.horizontal(|ui| {
         if theme::icon_button(
@@ -12235,7 +12257,7 @@ mod reaction_tests {
 
 /// Pending attachment tiles above the composer.
 fn pending_strip(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let tile = 72.0;
     let mut remove = None;
     let mut open = None;
@@ -12402,7 +12424,7 @@ fn pending_strip(app: &mut App, ui: &mut egui::Ui) {
 /// same dashed-circle mark as on the phone. Its state is exposed to readers
 /// and keyboard users as a checkbox, even though it is drawn as an icon.
 fn view_once_button(app: &App, ui: &mut egui::Ui) -> egui::Response {
-    let palette = app.palette;
+    let palette = app.conversation_palette();
     let selected = app.pending_view_once;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(COMPOSER_CONTROL), Sense::click());
     theme::reveal_focus(&response);

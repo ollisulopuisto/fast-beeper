@@ -1618,6 +1618,13 @@ pub struct BeeperAccountPreferences {
     pub notifications: bool,
     pub previews: bool,
     pub sound: Option<NotificationSound>,
+    /// Chat background override under light palettes; None follows the global pick.
+    pub background: Option<WallpaperColor>,
+    /// Chat background override under dark palettes; None follows the global pick.
+    pub dark_background: Option<WallpaperColor>,
+    /// Conversation theme override; None follows the global theme. Applies to
+    /// the open conversation only, never to the window chrome.
+    pub theme: Option<ThemeChoice>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1634,6 +1641,9 @@ impl Default for BeeperAccountPreferences {
             notifications: true,
             previews: true,
             sound: None,
+            background: None,
+            dark_background: None,
+            theme: None,
         }
     }
 }

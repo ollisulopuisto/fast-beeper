@@ -3740,6 +3740,26 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // and the active network's accounts render, which also reveals
             // the Queues section.
             "networks" => networks_sample(app),
+            // Deterministic per-account appearance overrides for rendered
+            // proof: the open chat's account (wa-personal) draws its
+            // conversation with its own theme, or with its own background,
+            // while the window stays on the global theme.
+            "account-theme" => {
+                app.settings
+                    .beeper
+                    .accounts
+                    .entry("wa-personal".into())
+                    .or_default()
+                    .theme = Some(crate::settings::ThemeChoice::Dark);
+            }
+            "account-background" => {
+                app.settings
+                    .beeper
+                    .accounts
+                    .entry("wa-personal".into())
+                    .or_default()
+                    .background = Some(crate::settings::WallpaperColor::Orinoco);
+            }
             // Capture the rail scrolled to its end (see SHOT_RAIL_BOTTOM).
             "rail-bottom" => {
                 SHOT_RAIL_BOTTOM.store(true, std::sync::atomic::Ordering::Relaxed);
