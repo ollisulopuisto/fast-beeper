@@ -633,6 +633,78 @@ pub fn filter_chip_id(filter: ChatFilter) -> egui::Id {
     egui::Id::new(("chat-filter", filter as u8))
 }
 
+/// One filter as a compact icon button with its unread count in a corner
+/// badge. The filter's name and Option-digit shortcut sit on the tooltip
+/// and the accessibility label, so the whole filter row stays one line
+/// high. Selected keeps the accent wash and tint of the old full rows.
+fn filter_icon(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    icon: Icon,
+    count: usize,
+    selected: bool,
+    tooltip: &str,
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::splat(16.0 + theme::ICON_BUTTON_PAD), Sense::click());
+    theme::reveal_focus(&response);
+    theme::focus_outline(ui, response.id, rect, 6.0);
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
+    });
+    if ui.is_rect_visible(rect) {
+        if selected {
+            ui.painter()
+                .rect_filled(rect.shrink(1.0), 6.0, palette.accent.gamma_multiply(0.18));
+        } else if response.hovered() {
+            let hover = if palette.vibrant() {
+                palette.tint(theme::TINT_HOVER)
+            } else {
+                palette.surface
+            };
+            ui.painter().rect_filled(rect.shrink(1.0), 6.0, hover);
+        }
+        let tint = if selected {
+            palette.accent
+        } else if response.hovered() || response.has_focus() {
+            palette.text
+        } else {
+            palette.secondary
+        };
+        let scale = if response.is_pointer_button_down_on() {
+            0.92
+        } else {
+            1.0
+        };
+        theme::paint_icon(ui, icon, rect, 16.0 * scale, tint);
+        if count > 0 {
+            // Mini unread badge on the icon's top-right corner, a scaled
+            // down widgets::badge.
+            let label = if count > 99 {
+                "99+".to_owned()
+            } else {
+                count.to_string()
+            };
+            let galley =
+                ui.painter()
+                    .layout_no_wrap(label, theme::semibold(8.5), palette.on_accent);
+            let width = (galley.size().x + 8.0).max(14.0);
+            let badge = Rect::from_center_size(
+                pos2(rect.right() - 3.0, rect.top() + 3.0),
+                vec2(width, 14.0),
+            );
+            ui.painter().rect_filled(badge, 7.0, palette.accent);
+            ui.painter().galley(
+                badge.center() - galley.size() / 2.0,
+                galley,
+                palette.on_accent,
+            );
+        }
+    }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    response.on_hover_text(tooltip)
+}
+
 /// Quick filters in the combined sidebar. Search lists every match, so
 /// the chips hide there.
 pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
@@ -646,70 +718,75 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
     widgets::chip_scroll_row(ui, "chat-filters", |ui| {
-        // Clearly separated sections of full-width rows, not a chip wall:
-        // filters, then networks (accounts indent under the active one),
-        // then the follow-up queues.
+        // Compact icon row: one line of filter buttons, then networks
+        // (accounts indent under the active one), then the follow-up queues.
+        // Each icon's name and Option-digit shortcut live on its tooltip and
+        // accessibility label, so the row stays one line high.
         ui.spacing_mut().item_spacing.y = 1.0;
-        ui.label(
-            egui::RichText::new("Filters")
-                .small()
-                .color(palette.secondary),
-        );
-        for filter in ChatFilter::EVERY {
-            let count = match filter {
-                ChatFilter::All => 0,
-                _ => app.unread_chats(filter),
-            };
-            let selected = !app.locked_folder_open()
-                && !app.show_archived
-                && app.label_filter.is_none()
-                && app.chat_filter == filter;
-            let row = widgets::filter_row(
-                ui,
-                &palette,
-                filter.label(app.locale).as_ref(),
-                count,
-                selected,
-                0.0,
-            )
-            .tab_stop(match filter {
-                ChatFilter::All => Stop::All,
-                ChatFilter::Unread => Stop::Unread,
-                ChatFilter::Private => Stop::Private,
-                ChatFilter::Favorites => Stop::Favorites,
-                ChatFilter::Groups => Stop::Groups,
-                ChatFilter::Channels => Stop::Channels,
-            });
-            // Store the row rect for interaction tests.
-            ui.ctx()
-                .data_mut(|data| data.insert_temp(filter_chip_id(filter), row.rect));
-            if filter == ChatFilter::Channels {
-                let now = crate::util::now();
-                let all_muted = app
-                    .chats
-                    .iter()
-                    .filter(|chat| chat.is_channel())
-                    .all(|chat| chat.muted(now));
-                row.context_menu(|ui| {
-                    let (icon, label) = if all_muted {
-                        (Icon::Bell, "Unmute all channels")
-                    } else {
-                        (Icon::BellOff, "Mute all channels")
-                    };
-                    if widgets::menu_item(ui, &palette, Some(icon), label) {
-                        app.actions.push(Action::MuteAllChannels(!all_muted));
-                        ui.close();
-                    }
-                });
+        ui.horizontal_wrapped(|ui| {
+            for (index, filter) in ChatFilter::EVERY.into_iter().enumerate() {
+                let count = match filter {
+                    ChatFilter::All => 0,
+                    _ => app.unread_chats(filter),
+                };
+                let selected = !app.locked_folder_open()
+                    && !app.show_archived
+                    && app.label_filter.is_none()
+                    && app.chat_filter == filter;
+                let icon = match filter {
+                    ChatFilter::All => Icon::MessageCircle,
+                    ChatFilter::Unread => Icon::Bell,
+                    ChatFilter::Private => Icon::User,
+                    ChatFilter::Favorites => Icon::Star,
+                    ChatFilter::Groups => Icon::Users,
+                    ChatFilter::Channels => Icon::Volume2,
+                };
+                let name = filter.label(app.locale);
+                let tooltip = format!(
+                    "{name} ({})",
+                    super::keys::label(&format!("Alt+{}", index + 1))
+                );
+                let row = filter_icon(ui, &palette, icon, count, selected, &tooltip).tab_stop(
+                    match filter {
+                        ChatFilter::All => Stop::All,
+                        ChatFilter::Unread => Stop::Unread,
+                        ChatFilter::Private => Stop::Private,
+                        ChatFilter::Favorites => Stop::Favorites,
+                        ChatFilter::Groups => Stop::Groups,
+                        ChatFilter::Channels => Stop::Channels,
+                    },
+                );
+                // Store the button rect for interaction tests.
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(filter_chip_id(filter), row.rect));
+                if filter == ChatFilter::Channels {
+                    let now = crate::util::now();
+                    let all_muted = app
+                        .chats
+                        .iter()
+                        .filter(|chat| chat.is_channel())
+                        .all(|chat| chat.muted(now));
+                    row.context_menu(|ui| {
+                        let (icon, label) = if all_muted {
+                            (Icon::Bell, "Unmute all channels")
+                        } else {
+                            (Icon::BellOff, "Mute all channels")
+                        };
+                        if widgets::menu_item(ui, &palette, Some(icon), label) {
+                            app.actions.push(Action::MuteAllChannels(!all_muted));
+                            ui.close();
+                        }
+                    });
+                }
+                if row.clicked() {
+                    // A second click on the active filter returns to every chat.
+                    let next = if selected { ChatFilter::All } else { filter };
+                    app.beeper_unreplied = false;
+                    app.beeper_reply_later_filter = false;
+                    app.actions.push(Action::SetChatFilter(next));
+                }
             }
-            if row.clicked() {
-                // A second click on the active row returns to every chat.
-                let next = if selected { ChatFilter::All } else { filter };
-                app.beeper_unreplied = false;
-                app.beeper_reply_later_filter = false;
-                app.actions.push(Action::SetChatFilter(next));
-            }
-        }
+        });
         let networks = app.beeper_browse_networks();
         if !networks.is_empty() {
             ui.add_space(6.0);
@@ -3385,8 +3462,9 @@ mod tests {
         );
     }
 
-    /// The user requested no horizontal scrollbars. Both rows wrap and keep
-    /// every filter/label reachable instead of retaining the old scrolling UI.
+    /// The user requested no horizontal scrollbars. The six filters share
+    /// one compact icon row and the label chips wrap below, keeping every
+    /// filter/label reachable instead of retaining the old scrolling UI.
     #[test]
     fn narrow_chip_rows_wrap_within_the_viewport_without_horizontal_scrolling() {
         let directory = tempfile::tempdir().unwrap();
@@ -3435,7 +3513,11 @@ mod tests {
                 "chip outside viewport: {rect:?}"
             );
         }
-        assert!(before[ChatFilter::EVERY.len() - 1].top() > before[0].top());
+        // All six filters share one row; the label chips still wrap below.
+        let filter_row_top = before[0].top();
+        for rect in &before[..ChatFilter::EVERY.len()] {
+            assert_eq!(rect.top(), filter_row_top, "filters must share one row");
+        }
         assert!(before.last().unwrap().top() > before[ChatFilter::EVERY.len()].top());
         for pointer in [before[0].center(), before[ChatFilter::EVERY.len()].center()] {
             for _ in 0..5 {
