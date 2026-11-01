@@ -1356,7 +1356,7 @@ fn rich_text_mentions(raw: &str) -> Vec<crate::model::MentionRef> {
         let Some(label_end) = rest[label_start..].find("</a>").map(|i| label_start + i) else {
             break;
         };
-        let label = plain_rich_text(&rest[label_start..label_end]);
+        let label = decode_entities(plain_rich_text(&rest[label_start..label_end]).trim());
         if !label.is_empty()
             && !mentions
                 .iter()
@@ -1414,6 +1414,43 @@ fn safe_html_href(tag: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// The HTML entity decoding both halves of mention handling share, so the
+/// body's @token and the mention's label always agree, HTML-looking or not.
+fn decode_entities(text: &str) -> String {
+    let mut decoded = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('&') {
+        decoded.push_str(&rest[..start]);
+        rest = &rest[start..];
+        if let Some(end) = rest.find(';').filter(|n| *n <= 16) {
+            let entity = &rest[1..end];
+            let replacement = match entity {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" | "#39" => Some('\''),
+                "nbsp" => Some(' '),
+                _ => entity
+                    .strip_prefix("#x")
+                    .or_else(|| entity.strip_prefix("#X"))
+                    .and_then(|n| u32::from_str_radix(n, 16).ok())
+                    .or_else(|| entity.strip_prefix('#').and_then(|n| n.parse().ok()))
+                    .and_then(char::from_u32),
+            };
+            if let Some(ch) = replacement {
+                decoded.push(ch);
+                rest = &rest[end + 1..];
+                continue;
+            }
+        }
+        decoded.push('&');
+        rest = &rest[1..];
+    }
+    decoded.push_str(rest);
+    decoded
 }
 
 fn plain_rich_text(raw: &str) -> String {
@@ -1544,38 +1581,7 @@ fn plain_rich_text(raw: &str) -> String {
         }
         rest = &rest[ch.len_utf8()..];
     }
-    let mut decoded = String::new();
-    let mut rest = out.as_str();
-    while let Some(start) = rest.find('&') {
-        decoded.push_str(&rest[..start]);
-        rest = &rest[start..];
-        if let Some(end) = rest.find(';').filter(|n| *n <= 16) {
-            let entity = &rest[1..end];
-            let replacement = match entity {
-                "amp" => Some('&'),
-                "lt" => Some('<'),
-                "gt" => Some('>'),
-                "quot" => Some('"'),
-                "apos" | "#39" => Some('\''),
-                "nbsp" => Some(' '),
-                _ => entity
-                    .strip_prefix("#x")
-                    .or_else(|| entity.strip_prefix("#X"))
-                    .and_then(|n| u32::from_str_radix(n, 16).ok())
-                    .or_else(|| entity.strip_prefix('#').and_then(|n| n.parse().ok()))
-                    .and_then(char::from_u32),
-            };
-            if let Some(ch) = replacement {
-                decoded.push(ch);
-                rest = &rest[end + 1..];
-                continue;
-            }
-        }
-        decoded.push('&');
-        rest = &rest[1..];
-    }
-    decoded.push_str(rest);
-    decoded.trim().to_owned()
+    decode_entities(&out).trim().to_owned()
 }
 
 fn body_of(m: &BeeperMessage) -> (String, bool) {
@@ -3282,6 +3288,20 @@ mod tests {
         let result = api.send_text("fixture", "hi @m", None, &mentions);
         server.join().unwrap();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mention_labels_decode_like_the_body() {
+        let raw = "<p>ask <a href=\"https://matrix.to/#/@tom:local-signal.localhost\">Tom &amp; Anna</a> and <a href=\"https://matrix.to/#/@dana:local-signal.localhost\">d&#x27;Angelo</a> \u{1f35e}</p>";
+        let mentions = rich_text_mentions(raw);
+        assert_eq!(mentions.len(), 2);
+        assert_eq!(mentions[0].id, "@tom:local-signal.localhost");
+        assert_eq!(mentions[0].user, "Tom & Anna");
+        assert_eq!(mentions[1].user, "d'Angelo");
+        // The body carries the very tokens the labels resolve to.
+        let body = plain_rich_text(raw);
+        assert!(body.contains("@Tom & Anna"), "{body}");
+        assert!(body.contains("@d'Angelo"), "{body}");
     }
 
     #[test]
