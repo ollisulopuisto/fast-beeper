@@ -426,6 +426,7 @@ fn network_plate(app: &mut App, ui: &mut egui::Ui, palette: &Palette, network: &
             }
         });
     }
+    let response = response.tab_stop(Stop::Network(index.min(u8::MAX as usize) as u8));
     if response.clicked() {
         // A second click on the active network shows every network again.
         let next = if lit { None } else { Some(network.to_owned()) };

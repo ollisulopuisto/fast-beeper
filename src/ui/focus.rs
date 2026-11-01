@@ -31,6 +31,8 @@ pub enum Stop {
     /// list is hidden, and keeps Hide the chat list's place in the order.
     Chats,
     Calls,
+    /// One network plate in the rail's bottom group, by its position.
+    Network(u8),
     Starred,
     Archived,
     Locked,
