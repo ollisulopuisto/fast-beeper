@@ -3875,11 +3875,17 @@ impl App {
                     }
                     conversation.merge(messages, older);
                     // A server reply carries only the original's id; resolve its
-                    // author from loaded history when the original is known.
+                    // author and preview from loaded history when the original
+                    // is known.
                     for (message_id, quote_id) in &unresolved_quotes {
-                        let Some((sender, sender_name)) =
+                        let Some((sender, sender_name, summary, labelled)) =
                             conversation.message(quote_id).map(|original| {
-                                (original.sender.clone(), original.sender_name.clone())
+                                (
+                                    original.sender.clone(),
+                                    original.sender_name.clone(),
+                                    original.summary(),
+                                    Some(original.content.labelled()),
+                                )
                             })
                         else {
                             continue;
@@ -3890,6 +3896,8 @@ impl App {
                         {
                             quoted.sender = sender;
                             quoted.sender_name = sender_name;
+                            quoted.summary = summary;
+                            quoted.labelled = labelled;
                         }
                     }
                     // Quotes whose originals are outside the loaded page are
@@ -19009,6 +19017,7 @@ mod tests {
         let mut original = message(chat, "orig", 1);
         original.sender = "wl_uuid:local-signal.localhost".into();
         original.sender_name = Some("~Mikael Kasurinen".into());
+        let original_summary = original.summary();
         events
             .send(Event::Messages {
                 chat: chat.into(),
@@ -19043,6 +19052,9 @@ mod tests {
             .expect("the reply keeps its quote");
         assert_eq!(quoted.sender, "wl_uuid:local-signal.localhost");
         assert_eq!(quoted.sender_name.as_deref(), Some("~Mikael Kasurinen"));
+        // The preview comes from the original too, not the generic placeholder.
+        assert_ne!(quoted.summary, "Reply to earlier message");
+        assert_eq!(quoted.summary, original_summary);
         // The observed profile name resolves group members the contacts lack.
         assert_eq!(
             app.display_name("wl_uuid:local-signal.localhost"),
