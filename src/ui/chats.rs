@@ -1130,25 +1130,24 @@ pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
             .small()
             .color(palette.secondary),
     );
-    let row_height = if app.settings.beeper.compact_list {
-        56.0
-    } else {
-        theme::ROW_HEIGHT
-    };
     ui.spacing_mut().item_spacing.y = 0.0;
-    egui::ScrollArea::vertical()
-        .id_salt("beeper-global-pins")
-        .max_height(row_height * 3.5)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for chat in pins {
-                let response = row(app, ui, &chat);
-                // Store the row rect for interaction tests, like the list.
+    // The favorites bar's proven pattern: avatar+unread chips that wrap,
+    // with the rail's own scroll keeping every pin reachable. The hover
+    // names the chat, the right-click menu is the chat row's, so nothing
+    // the full rows offered is lost.
+    widgets::chip_scroll_row(ui, "beeper-global-pins", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+            for (index, chat) in pins.iter().enumerate() {
+                let shortcut = (index < 9)
+                    .then(|| super::keys::label(&format!("Ctrl+Alt+Shift+{}", index + 1)));
+                let chip = favorite_chip(app, ui, chat, shortcut);
+                // Store the chip rect for interaction tests, like the list.
                 ui.ctx()
-                    .data_mut(|data| data.insert_temp(chat_row_id(&chat.id), response.rect));
+                    .data_mut(|data| data.insert_temp(chat_row_id(&chat.id), chip.rect));
             }
         });
+    });
     ui.add_space(4.0);
 }
 
@@ -1217,7 +1216,9 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
             for (index, chat) in favorites.iter().enumerate() {
-                favorite_chip(app, ui, chat, index);
+                let shortcut =
+                    (index < 9).then(|| super::keys::label(&format!("Ctrl+{}", index + 1)));
+                favorite_chip(app, ui, chat, shortcut);
             }
         });
     });
@@ -1228,7 +1229,12 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
 /// count, opening the chat on click. The hover text names the chat and the
 /// right-click menu is the chat row's, so nothing the full row offered is
 /// lost with the preview.
-fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat, index: usize) -> egui::Response {
+fn favorite_chip(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    chat: &Chat,
+    shortcut: Option<String>,
+) -> egui::Response {
     let palette = app.palette;
     let title = app.chat_title(chat);
     let selected = app.open_chat.as_deref() == Some(chat.id.as_str());
@@ -1310,13 +1316,13 @@ fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat, index: usize) ->
     ui.ctx()
         .data_mut(|data| data.insert_temp(favorite_chip_id(&chat.id), response.rect));
     // With no name or preview on screen, the hover names the chat (and its
-    // network when the backend supplied one) and its Command-digit jump.
+    // network when the backend supplied one) and its number shortcut.
     let mut hover = match &chat.network {
         Some(network) => format!("{}\n{}", title, network),
         None => title,
     };
-    if index < 9 {
-        hover.push_str(&format!("\nCmd+{}", index + 1));
+    if let Some(shortcut) = shortcut {
+        hover.push_str(&format!("\n{shortcut}"));
     }
     let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
