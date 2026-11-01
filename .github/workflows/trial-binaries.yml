@@ -177,6 +177,10 @@ jobs:
           shot chat-networks-1180x780 1180x780 chat,networks
           # The same populated sidebar on a dark preset.
           shot chat-dark-networks-1180x780 1180x780 chat,networks,theme=Catppuccin.json
+          # The populated rail scrolled to its end: Pinned and the bottom
+          # destinations stay reachable by scrolling at this height.
+          shot chat-networks-scrolled-1180x780 1180x780 chat,networks,rail-bottom
+          shot chat-dark-networks-scrolled-1180x780 1180x780 chat,networks,theme=Catppuccin.json,rail-bottom
           # The list hidden: avatars fill the compact rail.
           shot rail-1180x780 1180x780 rail
           # Settings keeps its old content width beside the compact rail.

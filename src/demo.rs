@@ -3,6 +3,17 @@
 pub mod stock;
 pub mod tour;
 
+/// Set by the `rail-bottom` shot page: the navigation rail is captured
+/// scrolled to its end, as after a wheel scroll, proving the lower
+/// sections stay reachable.
+static SHOT_RAIL_BOTTOM: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether demo captures draw the navigation rail scrolled to its end.
+pub fn rail_bottom() -> bool {
+    SHOT_RAIL_BOTTOM.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod focus_trace;
 
@@ -3695,6 +3706,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // and the active network's accounts render, which also reveals
             // the Queues section.
             "networks" => networks_sample(app),
+            // Capture the rail scrolled to its end (see SHOT_RAIL_BOTTOM).
+            "rail-bottom" => {
+                SHOT_RAIL_BOTTOM.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
             "favorites" => app.chat_filter = crate::model::ChatFilter::Favorites,

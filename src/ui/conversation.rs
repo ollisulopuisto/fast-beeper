@@ -1971,6 +1971,21 @@ pub(crate) fn composer_with_capabilities(
                     )
                     .as_str(),
                 );
+                // A narrow composer wraps the full hint onto three lines,
+                // which crowds the window's bottom edge: show only how to
+                // send there, and let the button beside the hint open the
+                // full list.
+                let compact = super::keys::label(
+                    crate::i18n::gettext(
+                        app.locale,
+                        if enter_sends {
+                            "Enter sends"
+                        } else {
+                            "Ctrl+Enter sends"
+                        },
+                    )
+                    .as_ref(),
+                );
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
                     if theme::icon_button(
@@ -1988,9 +2003,14 @@ pub(crate) fn composer_with_capabilities(
                     // Reserve room for both icons and wrap long hints instead of clipping
                     // the rightmost text into the shortcut-list button on narrow windows.
                     let hint_width = (ui.available_width() - 32.0).max(1.0);
+                    let hint = if compact_hint(hint_width) {
+                        &compact
+                    } else {
+                        &hint
+                    };
                     ui.add_sized(
                         [hint_width, 0.0],
-                        egui::Label::new(egui::RichText::new(&hint).font(theme::regular(11.0)).color(palette.dim))
+                        egui::Label::new(egui::RichText::new(hint).font(theme::regular(11.0)).color(palette.dim))
                             .wrap().halign(Align::Min).selectable(false),
                     );
                     // Open the shortcut list without consuming typed `?`.
@@ -2010,6 +2030,7 @@ pub(crate) fn composer_with_capabilities(
                         }
                     });
                 });
+                ui.add_space(4.0);
             }
         });
     // A bottom panel is placed from last frame's height. When the composer
@@ -2028,6 +2049,13 @@ pub(crate) fn composer_with_capabilities(
     // Toasts sit above the composer so they never cover its buttons.
     ui.ctx()
         .data_mut(|data| data.insert_temp(super::composer_rect_id(), shown.response.rect));
+}
+
+/// Below this hint width the full shortcut hint wraps onto a third line
+/// and crowds the composer's bottom edge, so a narrow window shows only
+/// how to send; the button beside the hint opens the full list.
+fn compact_hint(hint_width: f32) -> bool {
+    hint_width < 300.0
 }
 
 /// Corner radius of the composer's rounded field.
@@ -10527,6 +10555,15 @@ fn chat_of(chat: &ChatId) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_narrow_composer_shows_the_compact_shortcut_hint() {
+        // 640-point window: the conversation column leaves ~240 for the hint.
+        assert!(compact_hint(240.0));
+        // 700-point window: ~300 fits the full hint on two lines.
+        assert!(!compact_hint(300.0));
+        assert!(!compact_hint(520.0));
+    }
 
     #[test]
     fn account_read_receipt_privacy_hides_read_ticks_only_in_outgoing_dms() {
