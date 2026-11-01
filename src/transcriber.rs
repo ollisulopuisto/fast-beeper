@@ -258,6 +258,30 @@ impl Store {
     }
 }
 
+/// Converts mono f32 samples (-1..=1) at `from_rate` into Wyoming's wire
+/// format: 16 kHz mono signed 16-bit little-endian. The app's voice
+/// decode already yields mono 48 kHz, so the usual path is a clean 3:1
+/// linear resample; other rates get the same linear treatment.
+pub fn wyoming_pcm_from_mono(samples: &[f32], from_rate: u32) -> Vec<u8> {
+    const TARGET: u32 = 16_000;
+    if samples.is_empty() || from_rate == 0 {
+        return Vec::new();
+    }
+    let out_len = (samples.len() as u64 * TARGET as u64 / from_rate as u64).max(1) as usize;
+    let mut pcm = Vec::with_capacity(out_len * 2);
+    for i in 0..out_len {
+        // Map the output index back to a source position and interpolate.
+        let pos = i as f64 * from_rate as f64 / TARGET as f64;
+        let base = (pos as usize).min(samples.len() - 1);
+        let next = (base + 1).min(samples.len() - 1);
+        let frac = (pos - base as f64) as f32;
+        let sample = samples[base] + (samples[next] - samples[base]) * frac;
+        let value = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        pcm.extend_from_slice(&value.to_le_bytes());
+    }
+    pcm
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +434,31 @@ mod tests {
             0o700
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn wyoming_pcm_downsamples_48k_to_16k() {
+        // 48 samples at 48 kHz = 1 ms of audio -> 16 samples at 16 kHz.
+        let samples: Vec<f32> = (0..48).map(|i| i as f32 / 48.0).collect();
+        let pcm = wyoming_pcm_from_mono(&samples, 48_000);
+        assert_eq!(pcm.len(), 16 * 2);
+        // Little-endian i16 of the first sample (0.0) and a later one.
+        assert_eq!(&pcm[0..2], &0i16.to_le_bytes());
+        let mid = i16::from_le_bytes([pcm[20], pcm[21]]);
+        assert!(mid > 0);
+    }
+
+    #[test]
+    fn wyoming_pcm_clamps_and_handles_edge_cases() {
+        let loud = wyoming_pcm_from_mono(&[2.0; 48], 48_000);
+        assert_eq!(&loud[0..2], &i16::MAX.to_le_bytes());
+        let quiet = wyoming_pcm_from_mono(&[-3.0; 48], 48_000);
+        assert_eq!(&quiet[0..2], &(-i16::MAX).to_le_bytes());
+        assert!(wyoming_pcm_from_mono(&[], 48_000).is_empty());
+        assert!(wyoming_pcm_from_mono(&[0.5], 0).is_empty());
+        // Same rate in and out still converts to s16le.
+        let same = wyoming_pcm_from_mono(&[0.5, -0.5], 16_000);
+        assert_eq!(same.len(), 4);
     }
 
     struct EchoEngine;
