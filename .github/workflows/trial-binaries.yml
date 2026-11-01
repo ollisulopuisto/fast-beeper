@@ -184,6 +184,10 @@ jobs:
           # while the window keeps the global theme.
           shot chat-account-theme-1180x780 1180x780 chat,networks,account-theme
           shot chat-account-background-1180x780 1180x780 chat,networks,account-background
+          # A mention chip from bridge metadata: the token carries the
+          # sender's label, the chip the name the id resolves to.
+          shot chat-mentions-1180x780 1180x780 chat,mentions
+          shot chat-dark-mentions-1180x780 1180x780 chat,mentions,theme=Catppuccin.json
           # The same populated sidebar on a dark preset.
           shot chat-dark-networks-1180x780 1180x780 chat,networks,theme=Catppuccin.json
           # The populated rail scrolled to its end: Pinned and the bottom

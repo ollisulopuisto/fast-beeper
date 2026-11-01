@@ -1334,6 +1334,41 @@ fn readable_name(value: &Option<String>) -> Option<String> {
         .cloned()
 }
 
+/// Mention links in a rich body, as (id, label) pairs the mapper records:
+/// the bridge marks a mention up as a matrix.to anchor whose text is the
+/// person's name. Labels carry the same basic entity decoding the text gets.
+fn rich_text_mentions(raw: &str) -> Vec<crate::model::MentionRef> {
+    const MARK: &str = "https://matrix.to/#/@";
+    let mut mentions = Vec::new();
+    let mut rest = raw;
+    while let Some(start) = rest.find(MARK) {
+        let after = &rest[start + MARK.len()..];
+        let Some(id_end) = after.find(|c| c == '"' || c == '\'') else {
+            break;
+        };
+        let id = format!("@{}", &after[..id_end]);
+        let Some(label_start) = after[id_end..]
+            .find('>')
+            .map(|i| start + MARK.len() + id_end + i + 1)
+        else {
+            break;
+        };
+        let Some(label_end) = rest[label_start..].find("</a>").map(|i| label_start + i) else {
+            break;
+        };
+        let label = decode_entities(plain_rich_text(&rest[label_start..label_end]).trim());
+        if !label.is_empty()
+            && !mentions
+                .iter()
+                .any(|m: &crate::model::MentionRef| m.id == id)
+        {
+            mentions.push(crate::model::MentionRef { user: label, id });
+        }
+        rest = &rest[label_end + 4..];
+    }
+    mentions
+}
+
 /// Conservative rich-text fallback. Never executes markup, loads assets or
 /// interprets CSS. Only an explicitly HTML-looking body is converted; ordinary
 /// angle-bracket text is left alone. Unknown entities remain literal.
@@ -1379,6 +1414,43 @@ fn safe_html_href(tag: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// The HTML entity decoding both halves of mention handling share, so the
+/// body's @token and the mention's label always agree, HTML-looking or not.
+fn decode_entities(text: &str) -> String {
+    let mut decoded = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('&') {
+        decoded.push_str(&rest[..start]);
+        rest = &rest[start..];
+        if let Some(end) = rest.find(';').filter(|n| *n <= 16) {
+            let entity = &rest[1..end];
+            let replacement = match entity {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" | "#39" => Some('\''),
+                "nbsp" => Some(' '),
+                _ => entity
+                    .strip_prefix("#x")
+                    .or_else(|| entity.strip_prefix("#X"))
+                    .and_then(|n| u32::from_str_radix(n, 16).ok())
+                    .or_else(|| entity.strip_prefix('#').and_then(|n| n.parse().ok()))
+                    .and_then(char::from_u32),
+            };
+            if let Some(ch) = replacement {
+                decoded.push(ch);
+                rest = &rest[end + 1..];
+                continue;
+            }
+        }
+        decoded.push('&');
+        rest = &rest[1..];
+    }
+    decoded.push_str(rest);
+    decoded
 }
 
 fn plain_rich_text(raw: &str) -> String {
@@ -1477,6 +1549,14 @@ fn plain_rich_text(raw: &str) -> String {
                             }
                         } else {
                             link = safe_html_href(tag);
+                            // Mention links render as their @name token, as
+                            // WhatsApp's do, so markup can chip them.
+                            if link
+                                .as_deref()
+                                .is_some_and(|url| url.starts_with("https://matrix.to/#/@"))
+                            {
+                                out.push('@');
+                            }
                         }
                     }
                     if matches!(
@@ -1501,38 +1581,7 @@ fn plain_rich_text(raw: &str) -> String {
         }
         rest = &rest[ch.len_utf8()..];
     }
-    let mut decoded = String::new();
-    let mut rest = out.as_str();
-    while let Some(start) = rest.find('&') {
-        decoded.push_str(&rest[..start]);
-        rest = &rest[start..];
-        if let Some(end) = rest.find(';').filter(|n| *n <= 16) {
-            let entity = &rest[1..end];
-            let replacement = match entity {
-                "amp" => Some('&'),
-                "lt" => Some('<'),
-                "gt" => Some('>'),
-                "quot" => Some('"'),
-                "apos" | "#39" => Some('\''),
-                "nbsp" => Some(' '),
-                _ => entity
-                    .strip_prefix("#x")
-                    .or_else(|| entity.strip_prefix("#X"))
-                    .and_then(|n| u32::from_str_radix(n, 16).ok())
-                    .or_else(|| entity.strip_prefix('#').and_then(|n| n.parse().ok()))
-                    .and_then(char::from_u32),
-            };
-            if let Some(ch) = replacement {
-                decoded.push(ch);
-                rest = &rest[end + 1..];
-                continue;
-            }
-        }
-        decoded.push('&');
-        rest = &rest[1..];
-    }
-    decoded.push_str(rest);
-    decoded.trim().to_owned()
+    decode_entities(&out).trim().to_owned()
 }
 
 fn body_of(m: &BeeperMessage) -> (String, bool) {
@@ -1680,7 +1729,11 @@ fn map_message(m: &BeeperMessage, fallback_chat: &str) -> Message {
             })
             .collect(),
         edited: m.edited_timestamp.is_some(),
-        mentions: Vec::new(),
+        mentions: m
+            .text
+            .as_deref()
+            .map(rich_text_mentions)
+            .unwrap_or_default(),
         forwarded: false,
         thumbnail: None,
     }
@@ -3238,9 +3291,27 @@ mod tests {
     }
 
     #[test]
+    fn mention_labels_decode_like_the_body() {
+        let raw = "<p>ask <a href=\"https://matrix.to/#/@tom:local-signal.localhost\">Tom &amp; Anna</a> and <a href=\"https://matrix.to/#/@dana:local-signal.localhost\">d&#x27;Angelo</a> \u{1f35e}</p>";
+        let mentions = rich_text_mentions(raw);
+        assert_eq!(mentions.len(), 2);
+        assert_eq!(mentions[0].id, "@tom:local-signal.localhost");
+        assert_eq!(mentions[0].user, "Tom & Anna");
+        assert_eq!(mentions[1].user, "d'Angelo");
+        // The body carries the very tokens the labels resolve to.
+        let body = plain_rich_text(raw);
+        assert!(body.contains("@Tom & Anna"), "{body}");
+        assert!(body.contains("@d'Angelo"), "{body}");
+    }
+
+    #[test]
     fn matrix_mention_links_keep_the_name_without_the_url() {
         let raw = "<p>hey <a href=\"https://matrix.to/#/@wl_6ds:local-signal.localhost\">Mikael Kasurinen</a> look</p>";
-        assert_eq!(plain_rich_text(raw), "hey Mikael Kasurinen look");
+        assert_eq!(plain_rich_text(raw), "hey @Mikael Kasurinen look");
+        let mentions = rich_text_mentions(raw);
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].id, "@wl_6ds:local-signal.localhost");
+        assert_eq!(mentions[0].user, "Mikael Kasurinen");
         // Ordinary links keep their destination beside the label.
         let raw = "<p>see <a href=\"https://example.com/page\">this</a></p>";
         assert_eq!(plain_rich_text(raw), "see this (https://example.com/page)");

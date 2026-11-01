@@ -552,11 +552,27 @@ fn mention_at<'m>(text: &str, at: usize, mentions: &'m [Mention]) -> Option<(usi
     }
     let rest = &text[at + 1..];
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    if digits.len() < 5 {
-        return None;
+    if digits.len() >= 5 {
+        let mention = mentions.iter().find(|mention| mention.user == digits)?;
+        return Some((at + 1 + digits.len(), mention));
     }
-    let mention = mentions.iter().find(|mention| mention.user == digits)?;
-    Some((at + 1 + digits.len(), mention))
+    // A bridge mention carries the person's name (Signal): match the
+    // longest listed name verbatim, bounded so "@Ann" can't chip "Anna".
+    // Digits-only users stay on the WhatsApp matcher above.
+    mentions
+        .iter()
+        .filter(|mention| {
+            !mention.user.is_empty() && !mention.user.chars().all(|c| c.is_ascii_digit())
+        })
+        .filter(|mention| rest.starts_with(mention.user.as_str()))
+        .filter(|mention| {
+            text[at + 1 + mention.user.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| !c.is_alphanumeric())
+        })
+        .max_by_key(|mention| mention.user.len())
+        .map(|mention| (at + 1 + mention.user.len(), mention))
 }
 
 /// Parses a web or email address at `at` and returns its end and target.
@@ -779,6 +795,28 @@ const KNOWN_TLDS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bridge_name_mentions_chip_verbatim() {
+        let mentions = [Mention {
+            user: "Mikael Kasurinen".into(),
+            name: "Mikael Kasurinen".into(),
+        }];
+        let spans = parse("hey @Mikael Kasurinen look", &mentions);
+        let chipped: Vec<_> = spans.iter().filter(|span| span.mention).collect();
+        assert_eq!(chipped.len(), 1, "{spans:?}");
+        assert_eq!(chipped[0].text, "@Mikael Kasurinen");
+        // A bare prefix of a listed name stays plain.
+        let spans = parse("hey @Mikael look", &mentions);
+        assert!(spans.iter().all(|span| !span.mention), "{spans:?}");
+        // Digits-only users still match as numbers, not name tokens.
+        let digits = [Mention {
+            user: "35850123".into(),
+            name: "Ada".into(),
+        }];
+        let spans = parse("hey @35850123 look", &digits);
+        assert_eq!(spans.iter().filter(|span| span.mention).count(), 1);
+    }
+
     use super::*;
 
     fn kinds(text: &str) -> Vec<(String, bool, bool, bool, bool)> {

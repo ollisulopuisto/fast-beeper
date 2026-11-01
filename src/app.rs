@@ -2867,9 +2867,18 @@ impl App {
         message
             .mentions
             .iter()
-            .map(|mention| crate::markup::Mention {
-                user: mention.user.clone(),
-                name: self.mention_name(&mention.id),
+            .map(|mention| {
+                let name = self.mention_name(&mention.id);
+                crate::markup::Mention {
+                    user: mention.user.clone(),
+                    // A bridge mention's id may not resolve (the member left
+                    // before any loaded message); its label is still a name.
+                    name: if name == "Unknown" {
+                        mention.user.clone()
+                    } else {
+                        name
+                    },
+                }
             })
             .collect()
     }

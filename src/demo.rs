@@ -1148,6 +1148,34 @@ fn sticker_sample(app: &mut App, shelf: crate::model::StickerShelf, search: &str
     app.sticker_search = search.to_owned();
 }
 
+/// Opens the sample group with an incoming message whose mention arrived as
+/// a bridge matrix.to link: the token carries the sender's label, the chip
+/// the contact name the id resolves to.
+fn mentions_sample(app: &mut App) {
+    let Some(sample) = SAMPLES.iter().find(|sample| sample.name == "Family") else {
+        return;
+    };
+    let group = sample.id;
+    app.open_chat = Some(group.to_owned());
+    let Some(conversation) = app.conversations.get_mut(group) else {
+        return;
+    };
+    let mut row = message(
+        group,
+        "mention-fixture",
+        false,
+        crate::util::now() - 60,
+        Content::text("@Tom Baker bring the good bread 🥖, please"),
+    );
+    row.sender = "491702222222@s.whatsapp.net".into();
+    row.sender_name = Some("Mira".into());
+    row.mentions = vec![MentionRef {
+        user: "Tom Baker".into(),
+        id: "491703333333@s.whatsapp.net".into(),
+    }];
+    conversation.messages.push(row);
+}
+
 /// Opens the sample group with an own reply quoting another member, beside
 /// the member's reply quoting a third.
 fn quote_sample(app: &mut App) {
@@ -2095,6 +2123,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
     for part in page.split(',').map(str::trim) {
         match part {
             "history-date" => history_date_sample(app),
+            "mentions" => mentions_sample(app),
             "chat" | "" => {}
             "phone-menu" => phone_menu_sample(app),
             "short-chat" => short_chat_sample(app),
