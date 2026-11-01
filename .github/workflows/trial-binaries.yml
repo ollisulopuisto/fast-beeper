@@ -57,7 +57,11 @@ jobs:
     needs: select
     name: ${{ matrix.target }}
     # Never silently start paid private-repo or larger-runner builds.
-    if: github.event.repository.private == false
+    # Skip by condition on shots-only runs: an empty matrix skips the job
+    # too, but GitHub then concludes the whole run as failed despite
+    # every real job passing.
+    if: github.event.repository.private == false && inputs.target != 'shots-only'
+
     timeout-minutes: 90
     strategy:
       fail-fast: false

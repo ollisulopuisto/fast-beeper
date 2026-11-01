@@ -6,20 +6,25 @@ pub mod tour;
 /// Set by the `rail-bottom` shot page: the navigation rail is captured
 /// scrolled to its end, as after a wheel scroll, proving the lower
 /// sections stay reachable.
-static SHOT_RAIL_BOTTOM: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static SHOT_RAIL_BOTTOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether the SHOT_RAIL_BOTTOM seed has been consumed this run.
-static SHOT_RAIL_BOTTOM_SEEDED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// True exactly once per capture when the rail should start at its end:
-/// the seed is a large finite overshoot that egui clamps to the real
-/// maximum at the end of the same frame, so later frames - and the
-/// screenshot - draw the true end position.
-pub fn take_rail_bottom() -> bool {
+/// Whether demo captures draw the navigation rail scrolled to its end.
+pub fn rail_bottom() -> bool {
     SHOT_RAIL_BOTTOM.load(std::sync::atomic::Ordering::Relaxed)
-        && !SHOT_RAIL_BOTTOM_SEEDED.swap(true, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The rail content's last laid-out height, as f32 bits, for the
+/// rail-bottom seed's convergence check.
+static RAIL_CONTENT_HEIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Records the rail content's laid-out height this frame.
+pub fn set_rail_content_height(height: f32) {
+    RAIL_CONTENT_HEIGHT.store(height.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The rail content's last laid-out height, 0.0 before the first frame.
+pub fn rail_content_height() -> f32 {
+    f32::from_bits(RAIL_CONTENT_HEIGHT.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 #[cfg(test)]

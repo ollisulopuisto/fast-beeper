@@ -222,12 +222,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
         // as after a wheel scroll, to prove the lower sections stay
         // reachable at this height.
         #[cfg(feature = "demo")]
-        if crate::demo::take_rail_bottom() {
+        if crate::demo::rail_bottom() {
             let id = ui.make_persistent_id(egui::IdSalt::new("navigation-rail"));
             let mut state = egui::scroll_area::State::load(ui.ctx(), id).unwrap_or_default();
-            // A finite overshoot only: f32::MAX overflows egui's rect math.
-            state.offset.y = 1_000_000.0;
-            state.store(ui.ctx(), id);
+            // Seed a finite overshoot (f32::MAX overflows egui's rect
+            // math) while the last laid-out content height still leaves
+            // more than a viewport below the offset: egui clamps the seed
+            // to the real maximum at the end of the frame, and a
+            // still-growing content height re-seeds until the capture
+            // settles at the true end.
+            if crate::demo::rail_content_height() - state.offset.y > height + 16.0 {
+                state.offset.y = 1_000_000.0;
+                state.store(ui.ctx(), id);
+            }
         }
         egui::ScrollArea::vertical()
             .id_salt("navigation-rail")
@@ -287,6 +294,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                         super::accounts::avatar_button(app, ui, AVATAR).tab_stop(Stop::Profile);
                     },
                 );
+                // Let next frame's rail-bottom seed judge convergence from
+                // the real laid-out height (offset-independent).
+                #[cfg(feature = "demo")]
+                if crate::demo::rail_bottom() {
+                    crate::demo::set_rail_content_height(ui.min_rect().height());
+                }
             });
     });
     let rect = response.response.rect;
