@@ -28,6 +28,39 @@ class FinderAppTests(unittest.TestCase):
             with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(module.subprocess, 'run', side_effect=run):
                 module.assemble(ROOT, Path('/tmp/native-zapfast'), app, '2026.10.30.1')
 
+    def test_scheduler_sidecar_passed_to_bundle_and_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / 'ZapFast Beeper.app'
+            def run(command, **kwargs):
+                self.assertEqual(command[-1], '/tmp/native-scheduler')
+                (app / 'Contents/MacOS').mkdir(parents=True)
+                (app / 'Contents/Resources').mkdir()
+                (app / 'Contents/Resources/zapfast.icns').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/zapfast-client').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/zapfast-scheduler').write_bytes(b'fixture')
+                (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
+                    'CFBundleIdentifier': 'fi.sulopuisto.fast-beeper',
+                    'CFBundleExecutable': 'zapfast', 'CFBundleVersion': '2026.10.30.1'}))
+            with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(module.subprocess, 'run', side_effect=run):
+                module.assemble(ROOT, Path('/tmp/native-zapfast'), app, '2026.10.30.1',
+                                Path('/tmp/native-scheduler'))
+
+    def test_missing_scheduler_sidecar_fails_assembly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / 'ZapFast Beeper.app'
+            def run(command, **kwargs):
+                (app / 'Contents/MacOS').mkdir(parents=True)
+                (app / 'Contents/Resources').mkdir()
+                (app / 'Contents/Resources/zapfast.icns').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/zapfast-client').write_bytes(b'fixture')
+                (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
+                    'CFBundleIdentifier': 'fi.sulopuisto.fast-beeper',
+                    'CFBundleExecutable': 'zapfast', 'CFBundleVersion': '2026.10.30.1'}))
+            with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(module.subprocess, 'run', side_effect=run):
+                with self.assertRaises(ValueError):
+                    module.assemble(ROOT, Path('/tmp/native-zapfast'), app, '2026.10.30.1',
+                                    Path('/tmp/native-scheduler'))
+
     def test_non_mac_does_not_fake_native_app(self):
         with patch.object(module.platform, 'system', return_value='Linux'), patch.object(module.subprocess, 'run') as run:
             with self.assertRaises(ValueError):

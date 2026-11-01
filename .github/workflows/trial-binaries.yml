@@ -98,12 +98,17 @@ jobs:
           python contrib/beeper-tools/package_binary.py \
             --binary 'target/${{ matrix.target }}/release/${{ matrix.executable }}' \
             --output dist --target '${{ matrix.target }}' --commit "$GITHUB_SHA"
+      - name: Build scheduler sidecar
+        if: matrix.target == 'aarch64-apple-darwin'
+        shell: bash
+        run: cargo build --locked --release --bin zapfast-scheduler --target '${{ matrix.target }}'
       - name: Package native Apple Silicon Finder app and DMG
         if: matrix.target == 'aarch64-apple-darwin'
         shell: bash
         run: |
           python contrib/beeper-tools/package_app_dmg.py \
             --binary 'target/${{ matrix.target }}/release/zapfast' \
+            --scheduler-binary 'target/${{ matrix.target }}/release/zapfast-scheduler' \
             --output app-dist --version 2026.11.1.1 --commit "$GITHUB_SHA"
       # A maintainer enables uploads after checking account storage/no-spend
       # settings. Compilation still runs with this unset, without paid storage.
