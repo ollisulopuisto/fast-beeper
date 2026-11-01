@@ -28,6 +28,12 @@ func valid(_ value: String, pattern: String) -> Bool {
 
 func configure() -> Connection? {
     let saved = (try? Data(contentsOf: configURL)).flatMap { try? JSONDecoder().decode(Connection.self, from: $0) }
+    // Autojoin: a saved connection launches without asking, so opening the app
+    // joins the Server directly. The setup alert stays reachable on purpose:
+    // pass `--reconfigure` or hold Option while the app opens.
+    if let saved,
+       !CommandLine.arguments.contains("--reconfigure"),
+       !NSEvent.modifierFlags.contains(.option) { return saved }
     let alert = NSAlert()
     alert.messageText = "Connect to your existing Beeper Server"
     alert.informativeText = "Server runs on your other Mac. Use its SSH hostname or Tailscale IP and your SSH username. Existing key access is required; this app never asks for or saves an SSH password. It does not install Server or link networks."
@@ -104,23 +110,77 @@ func launch(_ connection: Connection) throws {
 
     // The remote ready marker is emitted only after SSH has established forwarding.
     // Merely checking isRunning before authentication could send a token to an old listener.
-    let tunnel = ssh(connection, extra: ["-T", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:23374:127.0.0.1:23374"])
-    tunnel.arguments! += ["printf READY; cat >/dev/null"]
-    let hold = Pipe()
-    let ready = Pipe()
-    tunnel.standardInput = hold
-    tunnel.standardOutput = ready
-    try tunnel.run()
-    defer { stop(tunnel) }
-    let tunnelTimeout = DispatchWorkItem { stop(tunnel) }
-    DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: tunnelTimeout)
-    var marker = Data()
-    while marker.count < 5 {
-        guard let chunk = try ready.fileHandleForReading.read(upToCount: 5 - marker.count), !chunk.isEmpty else { break }
-        marker.append(chunk)
+    // Send Later rides the same SSH trust: forward the scheduler socket too,
+    // but never let an occupied local 23376 break the Server connection.
+    func openTunnel(_ forwards: [String]) -> (Process, Pipe)? {
+        var extra = ["-T", "-o", "ExitOnForwardFailure=yes"]
+        for forward in forwards { extra += ["-L", forward] }
+        let tunnel = ssh(connection, extra: extra)
+        tunnel.arguments! += ["printf READY; cat >/dev/null"]
+        let hold = Pipe()
+        let ready = Pipe()
+        tunnel.standardInput = hold
+        tunnel.standardOutput = ready
+        do { try tunnel.run() } catch { return nil }
+        let tunnelTimeout = DispatchWorkItem { stop(tunnel) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: tunnelTimeout)
+        var marker = Data()
+        while marker.count < 5 {
+            guard let chunk = try? ready.fileHandleForReading.read(upToCount: 5 - marker.count), !chunk.isEmpty else { break }
+            marker.append(chunk)
+        }
+        tunnelTimeout.cancel()
+        guard tunnel.isRunning, marker == Data("READY".utf8) else { stop(tunnel); return nil }
+        return (tunnel, hold)
     }
-    tunnelTimeout.cancel()
-    guard tunnel.isRunning, marker == Data("READY".utf8) else { throw LaunchError.tunnel }
+    let forwards = ["127.0.0.1:23374:127.0.0.1:23374", "127.0.0.1:23376:127.0.0.1:23376"]
+    let opened: (Process, Pipe, Bool)?
+    if let both = openTunnel(forwards) {
+        opened = (both.0, both.1, true)
+    } else if let apiOnly = openTunnel(Array(forwards.prefix(1))) {
+        opened = (apiOnly.0, apiOnly.1, false)
+    } else {
+        opened = nil
+    }
+    guard let (tunnel, hold, schedulerForwarded) = opened else { throw LaunchError.tunnel }
+    defer { stop(tunnel) }
+    _ = hold
+    if !schedulerForwarded {
+        // Without our own 23376 listener the app must not send a previously
+        // synced scheduler token to whatever occupies the local port.
+        try? manager.removeItem(at: profile.appendingPathComponent("config/scheduler-token"))
+    }
+
+    // Best effort: the scheduler's control token lives only on the Server Mac
+    // and reaches this Mac through the same SSH trust, 0600 on both ends.
+    // Only with its forward actually up: without it a local listener could be
+    // anything, and the app would send the token there. Without a token the
+    // app simply keeps Send Later unavailable.
+    if schedulerForwarded {
+    let tokenQuery = ssh(connection, extra: [])
+    tokenQuery.arguments! += ["cat \"$HOME/Library/Application Support/zapfast/scheduler-token\" 2>/dev/null || cat \"$HOME/.config/zapfast/scheduler-token\" 2>/dev/null || true"]
+    let tokenOut = Pipe()
+    tokenQuery.standardOutput = tokenOut
+    if (try? tokenQuery.run()) != nil {
+        let tokenTimeout = DispatchWorkItem { stop(tokenQuery) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: tokenTimeout)
+        let tokenData = tokenOut.fileHandleForReading.readDataToEndOfFile()
+        tokenTimeout.cancel()
+        tokenQuery.waitUntilExit()
+        if tokenQuery.terminationStatus == 0, let tokenData,
+           let schedulerToken = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !schedulerToken.isEmpty, schedulerToken.count <= 256,
+           valid(schedulerToken, pattern: "^[A-Za-z0-9._~+-]+$") {
+            let configDir = profile.appendingPathComponent("config")
+            try? manager.createDirectory(at: configDir, withIntermediateDirectories: true,
+                                         attributes: [.posixPermissions: 0o700])
+            try? schedulerToken.write(to: configDir.appendingPathComponent("scheduler-token"),
+                                      atomically: true, encoding: .utf8)
+            try? manager.setAttributes([.posixPermissions: 0o600],
+                                       ofItemAtPath: configDir.appendingPathComponent("scheduler-token").path)
+        }
+    }
+    }
     let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")
     guard manager.isExecutableFile(atPath: binary.path) else { throw LaunchError.missingBinary }
     try manager.createDirectory(at: profile, withIntermediateDirectories: true,
