@@ -134,13 +134,24 @@ func launch(_ connection: Connection) throws {
         return (tunnel, hold)
     }
     let forwards = ["127.0.0.1:23374:127.0.0.1:23374", "127.0.0.1:23376:127.0.0.1:23376"]
-    guard let (tunnel, hold) = openTunnel(forwards) ?? openTunnel(Array(forwards.prefix(1))) else { throw LaunchError.tunnel }
+    let opened: (Process, Pipe, Bool)?
+    if let both = openTunnel(forwards) {
+        opened = (both.0, both.1, true)
+    } else if let apiOnly = openTunnel(Array(forwards.prefix(1))) {
+        opened = (apiOnly.0, apiOnly.1, false)
+    } else {
+        opened = nil
+    }
+    guard let (tunnel, hold, schedulerForwarded) = opened else { throw LaunchError.tunnel }
     defer { stop(tunnel) }
     _ = hold
 
     // Best effort: the scheduler's control token lives only on the Server Mac
     // and reaches this Mac through the same SSH trust, 0600 on both ends.
-    // Without one the app simply keeps Send Later unavailable.
+    // Only with its forward actually up: without it a local listener could be
+    // anything, and the app would send the token there. Without a token the
+    // app simply keeps Send Later unavailable.
+    guard schedulerForwarded else { return }
     let tokenQuery = ssh(connection, extra: [])
     tokenQuery.arguments! += ["cat \"$HOME/Library/Application Support/zapfast/scheduler-token\" 2>/dev/null || cat \"$HOME/.config/zapfast/scheduler-token\" 2>/dev/null || true"]
     let tokenOut = Pipe()
