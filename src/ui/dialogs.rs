@@ -553,7 +553,12 @@ pub(super) fn contact_choices(app: &App, needle: &str) -> Vec<crate::model::Cont
                         .is_some_and(|phone| phone.contains(needle)))
         })
         .collect();
-    contacts.sort_by_key(|contact| crate::util::search_key(&app.display_name(&contact.id)));
+    // Performance optimization: Cache the extracted `search_key` during sort
+    // via `sort_by_cached_key` (Schwartzian transform). `search_key` performs
+    // Unicode NFD normalization and character-property classification, which is
+    // expensive to evaluate repeatedly across O(N log N) comparison steps.
+    // Caching reduces key extractions from O(N log N) to O(N).
+    contacts.sort_by_cached_key(|contact| crate::util::search_key(&app.display_name(&contact.id)));
     contacts
 }
 
@@ -2320,6 +2325,48 @@ mod tests {
                 drawn.rect.center().x - bounds.center().x
             );
         }
+    }
+
+    #[test]
+    fn contact_choices_sorts_by_normalized_search_key() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = crate::app::App::headless(
+            crate::paths::AppDirs::under(root.path()),
+            crate::settings::Settings::default(),
+        );
+
+        // Insert contacts with varied casing, accents, and order
+        app.contacts.insert(
+            "1111111111@s.whatsapp.net".into(),
+            crate::model::Contact {
+                id: "1111111111@s.whatsapp.net".into(),
+                full_name: Some("São Paulo Support".into()),
+                ..Default::default()
+            },
+        );
+        app.contacts.insert(
+            "2222222222@s.whatsapp.net".into(),
+            crate::model::Contact {
+                id: "2222222222@s.whatsapp.net".into(),
+                full_name: Some("Alice Smith".into()),
+                ..Default::default()
+            },
+        );
+        app.contacts.insert(
+            "3333333333@s.whatsapp.net".into(),
+            crate::model::Contact {
+                id: "3333333333@s.whatsapp.net".into(),
+                full_name: Some("bob jones".into()),
+                ..Default::default()
+            },
+        );
+
+        let choices = super::contact_choices(&app, "");
+        let names: Vec<_> = choices
+            .iter()
+            .map(|c| app.display_name(&c.id))
+            .collect();
+        assert_eq!(names, vec!["Alice Smith", "bob jones", "São Paulo Support"]);
     }
 
     #[test]
