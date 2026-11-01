@@ -1794,7 +1794,8 @@ pub fn filter_row(
             } else {
                 palette.surface
             };
-            ui.painter().rect_filled(rect.shrink2(vec2(2.0, 1.0)), 6.0, hover);
+            ui.painter()
+                .rect_filled(rect.shrink2(vec2(2.0, 1.0)), 6.0, hover);
         }
         let painter = ui.painter().with_clip_rect(rect);
         let number = (count > 0)

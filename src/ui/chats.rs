@@ -740,7 +740,11 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 };
                 if row.clicked() {
                     // A second click on the active network shows every network again.
-                    let next = if selected { None } else { Some(network.clone()) };
+                    let next = if selected {
+                        None
+                    } else {
+                        Some(network.clone())
+                    };
                     app.select_beeper_scope(next, None);
                 }
             }
@@ -790,7 +794,11 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
             if let Some(chat) = app.current_chat() {
                 let queued = app.reply_later_contains(chat);
                 if ui
-                    .small_button(if queued { "Remove from later" } else { "Reply later +" })
+                    .small_button(if queued {
+                        "Remove from later"
+                    } else {
+                        "Reply later +"
+                    })
                     .on_hover_text("Cmd+Shift+L: toggle current chat in local queue")
                     .clicked()
                 {
