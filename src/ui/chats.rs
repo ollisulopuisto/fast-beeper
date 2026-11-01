@@ -48,23 +48,46 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // The strip reaches onto the conversation's side of the edge, where the
     // conversation's own widgets cover it, so a press there never reaches
     // this interact. Follow the raw pointer instead: a press starting
-    // anywhere in the strip drags the edge while it stays down.
+    // anywhere in the strip drags the edge until the button is released,
+    // even after the moving edge leaves the press point behind.
+    let drag_id = egui::Id::new("chats-resize-strip-active");
+    let was_dragging = ui
+        .ctx()
+        .data(|data| data.get_temp::<bool>(drag_id))
+        .unwrap_or(false);
     let strip_drag = ui.ctx().input(|input| {
         input.pointer.primary_down()
-            && input
-                .pointer
-                .press_origin()
-                .is_some_and(|origin| strip.contains(origin))
+            && (was_dragging
+                || input
+                    .pointer
+                    .press_origin()
+                    .is_some_and(|origin| strip.contains(origin)))
     });
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(drag_id, strip_drag));
     if resize.hovered() || strip_drag {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
     if strip_drag && let Some(pos) = ui.ctx().input(|input| input.pointer.latest_pos()) {
-        let dragged = (pos.x - rect.left()).clamp(260.0, 520.0);
+        // The pointer rarely grabs the exact edge: a press two points onto
+        // the conversation's side must not widen the list by those two
+        // points. Anchor the drag where it started and move the edge by
+        // the pointer's travel instead.
+        let grab_id = egui::Id::new("chats-resize-strip-grab");
+        let existing = ui.ctx().data(|data| data.get_temp::<(f32, f32)>(grab_id));
+        let grab = existing.unwrap_or((pos.x, rect.width()));
+        ui.ctx().data_mut(|data| data.insert_temp(grab_id, grab));
+        let dragged = (grab.1 + pos.x - grab.0).clamp(260.0, 520.0);
         if (dragged - app.settings.sidebar_width).abs() > 1.0 {
             app.settings.sidebar_width = dragged;
             app.actions.push(Action::SettingsChanged);
         }
+        // The panel sizes itself from its persisted PanelState once that
+        // exists, ignoring default_size, so a settings write alone leaves
+        // the edge frozen. Drop the persisted state; the next frame takes
+        // the dragged width from settings.
+        ui.ctx()
+            .data_mut(|data| data.remove::<egui::PanelState>(egui::Id::new("chats")));
     }
     // Separate the panel from the conversation, as the header's line does.
     widgets::paint_edge_beside(ui, &palette, response.response.rect);
