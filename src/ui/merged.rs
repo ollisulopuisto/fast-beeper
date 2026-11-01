@@ -24,7 +24,7 @@ pub fn latest_reply_shortcut() -> egui::KeyboardShortcut {
         egui::Key::R,
     )
 }
-fn bounded_note(ui: &mut egui::Ui, text: &str, small: bool) {
+fn bounded_note(ui: &mut egui::Ui, palette: &crate::theme::Palette, text: &str, small: bool) {
     let width = (ui.clip_rect().right() - ui.cursor().left())
         .min(ui.available_width())
         .max(20.0);
@@ -36,12 +36,11 @@ fn bounded_note(ui: &mut egui::Ui, text: &str, small: bool) {
     .resolve(ui.style());
     let galley = ui
         .painter()
-        .layout(text.to_owned(), font, ui.visuals().text_color(), width);
+        .layout(text.to_owned(), font, palette.text, width);
     let (rect, response) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
-    ui.painter()
-        .galley(rect.min, galley, ui.visuals().text_color());
+    ui.painter().galley(rect.min, galley, palette.text);
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
@@ -173,11 +172,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     });
     bounded_note(
         ui,
+        &app.conversation_palette(),
         "One timeline. Reply keeps its source. Choosing another destination sends a new message.",
         false,
     );
     bounded_note(
         ui,
+        &app.conversation_palette(),
         "Text sends only in linked view. Attachments and typing indicators are disabled here until source routing is verified.",
         true,
     );
@@ -494,7 +495,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             selected_reply = Some((member.clone(), message.id.clone()));
         }
     });
-    bounded_note(ui, "Or double-click a message / use its reply menu.", true);
+    bounded_note(
+        ui,
+        &app.conversation_palette(),
+        "Or double-click a message / use its reply menu.",
+        true,
+    );
     let remaining = ui.available_height().max(100.0);
     let mut actions = Vec::new();
     let mut refused_action = false;

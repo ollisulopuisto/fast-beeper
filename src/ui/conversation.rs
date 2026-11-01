@@ -85,10 +85,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         empty(app, ui);
         return;
     };
+    // The merged-person view is still this account's conversation: it gets
+    // the same wallpaper and theme as the unmerged one.
+    wallpaper::paint(ui, &app.conversation_wallpaper());
     if super::merged::show(app, ui, &chat) {
         return;
     }
-    wallpaper::paint(ui, &app.conversation_wallpaper());
     // On a vibrant window the messages scroll on under the header, as in
     // Messages: the header and any banner go on a layer above them.
     if app.conversation_palette().vibrant() {
