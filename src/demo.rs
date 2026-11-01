@@ -13,6 +13,20 @@ pub fn rail_bottom() -> bool {
     SHOT_RAIL_BOTTOM.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// The rail content's last laid-out height, as f32 bits, for the
+/// rail-bottom seed's convergence check.
+static RAIL_CONTENT_HEIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Records the rail content's laid-out height this frame.
+pub fn set_rail_content_height(height: f32) {
+    RAIL_CONTENT_HEIGHT.store(height.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The rail content's last laid-out height, 0.0 before the first frame.
+pub fn rail_content_height() -> f32 {
+    f32::from_bits(RAIL_CONTENT_HEIGHT.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 #[cfg(test)]
 mod focus_trace;
 
