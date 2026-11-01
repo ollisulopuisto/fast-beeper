@@ -341,6 +341,14 @@ pub(crate) fn can_select(content: &Content) -> bool {
     )
 }
 
+/// A quote the server described only by the original's id: no author, or
+/// the generic placeholder preview the Beeper backend writes until the
+/// original is known.
+fn unresolved_quote(quoted: &crate::model::Quoted) -> bool {
+    !quoted.id.is_empty()
+        && (quoted.sender.is_empty() || quoted.summary == "Reply to earlier message")
+}
+
 /// Adds the messages from `anchor` to `to` to a selection, in either
 /// direction, keeping the chat's order and skipping content that cannot
 /// be forwarded.
@@ -3860,11 +3868,13 @@ impl App {
                     .iter()
                     .filter_map(|message| {
                         message.quoted.as_ref().and_then(|quoted| {
-                            (quoted.sender.is_empty() && !quoted.id.is_empty())
+                            unresolved_quote(quoted)
                                 .then(|| (message.id.clone(), quoted.id.clone()))
                         })
                     })
                     .collect();
+                let incoming_ids: std::collections::HashSet<&str> =
+                    messages.iter().map(|message| message.id.as_str()).collect();
                 // `conversations` comes through DerefMut, so its entry borrow
                 // covers all of `self`; keep quote-fetch bookkeeping outside it.
                 let (was_empty, bare, still_unresolved) = {
@@ -3875,11 +3885,17 @@ impl App {
                     }
                     conversation.merge(messages, older);
                     // A server reply carries only the original's id; resolve its
-                    // author from loaded history when the original is known.
+                    // author and preview from loaded history when the original
+                    // is known.
                     for (message_id, quote_id) in &unresolved_quotes {
-                        let Some((sender, sender_name)) =
+                        let Some((sender, sender_name, summary, labelled)) =
                             conversation.message(quote_id).map(|original| {
-                                (original.sender.clone(), original.sender_name.clone())
+                                (
+                                    original.sender.clone(),
+                                    original.sender_name.clone(),
+                                    original.summary(),
+                                    Some(original.content.labelled()),
+                                )
                             })
                         else {
                             continue;
@@ -3890,6 +3906,45 @@ impl App {
                         {
                             quoted.sender = sender;
                             quoted.sender_name = sender_name;
+                            quoted.summary = summary;
+                            quoted.labelled = labelled;
+                        }
+                    }
+                    // When the original pages in after its reply, resolve the
+                    // reply's waiting quote from the message that just arrived.
+                    let waiting: Vec<(String, String)> = conversation
+                        .messages
+                        .iter()
+                        .filter(|message| !incoming_ids.contains(message.id.as_str()))
+                        .filter_map(|message| {
+                            message.quoted.as_ref().and_then(|quoted| {
+                                (unresolved_quote(quoted)
+                                    && incoming_ids.contains(quoted.id.as_str()))
+                                .then(|| (message.id.clone(), quoted.id.clone()))
+                            })
+                        })
+                        .collect();
+                    for (message_id, quote_id) in waiting {
+                        let Some((sender, sender_name, summary, labelled)) =
+                            conversation.message(&quote_id).map(|original| {
+                                (
+                                    original.sender.clone(),
+                                    original.sender_name.clone(),
+                                    original.summary(),
+                                    Some(original.content.labelled()),
+                                )
+                            })
+                        else {
+                            continue;
+                        };
+                        if let Some(quoted) = conversation
+                            .message_mut(&message_id)
+                            .and_then(|message| message.quoted.as_mut())
+                        {
+                            quoted.sender = sender;
+                            quoted.sender_name = sender_name;
+                            quoted.summary = summary;
+                            quoted.labelled = labelled;
                         }
                     }
                     // Quotes whose originals are outside the loaded page are
@@ -3901,7 +3956,7 @@ impl App {
                             conversation
                                 .message(message_id)
                                 .and_then(|message| message.quoted.as_ref())
-                                .is_some_and(|quoted| quoted.sender.is_empty())
+                                .is_some_and(unresolved_quote)
                         })
                         .cloned()
                         .collect();
@@ -19009,6 +19064,7 @@ mod tests {
         let mut original = message(chat, "orig", 1);
         original.sender = "wl_uuid:local-signal.localhost".into();
         original.sender_name = Some("~Mikael Kasurinen".into());
+        let original_summary = original.summary();
         events
             .send(Event::Messages {
                 chat: chat.into(),
@@ -19043,11 +19099,111 @@ mod tests {
             .expect("the reply keeps its quote");
         assert_eq!(quoted.sender, "wl_uuid:local-signal.localhost");
         assert_eq!(quoted.sender_name.as_deref(), Some("~Mikael Kasurinen"));
+        // The preview comes from the original too, not the generic placeholder.
+        assert_ne!(quoted.summary, "Reply to earlier message");
+        assert_eq!(quoted.summary, original_summary);
         // The observed profile name resolves group members the contacts lack.
         assert_eq!(
             app.display_name("wl_uuid:local-signal.localhost"),
             "~Mikael Kasurinen"
         );
+    }
+
+    /// The reply can arrive before its original when history pages in: the
+    /// later batch resolves the waiting quote's author and preview.
+    #[test]
+    fn a_quote_resolves_when_its_original_pages_in_after_the_reply() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, _commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let chat = "group@local-signal.localhost";
+        let mut reply = message(chat, "reply", 2);
+        reply.quoted = Some(crate::model::Quoted {
+            chat: None,
+            id: "orig".into(),
+            sender: String::new(),
+            sender_name: None,
+            summary: "Reply to earlier message".into(),
+            labelled: Some(false),
+            mentions: Vec::new(),
+        });
+        events
+            .send(Event::Messages {
+                chat: chat.into(),
+                messages: vec![reply],
+                older: false,
+                complete: false,
+            })
+            .unwrap();
+        app.handle_events();
+        let mut original = message(chat, "orig", 1);
+        original.sender = "wl_uuid:local-signal.localhost".into();
+        original.sender_name = Some("~Mikael Kasurinen".into());
+        let original_summary = original.summary();
+        events
+            .send(Event::Messages {
+                chat: chat.into(),
+                messages: vec![original],
+                older: true,
+                complete: false,
+            })
+            .unwrap();
+        app.handle_events();
+        let quoted = app.conversations[chat]
+            .message("reply")
+            .and_then(|message| message.quoted.as_ref())
+            .expect("the reply keeps its quote");
+        assert_eq!(quoted.sender, "wl_uuid:local-signal.localhost");
+        assert_eq!(quoted.sender_name.as_deref(), Some("~Mikael Kasurinen"));
+        assert_eq!(quoted.summary, original_summary);
+    }
+
+    /// A quote archived with a resolved author but the generic placeholder
+    /// preview picks up the original's text when it is loaded again.
+    #[test]
+    fn a_stale_quote_preview_is_replaced_when_the_original_is_known() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, _commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let chat = "group@local-signal.localhost";
+        let mut original = message(chat, "orig", 1);
+        original.sender = "wl_uuid:local-signal.localhost".into();
+        original.sender_name = Some("~Mikael Kasurinen".into());
+        let original_summary = original.summary();
+        events
+            .send(Event::Messages {
+                chat: chat.into(),
+                messages: vec![original],
+                older: false,
+                complete: false,
+            })
+            .unwrap();
+        let mut reply = message(chat, "reply", 2);
+        reply.quoted = Some(crate::model::Quoted {
+            chat: None,
+            id: "orig".into(),
+            sender: "wl_uuid:local-signal.localhost".into(),
+            sender_name: Some("~Mikael Kasurinen".into()),
+            summary: "Reply to earlier message".into(),
+            labelled: Some(false),
+            mentions: Vec::new(),
+        });
+        events
+            .send(Event::Messages {
+                chat: chat.into(),
+                messages: vec![reply],
+                older: false,
+                complete: false,
+            })
+            .unwrap();
+        app.handle_events();
+        let quoted = app.conversations[chat]
+            .message("reply")
+            .and_then(|message| message.quoted.as_ref())
+            .expect("the reply keeps its quote");
+        assert_eq!(quoted.summary, original_summary);
     }
 
     /// Settings measures the account's media cache as it opens; Clear empties
