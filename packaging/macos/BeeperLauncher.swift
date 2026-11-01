@@ -151,7 +151,7 @@ func launch(_ connection: Connection) throws {
     // Only with its forward actually up: without it a local listener could be
     // anything, and the app would send the token there. Without a token the
     // app simply keeps Send Later unavailable.
-    guard schedulerForwarded else { return }
+    if schedulerForwarded {
     let tokenQuery = ssh(connection, extra: [])
     tokenQuery.arguments! += ["cat \"$HOME/Library/Application Support/zapfast/scheduler-token\" 2>/dev/null || cat \"$HOME/.config/zapfast/scheduler-token\" 2>/dev/null || true"]
     let tokenOut = Pipe()
@@ -174,6 +174,7 @@ func launch(_ connection: Connection) throws {
             try? manager.setAttributes([.posixPermissions: 0o600],
                                        ofItemAtPath: configDir.appendingPathComponent("scheduler-token").path)
         }
+    }
     }
     let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")
     guard manager.isExecutableFile(atPath: binary.path) else { throw LaunchError.missingBinary }
