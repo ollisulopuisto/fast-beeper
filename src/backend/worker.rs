@@ -16744,6 +16744,7 @@ mod tests {
 mod receipt_tests {
     use super::*;
     use crate::model::{Content, Delivery, Message};
+    use whatsapp_rust::chrono::{DateTime, Utc};
 
     const ME: &str = "15550001111@s.whatsapp.net";
     pub(super) const PEER: &str = "4917663430455@s.whatsapp.net";
@@ -20805,7 +20806,7 @@ mod receipt_tests {
     async fn a_forever_muted_chat_stays_archived_through_sync_unarchives() {
         let (mut worker, _events, _inbox, _wa) = worker();
         let time = whatsapp_rust::wacore::time::now_utc();
-        let sync_unarchive = |timestamp: jiff::Timestamp| {
+        let sync_unarchive = |timestamp: DateTime<Utc>| {
             Arc::new(wa_events::Event::ArchiveUpdate(
                 wa_events::ArchiveUpdate::builder()
                     .jid(PEER.parse().unwrap())
