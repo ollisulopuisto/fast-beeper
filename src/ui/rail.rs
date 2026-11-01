@@ -32,8 +32,11 @@ const ICON: f32 = 20.0;
 /// Our avatar at the foot of the rail.
 const AVATAR: f32 = 32.0;
 /// Space above the first destination, as the list header's own margin, and
-/// between the bottom group's plates, the avatar and the window's edge.
+/// between the bottom group's rows, the avatar and the window's edge.
 const GAP: f32 = 8.0;
+/// Tighter rhythm inside the bottom group's wrapped plate rows, so the
+/// networks and destinations read as one compact cluster.
+const BOTTOM_GAP: f32 = GAP / 2.0;
 /// How far below the window's top the macOS traffic lights end, centred as
 /// they are in the 60-point title bar, with a little room under them.
 const LIGHTS_CLEARANCE: f32 = theme::TOP_BAR_HEIGHT / 2.0 + 12.0;
@@ -44,6 +47,22 @@ const MIDDLE_MIN: f32 = 120.0;
 const MIN_AVATARS: f32 = 64.0;
 /// Width of the hairline between the destinations and the avatars.
 const DIVIDER: f32 = 24.0;
+
+/// How many bottom plates fit in one row at this rail width, and how many
+/// rows `count` plates wrap into. The compact rail stacks one per row; the
+/// wide rail groups several beside each other.
+fn bottom_wrap(width: f32, count: usize) -> (usize, usize) {
+    let per_row = (((width + BOTTOM_GAP) / (PLATE + BOTTOM_GAP)).floor() as usize).max(1);
+    (per_row, count.div_ceil(per_row))
+}
+
+/// The center of each plate in one bottom row, the row centered in the rail.
+fn bottom_row_centers(cell: Rect, slots: usize) -> impl Iterator<Item = egui::Pos2> {
+    let row_width = slots as f32 * (PLATE + BOTTOM_GAP) - BOTTOM_GAP;
+    let start = cell.min.x + (cell.width() - row_width) / 2.0 + PLATE / 2.0;
+    let y = cell.center().y;
+    (0..slots).map(move |slot| egui::pos2(start + slot as f32 * (PLATE + BOTTOM_GAP), y))
+}
 
 /// Where the rail was laid out, for layout tests.
 pub(crate) fn rect_id() -> egui::Id {
@@ -214,7 +233,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
         .collect();
         let networks = app.beeper_browse_networks();
         let top_height = 2.0 * CELL;
-        let foot = (bottom.len() + networks.len()) as f32 * (PLATE + GAP) + GAP + AVATAR + GAP;
+        let (_, network_rows) = bottom_wrap(width, networks.len());
+        let (_, bottom_rows) = bottom_wrap(width, bottom.len());
+        let foot =
+            (network_rows + bottom_rows) as f32 * (PLATE + BOTTOM_GAP) + BOTTOM_GAP + AVATAR + GAP;
         let minimum = top_height
             + foot
             + if hidden {
@@ -286,19 +308,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                 }
                 let rest = (ui.available_height() - foot).max(0.0);
                 ui.add_space(rest);
-                // Beeper networks sit beside the other bottom destinations;
-                // a plate filters to its network, a right-click its accounts.
-                for (index, network) in networks.iter().enumerate() {
-                    ui.add_space(GAP);
-                    network_plate(app, ui, &palette, network, index);
+                // Beeper networks sit beside the other bottom destinations,
+                // wrapped into compact rows so the cluster stays short: a
+                // plate filters to its network, a right-click its accounts.
+                let (per_row, _) = bottom_wrap(width, networks.len().max(bottom.len()));
+                ui.add_space(BOTTOM_GAP);
+                let mut index = 0;
+                for chunk in networks.chunks(per_row) {
+                    let (cell, _) = ui.allocate_exact_size(vec2(width, PLATE), Sense::hover());
+                    for (center, network) in bottom_row_centers(cell, chunk.len()).zip(chunk) {
+                        network_plate(app, ui, &palette, network, index, center);
+                        index += 1;
+                    }
+                    ui.add_space(BOTTOM_GAP);
                 }
-                for destination in bottom {
-                    ui.add_space(GAP);
-                    destination_button(app, ui, &palette, destination, PLATE);
+                for chunk in bottom.chunks(per_row) {
+                    let (cell, _) = ui.allocate_exact_size(vec2(width, PLATE), Sense::hover());
+                    for (center, destination) in bottom_row_centers(cell, chunk.len()).zip(chunk) {
+                        destination_plate(app, ui, &palette, *destination, center);
+                    }
+                    ui.add_space(BOTTOM_GAP);
                 }
-                ui.add_space(GAP);
-                // The account button holds the plates' column, so widening
-                // the sidebar beside the list moves nothing.
+                // The account button keeps the compact column at the rail's
+                // foot, so widening the sidebar beside the list moves nothing.
                 ui.allocate_ui_with_layout(
                     vec2(COMPACT, AVATAR),
                     egui::Layout::top_down(egui::Align::Center),
@@ -353,7 +385,14 @@ fn show_list_button(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
 /// One Beeper network as a bottom plate: click filters the chats to that
 /// network (again clears), right-click lists its accounts. The plate
 /// lights while its network scope is active.
-fn network_plate(app: &mut App, ui: &mut egui::Ui, palette: &Palette, network: &str, index: usize) {
+fn network_plate(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    network: &str,
+    index: usize,
+    center: egui::Pos2,
+) {
     let lit = app.beeper_network_filter.as_deref() == Some(network);
     let name: &str = if network.is_empty() {
         "Network not supplied"
@@ -372,11 +411,7 @@ fn network_plate(app: &mut App, ui: &mut egui::Ui, palette: &Palette, network: &
     if !accounts.is_empty() {
         label.push_str("\nRight-click: accounts");
     }
-    let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), PLATE), Sense::hover());
-    let plate = Rect::from_center_size(
-        egui::pos2(cell.min.x + COMPACT / 2.0, cell.center().y),
-        Vec2::splat(PLATE),
-    );
+    let plate = Rect::from_center_size(center, Vec2::splat(PLATE));
     let response = ui
         .interact(plate, network_plate_id(network), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -441,6 +476,26 @@ fn destination_button(
     destination: Destination,
     height: f32,
 ) {
+    let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    // The plate holds the compact rail's column whichever width the rail
+    // has, so the list coming and going moves nothing.
+    let plate = Rect::from_center_size(
+        egui::pos2(cell.min.x + COMPACT / 2.0, cell.center().y),
+        Vec2::splat(PLATE),
+    );
+    destination_plate(app, ui, palette, destination, plate);
+}
+
+/// One destination's plate at a given center: the top destinations call it
+/// through destination_button's full-width cell, the bottom group through
+/// its wrapped rows.
+fn destination_plate(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    destination: Destination,
+    plate: Rect,
+) {
     let lit = destination.lit(app);
     let mut badge = 0;
     let (icon, stop, label) = match destination {
@@ -492,13 +547,6 @@ fn destination_button(
             }),
         ),
     };
-    let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    // The plate holds the compact rail's column whichever width the rail
-    // has, so the list coming and going moves nothing.
-    let plate = Rect::from_center_size(
-        egui::pos2(cell.min.x + COMPACT / 2.0, cell.center().y),
-        Vec2::splat(PLATE),
-    );
     let response = ui
         .interact(plate, destination_id(destination), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
