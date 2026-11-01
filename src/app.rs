@@ -438,6 +438,9 @@ pub struct App {
     /// Profile names observed on incoming messages, by sender id, for people
     /// the contact book does not know (group members on server accounts).
     pub sender_names: HashMap<String, String>,
+    /// Latest bridge roster names (id -> display name): the lowest name
+    /// tier, refreshed wholesale whenever a chat sync carries them.
+    pub roster_names: HashMap<String, String>,
     /// Quote references already requested from the server (chat, quoted
     /// id): each is fetched once per session; failures keep the generic
     /// placeholder instead of re-fetching every batch.
@@ -1438,6 +1441,7 @@ impl App {
             beeper_history_errors: HashMap::new(),
             beeper_live_errors: HashMap::new(),
             sender_names: HashMap::new(),
+            roster_names: HashMap::new(),
             quote_fetches: std::collections::HashSet::new(),
             beeper_search_state: None,
             composer_mentions: Vec::new(),
@@ -2843,6 +2847,9 @@ impl App {
                 format!("~{name}")
             };
         }
+        if let Some(name) = self.roster_names.get(id).filter(|name| !name.is_empty()) {
+            return format!("~{name}");
+        }
         // A name of digits alone is no name. When the id carries the number,
         // neither is one as `util::phone` grouped it when the chat was filed:
         // that is formatted afresh from the id.
@@ -3868,6 +3875,12 @@ impl App {
                 for chat in &chats {
                     if chat.unread == 0 {
                         self.clear_chat_notifications(&chat.id);
+                    }
+                    // Bridge rosters refresh wholesale: a renamed member
+                    // resolves by their new name on the next sync, while
+                    // names observed on messages stay ahead (person_name).
+                    for (id, name) in &chat.participant_names {
+                        self.roster_names.insert(id.clone(), name.clone());
                     }
                 }
                 self.chats = chats;
@@ -19126,6 +19139,85 @@ mod tests {
             forwarded: false,
             thumbnail: None,
         }
+    }
+
+    /// Bridge participant names resolve members who never sent a loaded
+    /// message - the mention picker's "Unknown" entries. Names observed on
+    /// actual messages are inserted first whenever they exist, since both
+    /// sources keep the first name seen.
+    #[test]
+    fn bridge_participant_names_resolve_silent_members() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, _commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let id = "group@local-signal.localhost";
+        let mut chat = Chat::new(id.into(), "Signal group".into());
+        chat.kind = crate::model::ChatKind::Group;
+        chat.participants = vec![
+            "wl_uuid:local-signal.localhost".into(),
+            "silent_uuid:local-signal.localhost".into(),
+        ];
+        chat.participant_names = [
+            (
+                "wl_uuid:local-signal.localhost".to_owned(),
+                "Mikael Kasurinen".to_owned(),
+            ),
+            (
+                "silent_uuid:local-signal.localhost".to_owned(),
+                "Silent Member".to_owned(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        events.send(Event::Chats(vec![chat])).unwrap();
+        app.handle_events();
+        assert_eq!(
+            app.display_name("silent_uuid:local-signal.localhost"),
+            "~Silent Member"
+        );
+        let chat = app.chat(id).expect("the chat is loaded");
+        let list = app.participant_list(chat);
+        assert!(
+            list.iter().all(|(_, name)| name != "Unknown"),
+            "no member stays nameless: {list:?}"
+        );
+        let candidates = app.mention_candidates(chat, "silent");
+        assert_eq!(candidates.len(), 1, "{candidates:?}");
+        assert_eq!(candidates[0].1, "~Silent Member");
+
+        // A fresher roster overwrites stale roster data...
+        let mut renamed = Chat::new(id.into(), "Signal group".into());
+        renamed.kind = crate::model::ChatKind::Group;
+        renamed.participant_names = [(
+            "silent_uuid:local-signal.localhost".to_owned(),
+            "Renamed Member".to_owned(),
+        )]
+        .into_iter()
+        .collect();
+        events.send(Event::Chats(vec![renamed])).unwrap();
+        app.handle_events();
+        assert_eq!(
+            app.display_name("silent_uuid:local-signal.localhost"),
+            "~Renamed Member"
+        );
+        // ...while a name observed on an actual message stays ahead.
+        let mut msg = message(id, "m1", 1);
+        msg.sender = "wl_uuid:local-signal.localhost".into();
+        msg.sender_name = Some("~Mikael".into());
+        events
+            .send(Event::Messages {
+                chat: id.into(),
+                messages: vec![msg],
+                older: false,
+                complete: false,
+            })
+            .unwrap();
+        app.handle_events();
+        assert_eq!(
+            app.display_name("wl_uuid:local-signal.localhost"),
+            "~Mikael"
+        );
     }
 
     /// Server replies carry only the quoted message's id: the author is

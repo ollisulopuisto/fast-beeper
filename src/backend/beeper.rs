@@ -1723,6 +1723,17 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
     chat.read_only = c.is_read_only;
     if let Some(participants) = &c.participants {
         chat.participants = participants.items.iter().map(|u| u.id.clone()).collect();
+        // Members who never sent a loaded message have no other name
+        // source; without these the mention picker lists them as "Unknown".
+        chat.participant_names = participants
+            .items
+            .iter()
+            .filter_map(|u| {
+                readable_name(&u.full_name)
+                    .or_else(|| readable_name(&u.username))
+                    .map(|name| (u.id.clone(), name))
+            })
+            .collect();
     }
     chat.network = Some(network_label(c));
     chat.backend_account = Some(c.account_id.clone());
@@ -3235,6 +3246,37 @@ mod tests {
         let result = api.send_text("fixture", "hi @m", None, &mentions);
         server.join().unwrap();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn chat_participant_names_survive_mapping() {
+        let wire: BeeperChat = serde_json::from_str(
+            r#"{
+                "id": "!room:local", "accountID": "one", "network": "Signal",
+                "title": "Family", "type": "group",
+                "participants": {"items": [
+                    {"id": "@anna:local-signal.localhost", "fullName": "Anna Example"},
+                    {"id": "@bob:local-signal.localhost", "username": "bob"},
+                    {"id": "@opaque:beeper.local", "fullName": "@opaque:beeper.local"}
+                ]}
+            }"#,
+        )
+        .unwrap();
+        let chat = map_chat(&wire, &|c| c.network.clone());
+        assert_eq!(
+            chat.participant_names
+                .get("@anna:local-signal.localhost")
+                .map(String::as_str),
+            Some("Anna Example")
+        );
+        assert_eq!(
+            chat.participant_names
+                .get("@bob:local-signal.localhost")
+                .map(String::as_str),
+            Some("bob")
+        );
+        // An opaque identity is nobody's name.
+        assert!(!chat.participant_names.contains_key("@opaque:beeper.local"));
     }
 
     #[test]

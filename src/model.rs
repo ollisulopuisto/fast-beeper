@@ -282,6 +282,10 @@ pub struct Chat {
     pub favorite_position: u32,
     /// Canonical group-member ids, empty until loaded.
     pub participants: Vec<String>,
+    /// Bridge-provided display names for participants, keyed by the same
+    /// ids: members who never sent a loaded message would otherwise have
+    /// no name source at all.
+    pub participant_names: std::collections::HashMap<String, String>,
     /// Group description: `None` until metadata is fetched, `Some("")`
     /// when fetched without a description, otherwise the original text.
     pub group_description: Option<String>,
@@ -394,6 +398,7 @@ impl Chat {
             group_subject_known: false,
             kind,
             last_activity: 0,
+            participant_names: std::collections::HashMap::new(),
             unread: 0,
             marked_unread: false,
             archived: false,
