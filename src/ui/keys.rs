@@ -60,6 +60,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     {
                         let mode = if modifiers.matches_exact(Modifiers::COMMAND) {
                             Some(0)
+                        } else if modifiers
+                            .matches_exact(Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT)
+                        {
+                            Some(6)
                         } else if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::ALT) {
                             Some(1)
                         } else if (cfg!(target_os = "macos")
@@ -105,12 +109,20 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             });
             if let Some((mode, index)) = shortcut {
                 match mode {
+                    // Command+digit belongs to the favorites bar, as it does
+                    // without networks; the bar order is the shared helper's.
                     0 => {
+                        if let Some(chat) = super::chats::favorite_bar_chats(app).get(index) {
+                            app.actions.push(Action::OpenChat(chat.id.clone()));
+                        }
+                    }
+                    // Networks move to Command+Alt+digit, pins a Shift higher.
+                    1 => {
                         if let Some(network) = networks.get(index) {
                             app.select_beeper_scope(Some(network.clone()), None);
                         }
                     }
-                    1 => {
+                    6 => {
                         if let Some(chat) = app.beeper_global_pins().get(index) {
                             app.actions.push(Action::OpenChat(chat.id.clone()));
                         }
@@ -988,6 +1000,7 @@ fn next_account_action(app: &App) -> Option<Action> {
 
 /// Control held with no other modifier: on macOS, Command+Control is
 /// Command's, which `consume_key` would also match as Control.
+#[cfg(any(target_os = "macos", test))]
 fn control_alone(modifiers: Modifiers) -> bool {
     modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd && !modifiers.alt && !modifiers.shift
 }
@@ -1782,10 +1795,46 @@ mod tests {
         let (_root, mut app, _ids) = app_with_chats(2);
         let ctx = egui::Context::default();
         let field = egui::Id::new("composer-text");
-        egui::TextEditState::default().store(&ctx, field);
+        egui::widgets::text_edit::TextEditState::default().store(&ctx, field);
         ctx.memory_mut(|memory| memory.request_focus(field));
         assert!(press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
         assert!(app.actions.is_empty());
+    }
+
+    /// With Beeper networks present, Command+digit still opens the
+    /// favorites bar; networks moved to Command+Alt+digit and pins a
+    /// Shift higher, so the bar's promise holds in every account setup.
+    #[test]
+    fn beeper_shortcuts_keep_command_digit_on_the_favorites_bar() {
+        let (_root, mut app, ids) = app_with_chats(3);
+        favorite_all(&mut app);
+        for chat in &mut app.chats {
+            chat.backend_network = Some("whatsapp".into());
+        }
+        let ctx = egui::Context::default();
+        // Command+1 opens the bar's first favorite, not the first network.
+        assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND));
+        assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
+        assert!(app.beeper_network_filter.is_none());
+        app.actions.clear();
+        // Command+Alt+1 picks the first network.
+        assert!(!press(
+            &mut app,
+            &ctx,
+            Key::Num1,
+            Modifiers::COMMAND | Modifiers::ALT
+        ));
+        assert_eq!(app.beeper_network_filter.as_deref(), Some("whatsapp"));
+        app.beeper_network_filter = None;
+        // Command+Alt+Shift+1 opens the first global pin.
+        app.chats[1].pinned = true;
+        assert!(!press(
+            &mut app,
+            &ctx,
+            Key::Num1,
+            Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT
+        ));
+        assert!(app.actions.contains(&Action::OpenChat(ids[1].clone())));
     }
 
     /// Ctrl+Shift+1 and Ctrl+Shift+2 (Cmd on macOS) lead to the rail's
