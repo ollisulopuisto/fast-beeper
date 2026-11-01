@@ -318,7 +318,11 @@ fn install_reopen_handler() {
             std::ptr::from_ref(class).cast_mut(),
             active_sel,
             std::mem::transmute::<
-                unsafe extern "C-unwind" fn(&objc2::runtime::AnyObject, Sel, &objc2::runtime::AnyObject),
+                unsafe extern "C-unwind" fn(
+                    &objc2::runtime::AnyObject,
+                    Sel,
+                    &objc2::runtime::AnyObject,
+                ),
                 Imp,
             >(did_become_active),
             active_description.types,
