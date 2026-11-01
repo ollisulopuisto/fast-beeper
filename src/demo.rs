@@ -14360,7 +14360,7 @@ mod tests {
             .filter(|node| node.label() == Some("Mute notifications"))
             .map(|node| {
                 (
-                    node.bounds().map(|bounds| (bounds.min.y, bounds.min.x)),
+                    node.bounds().map(|bounds| (bounds.y0, bounds.x0)),
                     node.toggled() == Some(egui::accesskit::Toggled::True),
                 )
             })
