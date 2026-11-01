@@ -108,6 +108,154 @@ func launch(_ connection: Connection) throws {
           !token.isEmpty, token.count <= 16384, !token.contains("\r"), !token.contains("\n")
     else { throw LaunchError.target }
 
+    // Send Later setup: the Server Mac needs the scheduler daemon for
+    // scheduled sends while this app is closed. Offer a one-time install of
+    // the bundled daemon; nothing is installed or started without approval.
+    func offerSchedulerInstall(_ connection: Connection, beeperToken: String) {
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-scheduler")
+        guard manager.isExecutableFile(atPath: bundled.path) else { return }
+        let declined = profile.appendingPathComponent("scheduler-install-declined")
+        guard !manager.fileExists(atPath: declined.path) else { return }
+        let check = ssh(connection, extra: ["pgrep -f zapfast-scheduler >/dev/null 2>&1 && echo RUNNING || true"])
+        let checkOut = Pipe()
+        check.standardOutput = checkOut
+        guard (try? check.run()) != nil else { return }
+        let checkTimeout = DispatchWorkItem { stop(check) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: checkTimeout)
+        let checkData = checkOut.fileHandleForReading.readDataToEndOfFile()
+        checkTimeout.cancel()
+        check.waitUntilExit()
+        guard check.terminationStatus == 0,
+              !String(decoding: checkData, as: UTF8.self).contains("RUNNING") else { return }
+        let alert = NSAlert()
+        alert.messageText = "Set up Send Later on \(connection.host)?"
+        alert.informativeText = "ZapFast can copy its scheduler to the Server Mac and start it as a login agent, so scheduled messages send even when this app is closed. Nothing else changes, and you can remove it later (see contrib/send-later)."
+        alert.addButton(withTitle: "Install")
+        alert.addButton(withTitle: "Later")
+        alert.addButton(withTitle: "Don't Ask Again")
+        app.activate(ignoringOtherApps: true)
+        let choice = alert.runModal()
+        if choice == .alertThirdButtonReturn {
+            try? Data().write(to: declined)
+            return
+        }
+        guard choice == .alertFirstButtonReturn else { return }
+        installScheduler(connection, bundled: bundled, beeperToken: beeperToken)
+    }
+
+    // Runs a script on the Server Mac over the existing SSH trust. The
+    // script travels as one argument; only file payloads travel on stdin.
+    func remote(_ connection: Connection, _ script: String, stdin: Data? = nil) -> (Int32, Data) {
+        let process = ssh(connection, extra: [script])
+        let out = Pipe()
+        process.standardOutput = out
+        let input = stdin.map { _ in Pipe() }
+        if let input { process.standardInput = input }
+        guard (try? process.run()) != nil else { return (-1, Data()) }
+        let timeout = DispatchWorkItem { stop(process) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
+        if let input, let stdin {
+            try? input.fileHandleForWriting.write(contentsOf: stdin)
+            try? input.fileHandleForWriting.close()
+        }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        timeout.cancel()
+        process.waitUntilExit()
+        return (process.terminationStatus, data)
+    }
+
+    // Mirrors contrib/send-later/install_macos.sh over SSH: bundled daemon,
+    // 0600 control token, launchd agent. Tokens never travel on argv.
+    func installScheduler(_ connection: Connection, bundled: URL, beeperToken: String) {
+        let arch = remote(connection, "uname -m")
+        guard arch.0 == 0,
+              String(decoding: arch.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "arm64" else {
+            let alert = NSAlert()
+            alert.messageText = "Send Later needs an Apple Silicon Server Mac"
+            alert.informativeText = "The bundled scheduler runs on Apple Silicon only. Send Later stays off; everything else keeps working."
+            alert.runModal()
+            return
+        }
+        guard let binaryData = try? Data(contentsOf: bundled) else { return }
+        let copy = remote(connection, """
+        mkdir -p "$HOME/Library/Application Support/zapfast/bin" "$HOME/Library/LaunchAgents" "$HOME/.config/zapfast"
+        chmod 700 "$HOME/Library/Application Support/zapfast" "$HOME/.config/zapfast"
+        cat > "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
+        chmod 755 "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
+        """, stdin: binaryData)
+        guard copy.0 == 0 else { installFailed(connection); return }
+        let tokens = remote(connection, """
+        APP_SUPPORT="$HOME/Library/Application Support/zapfast"
+        [ -f "$APP_SUPPORT/scheduler-token" ] || openssl rand -hex 32 > "$APP_SUPPORT/scheduler-token"
+        chmod 600 "$APP_SUPPORT/scheduler-token"
+        ln -sf "$APP_SUPPORT/scheduler-token" "$HOME/.config/zapfast/scheduler-token"
+        [ -f "$APP_SUPPORT/beeper-token" ] && echo HAVE || echo NEED
+        """)
+        guard tokens.0 == 0 else { installFailed(connection); return }
+        if String(decoding: tokens.1, as: UTF8.self).contains("NEED") {
+            _ = remote(connection, "umask 077 && cat > \"$HOME/Library/Application Support/zapfast/beeper-token\"",
+                       stdin: Data(beeperToken.utf8))
+        }
+        let service = remote(connection, """
+        APP_SUPPORT="$HOME/Library/Application Support/zapfast"
+        PLIST="$HOME/Library/LaunchAgents/com.zapfast.scheduler.plist"
+        cat > "$PLIST" <<PLIST
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>com.zapfast.scheduler</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>$APP_SUPPORT/bin/zapfast-scheduler</string>
+            </array>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>ZAPFAST_LISTEN</key>
+                <string>127.0.0.1:23376</string>
+                <key>BEEPER_BASE_URL</key>
+                <string>http://127.0.0.1:23374</string>
+                <key>BEEPER_ACCESS_TOKEN_FILE</key>
+                <string>$APP_SUPPORT/beeper-token</string>
+                <key>ZAPFAST_CONTROL_TOKEN_FILE</key>
+                <string>$APP_SUPPORT/scheduler-token</string>
+                <key>ZAPFAST_QUEUE_PATH</key>
+                <string>$APP_SUPPORT/queue.json</string>
+            </dict>
+            <key>KeepAlive</key>
+            <true/>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>StandardOutPath</key>
+            <string>$APP_SUPPORT/scheduler.log</string>
+            <key>StandardErrorPath</key>
+            <string>$APP_SUPPORT/scheduler.log</string>
+        </dict>
+        </plist>
+        PLIST
+        launchctl unload "$PLIST" 2>/dev/null || true
+        launchctl load "$PLIST"
+        sleep 1
+        pgrep -f zapfast-scheduler >/dev/null && echo RUNNING
+        """)
+        if String(decoding: service.1, as: UTF8.self).contains("RUNNING") {
+            let alert = NSAlert()
+            alert.messageText = "Send Later is set up"
+            alert.informativeText = "The scheduler is running on \(connection.host) as a login agent."
+            alert.runModal()
+        } else {
+            installFailed(connection)
+        }
+    }
+
+    func installFailed(_ connection: Connection) {
+        let alert = NSAlert()
+        alert.messageText = "Send Later setup did not finish"
+        alert.informativeText = "Nothing else changed on \(connection.host). You can retry next launch or run contrib/send-later/install_macos.sh on the Server Mac."
+        alert.runModal()
+    }
+
     // The remote ready marker is emitted only after SSH has established forwarding.
     // Merely checking isRunning before authentication could send a token to an old listener.
     // Send Later rides the same SSH trust: forward the scheduler socket too,
@@ -150,6 +298,8 @@ func launch(_ connection: Connection) throws {
         // synced scheduler token to whatever occupies the local port.
         try? manager.removeItem(at: profile.appendingPathComponent("config/scheduler-token"))
     }
+
+    offerSchedulerInstall(connection, beeperToken: token)
 
     // Best effort: the scheduler's control token lives only on the Server Mac
     // and reaches this Mac through the same SSH trust, 0600 on both ends.
