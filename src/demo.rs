@@ -2009,11 +2009,19 @@ fn starred_sample(app: &mut App, menu: Option<&str>) {
 /// so the sidebar's Networks and Queues sections render in demo shots.
 fn networks_sample(app: &mut App) {
     const ORIGIN: &str = "http://127.0.0.1:23374";
-    let networks = ["WhatsApp", "Signal", "Telegram", "Discord"];
+    // Each chat belongs to an account the inventory knows, so the account
+    // rows are the accounts' own rather than phantom chat-derived ones.
+    let backends = [
+        ("WhatsApp", "wa-personal"),
+        ("Signal", "signal"),
+        ("Telegram", "telegram"),
+        ("Discord", "discord"),
+        ("WhatsApp", "wa-work"),
+    ];
     for (index, chat) in app.chats.iter_mut().enumerate() {
-        let network = networks[index % networks.len()];
+        let (network, account) = backends[index % backends.len()];
         chat.backend_network = Some(network.into());
-        chat.backend_account = Some("one".into());
+        chat.backend_account = Some(account.into());
         chat.backend_origin = Some(ORIGIN.into());
     }
     let account = |id: &str, name: &str, network: &str| crate::backend::BeeperAccountInfo {
@@ -2025,11 +2033,11 @@ fn networks_sample(app: &mut App) {
     app.beeper_accounts.insert(
         ORIGIN.into(),
         vec![
-            account("wa-personal", "WhatsApp \u{00b7} Personal", "WhatsApp"),
-            account("wa-work", "WhatsApp \u{00b7} Studio", "WhatsApp"),
-            account("signal", "Signal \u{00b7} Personal", "Signal"),
-            account("telegram", "Telegram \u{00b7} Personal", "Telegram"),
-            account("discord", "Discord \u{00b7} Personal", "Discord"),
+            account("wa-personal", "Personal", "WhatsApp"),
+            account("wa-work", "Studio", "WhatsApp"),
+            account("signal", "Personal", "Signal"),
+            account("telegram", "Personal", "Telegram"),
+            account("discord", "Personal", "Discord"),
         ],
     );
     app.beeper_network_filter = Some("WhatsApp".into());
