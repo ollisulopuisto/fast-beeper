@@ -640,6 +640,7 @@ impl Default for Settings {
             window_height: None,
             window_x: None,
             window_y: None,
+            silenced: Default::default(),
             window_maximized: false,
         }
     }
