@@ -12088,6 +12088,112 @@ mod reaction_tests {
         assert!(labels.iter().any(|label| label == "Markierung entfernen"));
         assert!(labels.iter().any(|label| label == "Markieren"));
     }
+    /// The pencil on a staged picture means the tile opens the cropper, the
+    /// corner cross only removes, and a document's tile does neither.
+    #[test]
+    fn clicking_a_staged_picture_opens_it_and_the_cross_only_removes() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            crate::settings::Settings::default(),
+        );
+        let pasted = app.stage(crate::app::Pending::Picture {
+            width: 4,
+            height: 4,
+            rgba: std::sync::Arc::new(vec![255; 4 * 4 * 4]),
+            texture: None,
+        });
+        let file = app.stage(crate::app::Pending::File(std::path::PathBuf::from(
+            "/fixture/photo.jpg",
+        )));
+        app.stage(crate::app::Pending::Document(std::path::PathBuf::from(
+            "/fixture/photo.jpg",
+        )));
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let origin = std::cell::Cell::new(egui::Pos2::ZERO);
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400.0, 120.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    origin.set(ui.cursor().min);
+                    pending_strip(app, ui);
+                },
+            );
+            output.textures_delta.clear();
+        };
+        run(&mut app, vec![]);
+        let click = |at: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        let opened = |app: &mut App, at: egui::Pos2| {
+            run(app, click(at));
+            std::mem::take(&mut app.actions)
+        };
+        let start = origin.get();
+        // The pencil's tile: a click opens the picture in the cropper.
+        let actions = opened(&mut app, start + egui::vec2(36.0, 36.0));
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::EditPicture(id) if *id == pasted)),
+            "clicking the picture tile opens it for editing: {actions:?}"
+        );
+        // A picture staged as a file opens the same way, through its size read.
+        let actions = opened(&mut app, start + egui::vec2(72.0 + 8.0 + 36.0, 36.0));
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::EditPicture(id) if *id == file)),
+            "clicking the picture file tile opens it for editing: {actions:?}"
+        );
+        // A document cannot be edited, so its tile does not pretend to open.
+        let actions = opened(
+            &mut app,
+            start + egui::vec2(2.0 * (72.0 + 8.0) + 36.0, 36.0),
+        );
+        assert!(
+            actions
+                .iter()
+                .all(|action| !matches!(action, Action::EditPicture(_))),
+            "a document tile opens nothing: {actions:?}"
+        );
+        // The corner cross removes its picture instead of opening it.
+        let actions = opened(&mut app, start + egui::vec2(62.0, 10.0));
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::RemovePending(0))),
+            "the cross removes the first tile: {actions:?}"
+        );
+        assert!(
+            actions
+                .iter()
+                .all(|action| !matches!(action, Action::EditPicture(_))),
+            "the cross does not open the editor: {actions:?}"
+        );
+    }
 }
 
 /// Pending attachment tiles above the composer.
