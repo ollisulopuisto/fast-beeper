@@ -2005,6 +2005,36 @@ fn starred_sample(app: &mut App, menu: Option<&str>) {
 
 /// Configures synthetic offline demo states and appearance for tests and screenshots.
 /// Audio fixtures vary voice-note and forwarding metadata independently without playback.
+/// Tags the sample chats with Beeper-style backend networks and accounts,
+/// so the sidebar's Networks and Queues sections render in demo shots.
+fn networks_sample(app: &mut App) {
+    const ORIGIN: &str = "http://127.0.0.1:23374";
+    let networks = ["WhatsApp", "Signal", "Telegram", "Discord"];
+    for (index, chat) in app.chats.iter_mut().enumerate() {
+        let network = networks[index % networks.len()];
+        chat.backend_network = Some(network.into());
+        chat.backend_account = Some("one".into());
+        chat.backend_origin = Some(ORIGIN.into());
+    }
+    let account = |id: &str, name: &str, network: &str| crate::backend::BeeperAccountInfo {
+        id: id.into(),
+        name: name.into(),
+        network: network.into(),
+        status: "connected".into(),
+    };
+    app.beeper_accounts.insert(
+        ORIGIN.into(),
+        vec![
+            account("wa-personal", "WhatsApp \u{00b7} Personal", "WhatsApp"),
+            account("wa-work", "WhatsApp \u{00b7} Studio", "WhatsApp"),
+            account("signal", "Signal \u{00b7} Personal", "Signal"),
+            account("telegram", "Telegram \u{00b7} Personal", "Telegram"),
+            account("discord", "Discord \u{00b7} Personal", "Discord"),
+        ],
+    );
+    app.beeper_network_filter = Some("WhatsApp".into());
+}
+
 pub fn apply_flags(app: &mut App, page: Option<&str>) {
     let Some(page) = page else {
         return;
@@ -3653,6 +3683,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 }
                 app.chat_search_calendar = true;
             }
+            // A Beeper-style multi-network sidebar: the Networks section
+            // and the active network's accounts render, which also reveals
+            // the Queues section.
+            "networks" => networks_sample(app),
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
             "favorites" => app.chat_filter = crate::model::ChatFilter::Favorites,
