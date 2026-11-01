@@ -28,6 +28,12 @@ func valid(_ value: String, pattern: String) -> Bool {
 
 func configure() -> Connection? {
     let saved = (try? Data(contentsOf: configURL)).flatMap { try? JSONDecoder().decode(Connection.self, from: $0) }
+    // Autojoin: a saved connection launches without asking, so opening the app
+    // joins the Server directly. The setup alert stays reachable on purpose:
+    // pass `--reconfigure` or hold Option while the app opens.
+    if let saved,
+       !CommandLine.arguments.contains("--reconfigure"),
+       !NSEvent.modifierFlags.contains(.option) { return saved }
     let alert = NSAlert()
     alert.messageText = "Connect to your existing Beeper Server"
     alert.informativeText = "Server runs on your other Mac. Use its SSH hostname or Tailscale IP and your SSH username. Existing key access is required; this app never asks for or saves an SSH password. It does not install Server or link networks."
