@@ -655,11 +655,14 @@ impl Archive {
 
     /// Brings an archived chat back for a message sent at `timestamp`
     /// (milliseconds), as the phone does with "Keep chats archived" off. A
-    /// message from before the chat was archived leaves it there.
+    /// message from before the chat was archived leaves it there. A chat
+    /// muted forever (Silence) never resurfaces on its own: only Unarchive
+    /// or Unmute brings it back.
     pub fn unarchive_for_message(&self, id: &str, timestamp: i64) -> Result<()> {
         self.connection.execute(
             "UPDATE chats SET archived = 0, archive_updated_at = ?2 WHERE id = ?1
-                AND archived AND (archive_updated_at IS NULL OR archive_updated_at < ?2)",
+                AND archived AND muted_until IS NOT 0
+                AND (archive_updated_at IS NULL OR archive_updated_at < ?2)",
             params![id, timestamp],
         )?;
         Ok(())
@@ -3795,6 +3798,26 @@ pub(crate) mod tests {
         assert_eq!(archive.unarchive_chats().unwrap(), Some(true));
         assert!(!archive.set_unarchive_chats_at(false, 300).unwrap());
         assert_eq!(archive.unarchive_chats().unwrap(), Some(false));
+    }
+
+    #[test]
+    fn a_forever_muted_chat_stays_archived_for_new_messages() {
+        let archive = Archive::in_memory().expect("archive");
+        let id = "group@g.us";
+        archive.ensure_chat(id, "Group").unwrap();
+        archive.set_archived_at(id, true, 100).unwrap();
+        archive.unarchive_for_message(id, 200).unwrap();
+        assert!(!archive.chat(id).unwrap().unwrap().archived);
+        // Silence: muted forever and archived again; new messages must not
+        // bring the chat back, newer or older than the archiving.
+        archive.set_archived_at(id, true, 300).unwrap();
+        archive.set_muted_at(id, Some(0), 300).unwrap();
+        archive.unarchive_for_message(id, 400).unwrap();
+        assert!(archive.chat(id).unwrap().unwrap().archived);
+        // A time-boxed mute does not hold the chat in the archive.
+        archive.set_muted_at(id, Some(1000), 500).unwrap();
+        archive.unarchive_for_message(id, 600).unwrap();
+        assert!(!archive.chat(id).unwrap().unwrap().archived);
     }
 
     #[test]
