@@ -2362,10 +2362,7 @@ mod tests {
         );
 
         let choices = super::contact_choices(&app, "");
-        let names: Vec<_> = choices
-            .iter()
-            .map(|c| app.display_name(&c.id))
-            .collect();
+        let names: Vec<_> = choices.iter().map(|c| app.display_name(&c.id)).collect();
         assert_eq!(names, vec!["Alice Smith", "bob jones", "São Paulo Support"]);
     }
 
