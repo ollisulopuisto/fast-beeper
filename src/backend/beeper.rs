@@ -745,17 +745,113 @@ impl Api {
         Ok(())
     }
 
-    fn change_chat(&self, chat: &str, field: &str, value: bool) -> Result<(), String> {
-        self.mutate(
-            reqwest::Method::PATCH,
-            &format!("/v1/chats/{}", encode_segment(chat)),
-            Some(serde_json::json!({field: value})),
-        )
+    /// Patches one boolean chat field. A successful PATCH answers with the
+    /// chat itself, and the echoed field is the proof the change held: it
+    /// tells a slow or refusing bridge apart from a confirmed change.
+    /// `Ok(None)` means the answer carried no proof either way.
+    fn change_chat(&self, chat: &str, field: &str, value: bool) -> Result<Option<bool>, String> {
+        if self.read_only {
+            return Err("Beeper read-only mode: no changes were sent".into());
+        }
+        let response = self
+            .http
+            .request(
+                reqwest::Method::PATCH,
+                format!("{}/v1/chats/{}", self.base_url, encode_segment(chat)),
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(serde_json::json!({field: value}).to_string())
+            .send()
+            .map_err(|_| "Beeper change could not be confirmed; refresh before retrying")?;
+        if !response.status().is_success() {
+            return Err(format!("Beeper change refused: {}", response.status()));
+        }
+        let body = response.text().unwrap_or_default();
+        if body.trim().is_empty() {
+            return Ok(None);
+        }
+        #[derive(Deserialize)]
+        struct Echo {
+            #[serde(rename = "isMuted")]
+            is_muted: Option<bool>,
+            #[serde(rename = "isArchived")]
+            is_archived: Option<bool>,
+            #[serde(rename = "isPinned")]
+            is_pinned: Option<bool>,
+        }
+        let echo: Echo = serde_json::from_str(&body).map_err(|_| {
+            "Beeper's answer to the change was unreadable; refresh before retrying".to_string()
+        })?;
+        Ok(match field {
+            "isMuted" => echo.is_muted,
+            "isArchived" => echo.is_archived,
+            "isPinned" => echo.is_pinned,
+            _ => None,
+        })
+    }
+
+    /// Whether freshly synced chat state shows the change just sent. An
+    /// archived chat can leave the listing entirely: that is the archive
+    /// holding, not a refusal.
+    fn change_applied(field: &str, expected: bool, found: Option<&BeeperChat>) -> bool {
+        match found {
+            Some(chat) => {
+                let shown = match field {
+                    "isMuted" => chat.is_muted,
+                    "isArchived" => chat.is_archived,
+                    "isPinned" => chat.is_pinned,
+                    _ => return true,
+                };
+                shown == expected
+            }
+            None => field == "isArchived" && expected,
+        }
+    }
+
+    /// The change may still be applying, or the bridge may not support it:
+    /// say what is known and where the user's intent still holds.
+    fn unconfirmed_change(change: &str, held_locally: bool) -> String {
+        if held_locally {
+            format!(
+                "Beeper hasn't confirmed the {change} on its side; it still holds in fast-beeper, but other apps may not follow"
+            )
+        } else {
+            format!(
+                "Beeper hasn't confirmed the {change} on its side; check the chat before relying on it"
+            )
+        }
     }
 
     fn refresh_chat(&self, chat: &str, accounts: &[BeeperAccount], emit: &dyn Fn(Event)) {
-        let _ = chat;
+        self.refresh_chat_expecting(chat, None, accounts, emit);
+    }
+
+    /// Re-fetches the chat list after a change. When `expect` names the
+    /// field, value and local hold of that change, a list that does not show
+    /// it earns one honest report: the bridge may still be applying it, or
+    /// the account may not support it at all.
+    fn refresh_chat_expecting(
+        &self,
+        chat: &str,
+        expect: Option<(&str, bool, bool)>,
+        accounts: &[BeeperAccount],
+        emit: &dyn Fn(Event),
+    ) {
         if let Ok(page) = self.list_chats() {
+            if let Some((field, expected, held)) = expect {
+                let found = page.items.iter().find(|c| c.id == chat);
+                if !Self::change_applied(field, expected, found) {
+                    let label = match (field, expected) {
+                        ("isMuted", true) => "mute",
+                        ("isMuted", false) => "unmute",
+                        ("isArchived", true) => "archive",
+                        ("isArchived", false) => "unarchive",
+                        ("isPinned", true) => "pin",
+                        _ => "unpin",
+                    };
+                    emit(Event::Info(Self::unconfirmed_change(label, held)));
+                }
+            }
             let label = network_labeller(&page.items, accounts);
             emit(Event::Chats(
                 page.items
@@ -2472,13 +2568,24 @@ pub fn run(
                     }
                 }
                 Command::SetArchived(chat, value) => {
-                    if let Err(e) = api.post(
+                    match api.post(
                         &format!("/v1/chats/{}/archive", encode_segment(&chat)),
                         serde_json::json!({"archived": value}),
                     ) {
-                        emit(Event::Info(e));
+                        // The archive POST echoes nothing: the refreshed list
+                        // answers instead. A local Silence promise holds the
+                        // archived state either way.
+                        Ok(()) => api.refresh_chat_expecting(
+                            &chat,
+                            Some(("isArchived", value, value)),
+                            &accounts,
+                            &emit,
+                        ),
+                        Err(e) => {
+                            emit(Event::Info(e));
+                            api.refresh_chat(&chat, &accounts, &emit);
+                        }
                     }
-                    api.refresh_chat(&chat, &accounts, &emit);
                     last_chat_refresh = Instant::now() - CHAT_REFRESH;
                 }
                 Command::SetPinned(chat, value) => {
@@ -2493,10 +2600,36 @@ pub fn run(
                         emit(Event::Info(
                             "Beeper supports indefinite mute only; no timed mute was sent".into(),
                         ));
-                    } else if let Err(e) = api.change_chat(&chat, "isMuted", until.is_some()) {
-                        emit(Event::Info(e));
+                        api.refresh_chat(&chat, &accounts, &emit);
+                    } else {
+                        let expected = until.is_some();
+                        // A forever mute is also a local promise ("Hide and
+                        // mute indefinitely"): what the bridge drops still
+                        // holds here.
+                        let held = until == Some(0);
+                        match api.change_chat(&chat, "isMuted", expected) {
+                            Ok(Some(echo)) => {
+                                if echo != expected {
+                                    emit(Event::Info(Self::unconfirmed_change(
+                                        if expected { "mute" } else { "unmute" },
+                                        held,
+                                    )));
+                                }
+                                api.refresh_chat(&chat, &accounts, &emit);
+                            }
+                            // No echo to check: the refreshed list answers.
+                            Ok(None) => api.refresh_chat_expecting(
+                                &chat,
+                                Some(("isMuted", expected, held)),
+                                &accounts,
+                                &emit,
+                            ),
+                            Err(e) => {
+                                emit(Event::Info(e));
+                                api.refresh_chat(&chat, &accounts, &emit);
+                            }
+                        }
                     }
-                    api.refresh_chat(&chat, &accounts, &emit);
                     last_chat_refresh = Instant::now() - CHAT_REFRESH;
                 }
                 Command::EditText {
@@ -4339,6 +4472,10 @@ mod tests {
                         ("GET", p) if p.contains("/messages/") => r#"{"id":"m/4","chatID":"work/chat","accountID":"local-whatsapp*ba*222","text":"updated fixture","isSender":true,"editedTimestamp":"2026-10-27T17:00:00Z","reactions":[{"participantID":"@me-work:beeper.local","reactionKey":"👍","emoji":true}]}"#.to_string(),
                         ("GET", p) if p.starts_with("/v1/chats/") => r#"{"id":"work/chat","accountID":"local-whatsapp*ba*222","network":"WhatsApp","title":"Work fixture"}"#.to_string(),
                         ("POST", p) if p.ends_with("/messages") => r#"{"pendingMessageID":"pending-test"}"#.to_string(),
+                        ("PATCH", p) if p.starts_with("/v1/chats/") => {
+                            r#"{"id":"work/chat","isMuted":true,"isArchived":true,"isPinned":false}"#
+                                .to_string()
+                        }
                         _ => "{}".to_string(),
                     };
                         let response = format!(
@@ -4619,6 +4756,84 @@ mod tests {
         assert_eq!(
             writes[0].1,
             "/v1/chats/work%2Fchat/messages/m%2F4/reactions/%F0%9F%91%8D"
+        );
+        stop.store(true, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn a_change_chat_patch_reads_the_returned_chat() {
+        let (base, _requests, stop) = start_stub();
+        let api = Api::new(&BeeperConfig {
+            base_url: base,
+            token: "test".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            api.change_chat("work/chat", "isMuted", true).unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            api.change_chat("work/chat", "isPinned", true).unwrap(),
+            Some(false)
+        );
+        // A field the answer does not carry stays unknown, not a refusal.
+        assert_eq!(
+            api.change_chat("work/chat", "isLowPriority", true).unwrap(),
+            None
+        );
+        stop.store(true, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn a_synced_list_proves_or_disproves_a_change() {
+        let chat: BeeperChat =
+            serde_json::from_str(r#"{"id":"c","accountID":"a","isMuted":true}"#).unwrap();
+        assert!(Api::change_applied("isMuted", true, Some(&chat)));
+        assert!(!Api::change_applied("isMuted", false, Some(&chat)));
+        // An archived chat can leave the listing: the archive held.
+        assert!(Api::change_applied("isArchived", true, None));
+        assert!(!Api::change_applied("isArchived", false, None));
+        assert!(!Api::change_applied("isMuted", true, None));
+    }
+
+    #[test]
+    fn an_unconfirmed_change_is_reported_where_it_holds() {
+        let (base, _requests, stop) = start_stub();
+        let api = Api::new(&BeeperConfig {
+            base_url: base,
+            token: "test".into(),
+        })
+        .unwrap();
+        // CHATS_JSON lists "!fam:beeper.local" unmuted: expecting a mute
+        // earns a report that names where the intent still holds.
+        let events = Mutex::new(Vec::new());
+        api.refresh_chat_expecting(
+            "!fam:beeper.local",
+            Some(("isMuted", true, true)),
+            &[],
+            &|e: Event| events.lock().unwrap().push(e),
+        );
+        let events = events.into_inner().unwrap();
+        assert!(
+            events.iter().any(|e| matches!(e, Event::Info(m)
+                if m.contains("hasn't confirmed the mute") && m.contains("still holds in fast-beeper"))),
+            "expected an unconfirmed-mute report, got {events:?}"
+        );
+        assert!(events.iter().any(|e| matches!(e, Event::Chats(_))));
+        // The list showing the expected state earns no report.
+        let events = Mutex::new(Vec::new());
+        api.refresh_chat_expecting(
+            "!fam:beeper.local",
+            Some(("isMuted", false, false)),
+            &[],
+            &|e: Event| events.lock().unwrap().push(e),
+        );
+        let events = events.into_inner().unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::Info(m) if m.contains("hasn't confirmed"))),
+            "expected no report, got {events:?}"
         );
         stop.store(true, Ordering::Relaxed);
     }
