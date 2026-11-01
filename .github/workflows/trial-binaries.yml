@@ -172,6 +172,11 @@ jobs:
           shot chat-700x600 700x600 chat
           shot chat-640x780 640x780 chat
           shot chat-600x780 600x780 chat
+          # Populated multi-network sidebar: Networks with the active
+          # network's accounts, and the Queues section it reveals.
+          shot chat-networks-1180x780 1180x780 chat,networks
+          # The same populated sidebar on a dark preset.
+          shot chat-dark-networks-1180x780 1180x780 chat,networks,theme=Catppuccin.json
           # The list hidden: avatars fill the compact rail.
           shot rail-1180x780 1180x780 rail
           # Settings keeps its old content width beside the compact rail.
