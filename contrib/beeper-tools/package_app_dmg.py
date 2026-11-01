@@ -71,6 +71,14 @@ def create(root, binary, output, version, commit, scheduler=None):
                 raise ValueError('Mounted app icon missing')
             subprocess.run(['codesign', '--verify', '--strict', '--deep', str(app)], check=True)
             subprocess.run(['lipo', str(app / 'Contents/MacOS/zapfast-client'), '-verify_arch', 'arm64'], check=True)
+            if scheduler is not None:
+                sidecar = app / 'Contents/MacOS/zapfast-scheduler'
+                if not sidecar.is_file():
+                    raise ValueError('Mounted DMG scheduler missing')
+                subprocess.run(['lipo', str(sidecar), '-verify_arch', 'arm64'], check=True)
+                subprocess.run(['codesign', '--verify', '--strict', str(sidecar)], check=True)
+                if not (app / 'Contents/Resources/scheduler-health.sh').is_file():
+                    raise ValueError('Mounted DMG scheduler health helper missing')
         finally:
             subprocess.run(['hdiutil', 'detach', str(mount)], check=True)
         (publish / (image.name + '.sha256')).write_text(
