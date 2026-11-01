@@ -2007,7 +2007,44 @@ impl App {
 
     /// What the conversation shows behind its bubbles, for the chat and the
     /// wallpaper preview alike.
+    /// The palette the open conversation draws with: the account's theme
+    /// override when its chat is open, the window's global palette otherwise.
+    /// Nothing here mutates the global palette, so the override can never
+    /// bleed into the chrome, the chat list or other accounts' chats.
+    pub fn conversation_palette(&self) -> crate::theme::Palette {
+        let choice = self
+            .current_chat()
+            .and_then(|chat| chat.backend_account.as_deref())
+            .and_then(|account| self.settings.beeper.accounts.get(account))
+            .and_then(|prefs| prefs.theme);
+        match choice {
+            None | Some(crate::settings::ThemeChoice::System) => self.palette,
+            Some(crate::settings::ThemeChoice::Light) => crate::theme::Palette::light(),
+            Some(crate::settings::ThemeChoice::Dark) => crate::theme::Palette::dark(),
+            // Messages follows the override's own light/dark; without one it
+            // keeps the window's dark sense so the greys never clash.
+            Some(crate::settings::ThemeChoice::Messages) => {
+                if self.palette.dark {
+                    crate::theme::Palette::messages()
+                } else {
+                    crate::theme::Palette::messages_light()
+                }
+            }
+        }
+    }
+
     pub fn wallpaper(&self) -> crate::wallpaper::Look {
+        self.wallpaper_for(&self.palette)
+    }
+
+    /// The open conversation's wallpaper: account theme and background
+    /// overrides resolved against the conversation palette, not the global
+    /// one, so a dark account theme picks the account's dark background.
+    pub fn conversation_wallpaper(&self) -> crate::wallpaper::Look {
+        self.wallpaper_for(&self.conversation_palette())
+    }
+
+    fn wallpaper_for(&self, palette: &crate::theme::Palette) -> crate::wallpaper::Look {
         // An open chat on a Beeper account may override the background for
         // that account; everything else follows the global pick.
         let account_pick = self
@@ -2015,23 +2052,23 @@ impl App {
             .and_then(|chat| chat.backend_account.as_deref())
             .and_then(|account| self.settings.beeper.accounts.get(account))
             .and_then(|prefs| {
-                if self.palette.dark {
+                if palette.dark {
                     prefs.dark_background
                 } else {
                     prefs.background
                 }
             });
         let mut color = account_pick
-            .map(|pick| pick.color32(&self.palette))
-            .unwrap_or_else(|| self.settings.wallpaper_background(&self.palette));
-        if self.palette.vibrant() {
-            color = self.palette.vibrant_chat(color);
+            .map(|pick| pick.color32(palette))
+            .unwrap_or_else(|| self.settings.wallpaper_background(palette));
+        if palette.vibrant() {
+            color = palette.vibrant_chat(color);
         }
         crate::wallpaper::Look {
             color,
             // Messages draws its conversations on a plain background.
             doodles: self.settings.show_wallpaper
-                && self.palette.bubbles != crate::theme::BubbleStyle::Messages,
+                && palette.bubbles != crate::theme::BubbleStyle::Messages,
             image: self
                 .account()
                 .settings
@@ -25375,5 +25412,74 @@ mod account_background_tests {
             app.wallpaper().color,
             WallpaperColor::Cruise.color32(&app.palette)
         );
+    }
+}
+
+/// Per-account conversation theme: the open chat's account override picks
+/// the palette the conversation draws with; the window chrome never follows.
+#[cfg(test)]
+mod conversation_palette_tests {
+    use super::*;
+    use crate::settings::ThemeChoice;
+    use crate::theme::Palette;
+
+    fn app() -> App {
+        let root = std::env::temp_dir().join(format!("zapfast-accttheme-{}", std::process::id()));
+        App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    fn open_account_chat(app: &mut App, account: &str) {
+        let chat = Chat {
+            backend_account: Some(account.into()),
+            ..Chat::new("ada@s.whatsapp.net".into(), "Ada".into())
+        };
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+    }
+
+    #[test]
+    fn the_open_chats_account_theme_picks_the_conversation_palette() {
+        let mut app = app();
+        app.palette = Palette::light();
+        open_account_chat(&mut app, "wa");
+        assert_eq!(
+            app.conversation_palette(),
+            Palette::light(),
+            "no override: the conversation draws with the global palette"
+        );
+        let prefs = app.settings.beeper.accounts.entry("wa".into()).or_default();
+        prefs.theme = Some(ThemeChoice::Dark);
+        assert_eq!(app.conversation_palette(), Palette::dark());
+        assert_eq!(
+            app.palette,
+            Palette::light(),
+            "the override never mutates the window's palette"
+        );
+        let prefs = app.settings.beeper.accounts.entry("wa".into()).or_default();
+        prefs.theme = Some(ThemeChoice::Messages);
+        assert_eq!(app.conversation_palette(), Palette::messages_light());
+        app.palette = Palette::dark();
+        assert_eq!(
+            app.conversation_palette(),
+            Palette::messages(),
+            "Messages follows the window's dark sense"
+        );
+        let prefs = app.settings.beeper.accounts.entry("wa".into()).or_default();
+        prefs.theme = Some(ThemeChoice::System);
+        assert_eq!(
+            app.conversation_palette(),
+            Palette::dark(),
+            "System means the global palette, here dark"
+        );
+    }
+
+    #[test]
+    fn a_chat_without_an_account_keeps_the_global_palette() {
+        let mut app = app();
+        app.palette = Palette::dark();
+        let chat = Chat::new("ada@s.whatsapp.net".into(), "Ada".into());
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        assert_eq!(app.conversation_palette(), Palette::dark());
     }
 }

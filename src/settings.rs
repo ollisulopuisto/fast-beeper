@@ -1622,6 +1622,9 @@ pub struct BeeperAccountPreferences {
     pub background: Option<WallpaperColor>,
     /// Chat background override under dark palettes; None follows the global pick.
     pub dark_background: Option<WallpaperColor>,
+    /// Conversation theme override; None follows the global theme. Applies to
+    /// the open conversation only, never to the window chrome.
+    pub theme: Option<ThemeChoice>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1640,6 +1643,7 @@ impl Default for BeeperAccountPreferences {
             sound: None,
             background: None,
             dark_background: None,
+            theme: None,
         }
     }
 }

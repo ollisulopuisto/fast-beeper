@@ -430,6 +430,17 @@ fn sections(app: &App) -> Vec<Section> {
                     egui::ComboBox::from_label("Sound").selected_text(match &settings.sound { None => "Follow global setting", Some(crate::settings::NotificationSound::None) => "Silent", Some(crate::settings::NotificationSound::Receive) => "Pidgin", Some(crate::settings::NotificationSound::Alert) => "Pidgin alert", Some(crate::settings::NotificationSound::System) => "System default", _ => "Custom sound" }).show_ui(ui, |ui| {
                         for (value, text) in [(None, "Follow global setting"), (Some(crate::settings::NotificationSound::None), "Silent"), (Some(crate::settings::NotificationSound::Receive), "Pidgin"), (Some(crate::settings::NotificationSound::Alert), "Pidgin alert"), (Some(crate::settings::NotificationSound::System), "System default")] { ui.selectable_value(&mut settings.sound, value, text); }
                     });
+                    egui::ComboBox::from_label("Conversation theme").selected_text(match &settings.theme { None => "Follow global theme".into(), Some(choice) => choice.label().to_owned() }).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut settings.theme, None, "Follow global theme");
+                        for choice in crate::settings::ThemeChoice::ALL.iter().copied() {
+                            // System inside an account override would mean the
+                            // same as following the global theme; keep one entry.
+                            if choice == crate::settings::ThemeChoice::System {
+                                continue;
+                            }
+                            ui.selectable_value(&mut settings.theme, Some(choice), choice.label());
+                        }
+                    });
                     {
                         let dark = app.palette.dark;
                         let pick = if dark { &mut settings.dark_background } else { &mut settings.background };
