@@ -3,6 +3,25 @@
 pub mod stock;
 pub mod tour;
 
+/// Set by the `rail-bottom` shot page: the navigation rail is captured
+/// scrolled to its end, as after a wheel scroll, proving the lower
+/// sections stay reachable.
+static SHOT_RAIL_BOTTOM: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the SHOT_RAIL_BOTTOM seed has been consumed this run.
+static SHOT_RAIL_BOTTOM_SEEDED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// True exactly once per capture when the rail should start at its end:
+/// the seed is a large finite overshoot that egui clamps to the real
+/// maximum at the end of the same frame, so later frames - and the
+/// screenshot - draw the true end position.
+pub fn take_rail_bottom() -> bool {
+    SHOT_RAIL_BOTTOM.load(std::sync::atomic::Ordering::Relaxed)
+        && !SHOT_RAIL_BOTTOM_SEEDED.swap(true, std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod focus_trace;
 
@@ -3695,6 +3714,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // and the active network's accounts render, which also reveals
             // the Queues section.
             "networks" => networks_sample(app),
+            // Capture the rail scrolled to its end (see SHOT_RAIL_BOTTOM).
+            "rail-bottom" => {
+                SHOT_RAIL_BOTTOM.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
             "favorites" => app.chat_filter = crate::model::ChatFilter::Favorites,
