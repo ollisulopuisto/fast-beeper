@@ -338,6 +338,12 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
 
 /// Inventory is authoritative for identity/status; chat rows provide a fallback
 /// network label for older APIs that omit it. Never infer a connected status.
+/// An account panel widget's rect key, so interaction tests can find the
+/// theme combo and its items without depending on egui's id chain.
+pub(crate) fn beeper_account_widget_id(account: &str, widget: &str) -> egui::Id {
+    egui::Id::new(("beeper-account-widget", account, widget))
+}
+
 fn beeper_account_rows(
     app: &App,
 ) -> std::collections::BTreeMap<String, (String, String, String, String)> {
@@ -430,7 +436,8 @@ fn sections(app: &App) -> Vec<Section> {
                     egui::ComboBox::from_label("Sound").selected_text(match &settings.sound { None => "Follow global setting", Some(crate::settings::NotificationSound::None) => "Silent", Some(crate::settings::NotificationSound::Receive) => "Pidgin", Some(crate::settings::NotificationSound::Alert) => "Pidgin alert", Some(crate::settings::NotificationSound::System) => "System default", _ => "Custom sound" }).show_ui(ui, |ui| {
                         for (value, text) in [(None, "Follow global setting"), (Some(crate::settings::NotificationSound::None), "Silent"), (Some(crate::settings::NotificationSound::Receive), "Pidgin"), (Some(crate::settings::NotificationSound::Alert), "Pidgin alert"), (Some(crate::settings::NotificationSound::System), "System default")] { ui.selectable_value(&mut settings.sound, value, text); }
                     });
-                    egui::ComboBox::from_label("Conversation theme").selected_text(match &settings.theme { None => "Follow global theme".into(), Some(choice) => choice.label().to_owned() }).show_ui(ui, |ui| {
+                    let combo_id = beeper_account_widget_id(&id, "Conversation theme");
+                    let combo = egui::ComboBox::from_label("Conversation theme").selected_text(match &settings.theme { None => "Follow global theme".into(), Some(choice) => choice.label().to_owned() }).show_ui(ui, |ui| {
                         ui.selectable_value(&mut settings.theme, None, "Follow global theme");
                         for choice in crate::settings::ThemeChoice::ALL.iter().copied() {
                             // System inside an account override would mean the
@@ -438,8 +445,15 @@ fn sections(app: &App) -> Vec<Section> {
                             if choice == crate::settings::ThemeChoice::System {
                                 continue;
                             }
-                            ui.selectable_value(&mut settings.theme, Some(choice), choice.label());
+                            let item = ui.selectable_value(&mut settings.theme, Some(choice), choice.label());
+                            // Rects for interaction tests, like the filter chips.
+                            ui.ctx().data_mut(|data| {
+                                data.insert_temp(beeper_account_widget_id(&id, choice.label()), item.rect);
+                            });
                         }
+                    });
+                    ui.ctx().data_mut(|data| {
+                        data.insert_temp(combo_id, combo.response.rect);
                     });
                     {
                         let dark = app.palette.dark;
@@ -2354,6 +2368,80 @@ fn theme_option(ui: &mut egui::Ui, palette: &theme::Palette, text: &str, selecte
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The account panel's theme combo is reachable by clicks alone: the
+    /// header expanded by egui's everything-visible memory, the combo by a
+    /// click, the item by another. No production default changes.
+    #[test]
+    fn the_account_theme_combo_picks_a_conversation_theme() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            crate::settings::Settings::default(),
+        );
+        app.beeper_accounts.insert(
+            "http://127.0.0.1:23373".into(),
+            vec![crate::backend::BeeperAccountInfo {
+                id: "wa-personal".into(),
+                name: "Personal".into(),
+                network: "WhatsApp".into(),
+                status: "connected".into(),
+            }],
+        );
+        app.settings_search = "Accounts".into();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(960.0, 780.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| show(app, ui),
+            );
+            output.textures_delta.clear();
+        };
+        let click = |at: egui::Pos2| {
+            let press = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            vec![egui::Event::PointerMoved(at), press(true), press(false)]
+        };
+        let rect_of = |widget: &str| {
+            ctx.data_mut(|data| {
+                data.get_temp::<egui::Rect>(beeper_account_widget_id(
+                    &serde_json::to_string(&("http://127.0.0.1:23373", "wa-personal")).unwrap(),
+                    widget,
+                ))
+            })
+        };
+        frame(&mut app, vec![]);
+        let combo = rect_of("Conversation theme").expect("the theme combo registers its rect");
+        frame(&mut app, click(combo.center()));
+        frame(&mut app, vec![]);
+        let dark = rect_of("Dark").expect("the open popup registers the Dark item");
+        frame(&mut app, click(dark.center()));
+        frame(&mut app, vec![]);
+        let account = serde_json::to_string(&("http://127.0.0.1:23373", "wa-personal")).unwrap();
+        assert_eq!(
+            app.settings.beeper.accounts[&account].theme,
+            Some(crate::settings::ThemeChoice::Dark)
+        );
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::SettingsChanged)),
+            "picking a theme marks the settings changed"
+        );
+    }
 
     #[test]
     fn beeper_inventory_settings_include_chatless_accounts_and_isolate_origins() {

@@ -25342,7 +25342,6 @@ mod person_tests {
     }
 }
 
-
 /// Per-account chat background: the open chat's Beeper account may override
 /// the global wallpaper pick, per light/dark palette.
 #[cfg(test)]
