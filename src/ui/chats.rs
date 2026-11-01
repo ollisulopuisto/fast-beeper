@@ -1126,9 +1126,14 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
         .auto_shrink([false, true])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+            // No per-chip push_id: wrapped in a scope per chip, the row
+            // stopped wrapping and the last chips overflowed the rail (the
+            // UI test caught it). The label chips' proven pattern
+            // allocates directly; the interact id inside the chip keeps
+            // widget state stable instead.
             ui.horizontal_wrapped(|ui| {
                 for chat in &favorites {
-                    ui.push_id(("favorite", &chat.id), |ui| favorite_chip(app, ui, chat));
+                    favorite_chip(app, ui, chat);
                 }
             });
         });
@@ -1143,7 +1148,14 @@ fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Respons
     let palette = app.palette;
     let title = app.chat_title(chat);
     let selected = app.open_chat.as_deref() == Some(chat.id.as_str());
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(FAVORITE_CELL), Sense::click());
+    // allocate_space joins the row's wrapping layout; the interact id (not
+    // a scope) keeps the chip's widget state and context menu stable.
+    let (_auto, rect) = ui.allocate_space(Vec2::splat(FAVORITE_CELL));
+    let response = ui.interact(
+        rect,
+        ui.id().with(("favorite-chip", &chat.id)),
+        Sense::click(),
+    );
     theme::reveal_focus(&response);
     response.widget_info(|| {
         egui::WidgetInfo::selected(
