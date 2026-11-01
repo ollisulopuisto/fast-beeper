@@ -76,6 +76,10 @@ func stop(_ process: Process) {
     if process.isRunning { process.terminate() }
 }
 
+let schedulerHealthScript = (try? String(contentsOf:
+    Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/scheduler-health.sh"),
+    encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "false"
+
 func launch(_ connection: Connection) throws {
     // Read one named target using the user's pre-existing SSH trust. Fixed command only.
     let query = ssh(connection, extra: [])
@@ -118,10 +122,8 @@ func launch(_ connection: Connection) throws {
         let reconfigure = CommandLine.arguments.contains("--reconfigure")
             || NSEvent.modifierFlags.contains(.option)
         guard reconfigure || !manager.fileExists(atPath: declined.path) else { return }
-        let check = ssh(connection, extra: ["""
-        TOKEN_FILE="$HOME/Library/Application Support/zapfast/scheduler-token"
-        [ -f "$TOKEN_FILE" ] && curl -sf -m 5 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" http://127.0.0.1:23376/v1/health 2>/dev/null | grep -q '"ok":true' && echo HEALTHY || true
-        """])
+        let check = ssh(connection, extra: [])
+        check.arguments! += [schedulerHealthScript + " && echo HEALTHY || true"]
         let checkOut = Pipe()
         check.standardOutput = checkOut
         guard (try? check.run()) != nil else { return }
@@ -151,7 +153,8 @@ func launch(_ connection: Connection) throws {
     // Runs a script on the Server Mac over the existing SSH trust. The
     // script travels as one argument; only file payloads travel on stdin.
     func remote(_ connection: Connection, _ script: String, stdin: Data? = nil) -> (Int32, Data) {
-        let process = ssh(connection, extra: [script])
+        let process = ssh(connection, extra: [])
+        process.arguments! += ["set -e\n" + script]
         let out = Pipe()
         process.standardOutput = out
         let input = stdin.map { _ in Pipe() }
@@ -185,11 +188,16 @@ func launch(_ connection: Connection) throws {
         let copy = remote(connection, """
         mkdir -p "$HOME/Library/Application Support/zapfast/bin" "$HOME/Library/LaunchAgents" "$HOME/.config/zapfast"
         chmod 700 "$HOME/Library/Application Support/zapfast" "$HOME/.config/zapfast"
-        cat > "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
-        chmod 755 "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
+        umask 077
+        stage=$(mktemp "$HOME/Library/Application Support/zapfast/bin/scheduler.XXXXXX")
+        trap 'rm -f "$stage"' EXIT
+        cat > "$stage"
+        chmod 755 "$stage"
+        mv "$stage" "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
         """, stdin: binaryData)
         guard copy.0 == 0 else { installFailed(connection, stage: "copying the scheduler") ; return }
         let tokens = remote(connection, """
+        umask 077
         APP_SUPPORT="$HOME/Library/Application Support/zapfast"
         [ -f "$APP_SUPPORT/scheduler-token" ] || openssl rand -hex 32 > "$APP_SUPPORT/scheduler-token"
         chmod 600 "$APP_SUPPORT/scheduler-token"
@@ -198,8 +206,11 @@ func launch(_ connection: Connection) throws {
         """)
         guard tokens.0 == 0 else { installFailed(connection, stage: "writing the control token"); return }
         if String(decoding: tokens.1, as: UTF8.self).contains("NEED") {
-            _ = remote(connection, "umask 077 && cat > \"$HOME/Library/Application Support/zapfast/beeper-token\"",
+            let apiTokenWrite = remote(connection, "umask 077 && cat > \"$HOME/Library/Application Support/zapfast/beeper-token\"",
                        stdin: Data(beeperToken.utf8))
+            guard apiTokenWrite.0 == 0 else {
+                installFailed(connection, stage: "writing the API token"); return
+            }
         }
         let service = remote(connection, """
         APP_SUPPORT="$HOME/Library/Application Support/zapfast"
@@ -242,9 +253,8 @@ func launch(_ connection: Connection) throws {
         launchctl unload "$PLIST" 2>/dev/null || true
         launchctl load "$PLIST"
         sleep 1
-        curl -sf -m 5 -H "Authorization: Bearer $(cat "$APP_SUPPORT/scheduler-token")" http://127.0.0.1:23376/v1/health 2>/dev/null | grep -q '"ok":true' && echo RUNNING
-        """)
-        if String(decoding: service.1, as: UTF8.self).contains("RUNNING") {
+        """ + "\n" + schedulerHealthScript + " && echo RUNNING")
+        if service.0 == 0, String(decoding: service.1, as: UTF8.self).contains("RUNNING") {
             let alert = NSAlert()
             alert.messageText = "Send Later is set up"
             alert.informativeText = "The scheduler is running on \(connection.host) as a login agent."

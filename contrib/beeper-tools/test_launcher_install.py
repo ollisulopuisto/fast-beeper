@@ -31,8 +31,8 @@ class SchedulerInstallTests(unittest.TestCase):
 
     def test_install_uses_launchd_and_verifies_health_with_token(self):
         self.assertIn('launchctl load "$PLIST"', SOURCE)
-        self.assertIn('http://127.0.0.1:23376/v1/health', SOURCE)
-        self.assertIn('Authorization: Bearer', SOURCE)
+        self.assertIn('schedulerHealthScript', SOURCE)
+        self.assertNotIn('Authorization: Bearer', SOURCE)
 
     def test_decline_has_a_discoverable_retry_route(self):
         self.assertIn('scheduler-install-declined', SOURCE)
