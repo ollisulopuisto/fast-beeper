@@ -72,3 +72,22 @@ permission - this directory only prepares the artifacts.
   explicit retry within the 15-minute grace window or it stays parked.
 - Enqueue validates the chat and account against the Beeper API, so a
   message cannot be queued into a chat the account cannot send to.
+
+## Bundled in the DMG (Studio deploy)
+
+The trial DMG ships `zapfast-scheduler` inside ZapFast Beeper.app
+(`Contents/MacOS/zapfast-scheduler`, same ad-hoc signature as the client).
+The launcher offers a one-time install on the Server Mac over the existing
+SSH trust, only after explicit in-app approval: it checks the remote
+architecture (Apple Silicon only), copies the daemon, writes the 0600
+control token and the launchd agent, and kickstarts the service. Nothing
+is installed or started without that approval.
+
+Rollback on the Server Mac:
+
+```
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/fi.sulopuisto.zapfast-scheduler.plist
+rm ~/Library/LaunchAgents/fi.sulopuisto.zapfast-scheduler.plist \
+   ~/Library/Application\ Support/zapfast/bin/zapfast-scheduler \
+   ~/Library/Application\ Support/zapfast/scheduler-token
+```
