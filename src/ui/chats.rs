@@ -3662,7 +3662,8 @@ mod tests {
     #[test]
     fn the_favorites_bar_draws_avatar_chips_without_rows() {
         let directory = tempfile::tempdir().expect("temp dir");
-        let mut app = App::headless(AppDirs::under(directory.path()), Settings::default());
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
         let mut favorite = Chat::new("491700000101@s.whatsapp.net".into(), "Fave".into());
         favorite.favorite = true;
         favorite.backend_account = Some("wa-personal".into());
