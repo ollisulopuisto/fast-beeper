@@ -86,8 +86,8 @@ is installed or started without that approval.
 Rollback on the Server Mac:
 
 ```
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/fi.sulopuisto.zapfast-scheduler.plist
-rm ~/Library/LaunchAgents/fi.sulopuisto.zapfast-scheduler.plist \
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.zapfast.scheduler.plist
+rm ~/Library/LaunchAgents/com.zapfast.scheduler.plist \
    ~/Library/Application\ Support/zapfast/bin/zapfast-scheduler \
    ~/Library/Application\ Support/zapfast/scheduler-token
 ```
