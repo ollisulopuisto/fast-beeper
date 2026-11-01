@@ -129,41 +129,6 @@ jobs:
           echo 'Unsigned / unnotarized. Existing Beeper Desktop or Server required. No token or profile bundled.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Artifact uploads require repository variable FAST_BEEPER_UPLOAD_ARTIFACTS=true after storage/budget review.' >> "$GITHUB_STEP_SUMMARY"
 
-  # TEMPORARY one-shot verification of the already-delivered 59e2b6f DMG.
-  # Removed from the branch again right after dispatch; the dispatched run
-  # keeps its own snapshot.
-  verify-delivered-dmg:
-    runs-on: macos-14
-    timeout-minutes: 15
-    steps:
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
-        with:
-          name: fast-beeper-aarch64-apple-darwin-59e2b6f40817e18d5ff5131905bdafd247a14f9a
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: 41295626707
-          merge-multiple: false
-      - name: Verify delivered DMG contents
-        run: |
-          set -euo pipefail
-          dmg=$(ls app-dist/*.dmg)
-          mount=$(mktemp -d)/mount; mkdir -p "$mount"
-          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount" >/dev/null
-          app="$mount/ZapFast Beeper.app"
-          client="$app/Contents/MacOS/zapfast-client"
-          launcher="$app/Contents/MacOS/zapfast"
-          unzip -q -o dist/*.zip -d "$TMPDIR/distzip"
-          raw=$(find "$TMPDIR/distzip" -type f -name 'zapfast*' | head -1)
-          # codesign rewrites load commands, so compare executable __text
-          # (unchanged by signing) instead of whole-file bytes.
-          text_hash() { otool -s __TEXT __text "$1" | tail -n +2 | shasum -a 256 | cut -d' ' -f1; }
-          [ "$(text_hash "$client")" = "$(text_hash "$raw")" ]             && echo 'embedded client __text == built client __text'             || { echo 'FAIL: DMG client code differs from built client'; exit 1; }
-          strings -a "$client" | grep -q 'Beeper send returned' && echo 'client HAS new send error wording' || { echo 'FAIL: client missing new send wording'; exit 1; }
-          strings -a "$client" | grep -q 'Attachment send returned' && { echo 'FAIL: client still has pre-#37 toast wording'; exit 1; } || echo 'client lacks old 400 toast wording (matches 59e2b6f)'
-          strings -a "$client" | grep -q 'Locked chats' && echo 'client HAS new sidebar strings' || { echo 'FAIL: client missing sidebar strings'; exit 1; }
-          strings -a "$launcher" | grep -q 'Connect to your existing Beeper Server' && echo 'launcher is the compiled Beeper SSH launcher' || { echo 'FAIL: launcher missing Connect dialog strings'; exit 1; }
-          lipo "$client" -verify_arch arm64 && echo 'client is arm64'
-          hdiutil detach "$mount" >/dev/null
-
   # Rendered-pixel evidence for layout work: demo screenshots of the screens
   # and window sizes the layout tests reason about, as a run artifact (never
   # in the tree, per policy). Runs only on an explicit shots-only dispatch.
