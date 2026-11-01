@@ -25193,3 +25193,99 @@ mod app_lock_tests {
         assert!(!press(&mut app).contains(&Action::LockApp));
     }
 }
+
+/// Linked-person list behavior: one row per linked person, with the member
+/// chats' counts and latest activity combined into that row. The links are
+/// local-only; nothing here calls out.
+#[cfg(test)]
+mod person_tests {
+    use super::*;
+    use crate::merged::{Member, Person};
+    use crate::model::ChatKind;
+
+    fn app() -> App {
+        let root = std::env::temp_dir().join(format!("zapfast-person-{}", std::process::id()));
+        App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    /// A direct chat on one local connector account, as the backend maps it.
+    fn member_chat(id: &str, account: &str, unread: u32, activity: i64) -> Chat {
+        Chat {
+            kind: ChatKind::Direct,
+            backend_origin: Some("local".into()),
+            backend_account: Some(account.into()),
+            unread,
+            last_activity: activity,
+            ..Chat::new(id.into(), format!("Ada {account}"))
+        }
+    }
+
+    fn ada(members: Vec<Member>) -> Person {
+        Person {
+            name: "Ada".into(),
+            members,
+            primary: None,
+        }
+    }
+
+    #[test]
+    fn a_linked_person_lists_once_with_a_combined_preview() {
+        let mut app = app();
+        let wa = member_chat("ada-wa@s.whatsapp.net", "whatsapp", 2, 10);
+        let mut tg = member_chat("ada-tg@telegram", "telegram", 3, 20);
+        tg.marked_unread = true;
+        let mut bob = Chat::new("bob@s.whatsapp.net".into(), "Bob".into());
+        bob.last_activity = 5;
+        app.chats = vec![wa.clone(), tg.clone(), bob];
+        app.settings.beeper.people.push(ada(vec![
+            Member::of(&wa).unwrap(),
+            Member::of(&tg).unwrap(),
+        ]));
+        let rows = app.beeper_display_chats();
+        assert_eq!(rows.len(), 2, "the two linked chats collapse into one row");
+        let row = rows
+            .iter()
+            .find(|chat| chat.name.starts_with("Ada"))
+            .expect("the person row survives");
+        assert_eq!(row.unread, 5, "unread adds up across the person's chats");
+        assert!(
+            row.marked_unread,
+            "any member's dot marks the person unread"
+        );
+        assert_eq!(row.last_activity, 20, "the preview shows the latest member");
+    }
+
+    #[test]
+    fn a_linked_person_pins_once() {
+        let mut app = app();
+        let mut wa = member_chat("ada-wa@s.whatsapp.net", "whatsapp", 0, 10);
+        wa.pinned = true;
+        wa.pinned_at = 1;
+        let mut tg = member_chat("ada-tg@telegram", "telegram", 0, 20);
+        tg.pinned = true;
+        tg.pinned_at = 2;
+        app.chats = vec![wa.clone(), tg.clone()];
+        app.settings.beeper.people.push(ada(vec![
+            Member::of(&wa).unwrap(),
+            Member::of(&tg).unwrap(),
+        ]));
+        assert_eq!(
+            app.beeper_global_pins().len(),
+            1,
+            "two pinned chats of one person pin once"
+        );
+    }
+
+    #[test]
+    fn without_a_link_the_chats_list_separately() {
+        let mut app = app();
+        let wa = member_chat("ada-wa@s.whatsapp.net", "whatsapp", 2, 10);
+        let tg = member_chat("ada-tg@telegram", "telegram", 3, 20);
+        app.chats = vec![wa, tg];
+        assert_eq!(
+            app.beeper_display_chats().len(),
+            2,
+            "no local link, no merge"
+        );
+    }
+}

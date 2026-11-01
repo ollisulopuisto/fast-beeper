@@ -674,3 +674,92 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     ui.ctx().data_mut(|d| d.insert_temp(key, state));
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn member_chat(id: &str, account: &str) -> Chat {
+        Chat {
+            kind: ChatKind::Direct,
+            backend_origin: Some("local".into()),
+            backend_account: Some(account.into()),
+            ..Chat::new(id.into(), format!("Ada {account}"))
+        }
+    }
+
+    fn linked_app(
+        chats: Vec<Chat>,
+        people: Vec<Person>,
+    ) -> (tempfile::TempDir, App, egui::Context) {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            crate::settings::Settings::default(),
+        );
+        app.chats = chats;
+        app.settings.beeper.people = people;
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        (directory, app, ctx)
+    }
+
+    /// One frame of the conversation view's merged-person gate.
+    fn handled(app: &mut App, ctx: &egui::Context, chat: &Chat) -> bool {
+        let mut handled = false;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| handled = show(app, ui, chat),
+        );
+        output.textures_delta.clear();
+        handled
+    }
+
+    fn ada_pair() -> (Chat, Chat, Person) {
+        let wa = member_chat("ada-wa@s.whatsapp.net", "whatsapp");
+        let tg = member_chat("ada-tg@telegram", "telegram");
+        let person = Person {
+            name: "Ada".into(),
+            members: vec![Member::of(&wa).unwrap(), Member::of(&tg).unwrap()],
+            primary: None,
+        };
+        (wa, tg, person)
+    }
+
+    #[test]
+    fn a_linked_chat_opens_the_combined_view() {
+        let (wa, tg, person) = ada_pair();
+        let plain = member_chat("bob@s.whatsapp.net", "whatsapp");
+        let (_dir, mut app, ctx) =
+            linked_app(vec![wa.clone(), tg.clone(), plain.clone()], vec![person]);
+        assert!(
+            handled(&mut app, &ctx, &wa),
+            "a linked chat takes the combined view"
+        );
+        assert!(
+            handled(&mut app, &ctx, &tg),
+            "either member opens the same person"
+        );
+        assert!(
+            !handled(&mut app, &ctx, &plain),
+            "an unlinked chat stays a plain conversation"
+        );
+    }
+
+    #[test]
+    fn a_locked_member_keeps_the_link_with_its_warning() {
+        let (wa, mut tg, person) = ada_pair();
+        tg.locked = true;
+        let (_dir, mut app, ctx) = linked_app(vec![wa.clone(), tg], vec![person]);
+        assert!(
+            handled(&mut app, &ctx, &wa),
+            "the link still owns the row and explains itself instead of splitting"
+        );
+    }
+}
