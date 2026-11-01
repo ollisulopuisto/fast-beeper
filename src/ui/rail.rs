@@ -479,11 +479,13 @@ fn destination_button(
     let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
     // The plate holds the compact rail's column whichever width the rail
     // has, so the list coming and going moves nothing.
-    let plate = Rect::from_center_size(
+    destination_plate(
+        app,
+        ui,
+        palette,
+        destination,
         egui::pos2(cell.min.x + COMPACT / 2.0, cell.center().y),
-        Vec2::splat(PLATE),
     );
-    destination_plate(app, ui, palette, destination, plate);
 }
 
 /// One destination's plate at a given center: the top destinations call it
@@ -494,8 +496,9 @@ fn destination_plate(
     ui: &mut egui::Ui,
     palette: &Palette,
     destination: Destination,
-    plate: Rect,
+    center: egui::Pos2,
 ) {
+    let plate = Rect::from_center_size(center, Vec2::splat(PLATE));
     let lit = destination.lit(app);
     let mut badge = 0;
     let (icon, stop, label) = match destination {
