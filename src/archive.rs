@@ -274,6 +274,7 @@ fn chat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Chat> {
         locked: row.get(17)?,
         last,
         participants: serde_json::from_str(&participants).unwrap_or_default(),
+        participant_names: Default::default(),
         read_only: row.get(14)?,
         labels: Vec::new(),
         ephemeral_expiration: row.get::<_, Option<u32>>(16)?,
