@@ -1066,7 +1066,10 @@ pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for chat in pins {
-                row(app, ui, &chat);
+                let response = row(app, ui, &chat);
+                // Store the row rect for interaction tests, like the list.
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(chat_row_id(&chat.id), response.rect));
             }
         });
     ui.add_space(4.0);
@@ -1120,23 +1123,19 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
             .color(palette.secondary),
     );
     ui.spacing_mut().item_spacing.y = 0.0;
-    egui::ScrollArea::vertical()
-        .id_salt("beeper-global-favorites")
-        .max_height(FAVORITE_CELL * 3.5)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
+    // The label chips' proven pattern: one id scope around a directly
+    // allocated horizontal_wrapped. A per-chip scope stopped the wrap and
+    // the last chips overflowed the rail; a capping ScrollArea around the
+    // wrap clipped the second row mid-avatar. The rail's own scroll keeps
+    // every favorite reachable instead of a section cap.
+    widgets::chip_scroll_row(ui, "beeper-global-favorites", |ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-            // No per-chip push_id: wrapped in a scope per chip, the row
-            // stopped wrapping and the last chips overflowed the rail (the
-            // UI test caught it). The label chips' proven pattern
-            // allocates directly; the interact id inside the chip keeps
-            // widget state stable instead.
-            ui.horizontal_wrapped(|ui| {
-                for chat in &favorites {
-                    favorite_chip(app, ui, chat);
-                }
-            });
+            for chat in &favorites {
+                favorite_chip(app, ui, chat);
+            }
         });
+    });
     ui.add_space(4.0);
 }
 
@@ -3763,6 +3762,15 @@ mod tests {
         assert!(
             last.top() > first.bottom() - 1.0,
             "the fifth chip wraps to a second row"
+        );
+        // The section must allocate every wrapped row: the Pinned section
+        // starts below the last chip's bottom edge, never over it.
+        let pinned_row = ctx
+            .data(|data| data.get_temp::<Rect>(chat_row_id(&pinned_favorite.id)))
+            .expect("the pinned favorite renders under Pinned");
+        assert!(
+            pinned_row.top() >= last.bottom() - 1.0,
+            "the section clips its wrapped row: pinned {pinned_row:?} vs chip {last:?}"
         );
         // Badges: a count for the unread chat, a dot for the marked one,
         // nothing for the read one, and every badge inside the rail panel.

@@ -3873,8 +3873,8 @@ impl App {
                         })
                     })
                     .collect();
-                let incoming_ids: std::collections::HashSet<&str> =
-                    messages.iter().map(|message| message.id.as_str()).collect();
+                let incoming_ids: std::collections::HashSet<String> =
+                    messages.iter().map(|message| message.id.clone()).collect();
                 // `conversations` comes through DerefMut, so its entry borrow
                 // covers all of `self`; keep quote-fetch bookkeeping outside it.
                 let (was_empty, bare, still_unresolved) = {
