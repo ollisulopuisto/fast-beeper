@@ -25715,6 +25715,28 @@ mod conversation_palette_tests {
     }
 
     #[test]
+    fn a_silenced_chat_never_notifies_or_counts() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let ctx = egui::Context::default();
+        app.chats = vec![beeper_chat("chat-1")];
+        app.apply(Action::SetMuted("chat-1".into(), Some(0)), &ctx);
+        app.apply(Action::SetArchived("chat-1".into(), true), &ctx);
+        // A new message arrives on the sync: unread, unmuted, unarchived as
+        // far as the server knows. The promise still gates the notification.
+        let mut incoming = beeper_chat("chat-1");
+        incoming.unread = 1;
+        app.apply_backend_event(Event::Chats(vec![incoming]), false);
+        let now = crate::util::now();
+        let chat = app.chat("chat-1").unwrap();
+        assert_eq!(chat.unread, 1, "the unread fact itself survives");
+        assert!(
+            !notification_eligible(chat, now, now),
+            "silenced chats never notify"
+        );
+    }
+
+    #[test]
     fn silence_is_promised_only_for_beeper_chats() {
         let root = tempfile::tempdir().unwrap();
         let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
