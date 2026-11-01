@@ -218,6 +218,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
             }
             + if compact { 0.0 } else { MIDDLE_MIN };
         let height = ui.available_height().max(minimum);
+        // Demo captures can ask for the rail already scrolled to its end,
+        // as after a wheel scroll, to prove the lower sections stay
+        // reachable at this height.
+        #[cfg(feature = "demo")]
+        if crate::demo::take_rail_bottom() {
+            let id = ui.make_persistent_id(egui::IdSalt::new("navigation-rail"));
+            let mut state = egui::scroll_area::State::load(ui.ctx(), id).unwrap_or_default();
+            // A finite overshoot only: f32::MAX overflows egui's rect math.
+            state.offset.y = 1_000_000.0;
+            state.store(ui.ctx(), id);
+        }
         egui::ScrollArea::vertical()
             .id_salt("navigation-rail")
             .auto_shrink([false, false])
