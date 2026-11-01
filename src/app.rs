@@ -2008,7 +2008,22 @@ impl App {
     /// What the conversation shows behind its bubbles, for the chat and the
     /// wallpaper preview alike.
     pub fn wallpaper(&self) -> crate::wallpaper::Look {
-        let mut color = self.settings.wallpaper_background(&self.palette);
+        // An open chat on a Beeper account may override the background for
+        // that account; everything else follows the global pick.
+        let account_pick = self
+            .current_chat()
+            .and_then(|chat| chat.backend_account.as_deref())
+            .and_then(|account| self.settings.beeper.accounts.get(account))
+            .and_then(|prefs| {
+                if self.palette.dark {
+                    prefs.dark_background
+                } else {
+                    prefs.background
+                }
+            });
+        let mut color = account_pick
+            .map(|pick| pick.color32(&self.palette))
+            .unwrap_or_else(|| self.settings.wallpaper_background(&self.palette));
         if self.palette.vibrant() {
             color = self.palette.vibrant_chat(color);
         }
@@ -25191,5 +25206,77 @@ mod app_lock_tests {
         assert!(!actions.contains(&Action::FocusComposer));
         let mut app = app_with(settings(None));
         assert!(!press(&mut app).contains(&Action::LockApp));
+    }
+}
+
+/// Per-account chat background: the open chat's Beeper account may override
+/// the global wallpaper pick, per light/dark palette.
+#[cfg(test)]
+mod account_background_tests {
+    use super::*;
+    use crate::settings::WallpaperColor;
+
+    fn app() -> App {
+        let root = std::env::temp_dir().join(format!("zapfast-acctbg-{}", std::process::id()));
+        App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    #[test]
+    fn the_open_chats_account_background_overrides_the_global_pick() {
+        let mut app = app();
+        let chat = Chat {
+            backend_account: Some("wa".into()),
+            ..Chat::new("ada@s.whatsapp.net".into(), "Ada".into())
+        };
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        app.palette.dark = false;
+        app.settings.wallpaper_color = WallpaperColor::Beige;
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Beige.color32(&app.palette),
+            "without an account override the global pick wins"
+        );
+        app.settings
+            .beeper
+            .accounts
+            .entry("wa".into())
+            .or_default()
+            .background = Some(WallpaperColor::Tangaroa);
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Tangaroa.color32(&app.palette),
+            "the account override paints the open chat"
+        );
+        app.settings
+            .beeper
+            .accounts
+            .entry("wa".into())
+            .or_default()
+            .background = None;
+        app.settings
+            .beeper
+            .accounts
+            .entry("wa".into())
+            .or_default()
+            .dark_background = Some(WallpaperColor::Tangaroa);
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Beige.color32(&app.palette),
+            "a dark-palette override does not leak into a light palette"
+        );
+    }
+
+    #[test]
+    fn chats_without_an_account_keep_the_global_pick() {
+        let mut app = app();
+        let chat = Chat::new("ada@s.whatsapp.net".into(), "Ada".into());
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        app.settings.wallpaper_color = WallpaperColor::Cruise;
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Cruise.color32(&app.palette)
+        );
     }
 }

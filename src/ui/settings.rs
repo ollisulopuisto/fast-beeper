@@ -430,6 +430,16 @@ fn sections(app: &App) -> Vec<Section> {
                     egui::ComboBox::from_label("Sound").selected_text(match &settings.sound { None => "Follow global setting", Some(crate::settings::NotificationSound::None) => "Silent", Some(crate::settings::NotificationSound::Receive) => "Pidgin", Some(crate::settings::NotificationSound::Alert) => "Pidgin alert", Some(crate::settings::NotificationSound::System) => "System default", _ => "Custom sound" }).show_ui(ui, |ui| {
                         for (value, text) in [(None, "Follow global setting"), (Some(crate::settings::NotificationSound::None), "Silent"), (Some(crate::settings::NotificationSound::Receive), "Pidgin"), (Some(crate::settings::NotificationSound::Alert), "Pidgin alert"), (Some(crate::settings::NotificationSound::System), "System default")] { ui.selectable_value(&mut settings.sound, value, text); }
                     });
+                    {
+                        let dark = app.palette.dark;
+                        let pick = if dark { &mut settings.dark_background } else { &mut settings.background };
+                        egui::ComboBox::from_label(if dark { "Chat background (dark)" } else { "Chat background" }).selected_text((*pick).map(|color| wallpaper_label(app.locale, color)).unwrap_or_else(|| "Follow global setting".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(pick, None, "Follow global setting");
+                            for color in crate::settings::WallpaperColor::choices(dark).iter().copied() {
+                                ui.selectable_value(pick, Some(color), wallpaper_label(app.locale, color));
+                            }
+                        });
+                    }
                     if before != *settings { app.actions.push(Action::SettingsChanged); }
                 });
             });
