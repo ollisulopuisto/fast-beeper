@@ -796,7 +796,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                     .color(palette.secondary),
             );
             // Every network is directly reachable; the first ten keep their
-            // Ctrl+1..0 shortcuts.
+            // Ctrl+Alt+1..0 shortcuts.
             for (index, network) in networks.iter().enumerate() {
                 let selected = app.beeper_network_filter.as_ref() == Some(network);
                 let name: &str = if network.is_empty() {
@@ -808,7 +808,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 let row = if index < 10 {
                     row.on_hover_text(format!(
                         "{name} ({})",
-                        super::keys::label(&format!("Ctrl+{}", (index + 1) % 10))
+                        super::keys::label(&format!("Ctrl+Alt+{}", (index + 1) % 10))
                     ))
                 } else {
                     row
