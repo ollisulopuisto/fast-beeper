@@ -1000,6 +1000,7 @@ fn next_account_action(app: &App) -> Option<Action> {
 
 /// Control held with no other modifier: on macOS, Command+Control is
 /// Command's, which `consume_key` would also match as Control.
+#[cfg(any(target_os = "macos", test))]
 fn control_alone(modifiers: Modifiers) -> bool {
     modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd && !modifiers.alt && !modifiers.shift
 }
@@ -1794,7 +1795,7 @@ mod tests {
         let (_root, mut app, _ids) = app_with_chats(2);
         let ctx = egui::Context::default();
         let field = egui::Id::new("composer-text");
-        egui::TextEditState::default().store(&ctx, field);
+        egui::widgets::text_edit::TextEditState::default().store(&ctx, field);
         ctx.memory_mut(|memory| memory.request_focus(field));
         assert!(press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
         assert!(app.actions.is_empty());
