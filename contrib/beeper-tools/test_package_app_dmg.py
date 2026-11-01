@@ -32,7 +32,7 @@ class FinderAppTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app = Path(directory) / 'ZapFast Beeper.app'
             def run(command, **kwargs):
-                self.assertEqual(command[-1], '/tmp/native-scheduler')
+                self.assertEqual(command[-1], str(Path('/tmp/native-scheduler').resolve()))
                 (app / 'Contents/MacOS').mkdir(parents=True)
                 (app / 'Contents/Resources').mkdir()
                 (app / 'Contents/Resources/zapfast.icns').write_bytes(b'fixture')

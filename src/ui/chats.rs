@@ -683,7 +683,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
             // Store the row rect for interaction tests.
             ui.ctx()
                 .data_mut(|data| data.insert_temp(filter_chip_id(filter), row.rect));
-            let row = if filter == ChatFilter::Channels {
+            if filter == ChatFilter::Channels {
                 let now = crate::util::now();
                 let all_muted = app
                     .chats
@@ -700,10 +700,8 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                         app.actions.push(Action::MuteAllChannels(!all_muted));
                         ui.close();
                     }
-                })
-            } else {
-                row
-            };
+                });
+            }
             if row.clicked() {
                 // A second click on the active row returns to every chat.
                 let next = if selected { ChatFilter::All } else { filter };
