@@ -168,7 +168,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     ctx.input_mut(|input| {
         // The message list's key counts only with its modifier alone:
         // `consume_key` would also take Alt+Shift+2, and on macOS
-        // Command+Control+2, which is Command+2's chat.
+        // Command+Control+2, which is Command+2's favorite.
+        #[cfg(target_os = "macos")]
         let messages_key_free = input.events.iter().any(|event| {
             matches!(
                 event,
@@ -256,9 +257,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         if jump_allowed {
             key(Modifiers::COMMAND, Key::End, Action::ScrollToBottom);
         }
-        // Alt+2 goes to the message list. On macOS it is Control+2:
-        // Command+1 to 9 open chats there, and Option with a digit types
-        // characters some keyboard layouts need, such as # and €.
+        // The message list keeps Control+2 on macOS, where Command+1 to 9
+        // open favorites and Option with a digit types characters some
+        // keyboard layouts need, such as # and €. Elsewhere Alt+2 now
+        // picks the second sidebar filter, so the list is reached by Tab.
+        #[cfg(target_os = "macos")]
         if app.dialog.is_none()
             && !app.show_update
             && app.picker.is_none()
@@ -268,15 +271,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             && (app.call.is_none() || app.call_surface_hidden)
             && messages_key_free
         {
-            key(
-                if cfg!(target_os = "macos") {
-                    Modifiers::CTRL
-                } else {
-                    Modifiers::ALT
-                },
-                Key::Num2,
-                Action::FocusMessages,
-            );
+            key(Modifiers::CTRL, Key::Num2, Action::FocusMessages);
         }
         // The rail's Chats and Calls, by the digit's place on the keyboard:
         // with Shift held, layouts report the digits as their symbols.
@@ -477,8 +472,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             0
         }
     });
-    // Numbered shortcuts use the same ordering and filters as the sidebar.
-    let number = if app.page == Page::Chats
+    // Numbered shortcuts: Command+1..9 jumps to the favorites bar's nth
+    // chat, Option+1..n picks the sidebar's nth filter. Command+digit is
+    // free even mid-typing; Option+digit types characters some layouts
+    // need, so it yields to a focused text field.
+    let (number, filter_number) = if app.page == Page::Chats
         && app.dialog.is_none()
         && !app.show_update
         && app.picker.is_none()
@@ -486,35 +484,54 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         && app.recording.is_none()
         && !menu_open
     {
-        ctx.input_mut(take_chat_number)
+        let filter = (!editing_text)
+            .then(|| ctx.input_mut(take_filter_number))
+            .flatten();
+        (ctx.input_mut(take_chat_number), filter)
     } else {
-        None
+        (None, None)
     };
+    if let Some(filter) = filter_number.and_then(|index| crate::model::ChatFilter::EVERY.get(index))
+    {
+        actions.push(Action::SetChatFilter(*filter));
+    }
     if step != 0 || number.is_some() {
         // Switching chats from the keyboard is keyboard navigation, as Tab
         // is: a chat without a message field then hands its focus to the
         // message list rather than to nothing.
         ctx.data_mut(|data| data.insert_temp(crate::theme::keyboard_focus_id(), true));
-        let visible = app.visible_chats();
-        if !visible.is_empty() {
-            let current = app
-                .open_chat
-                .as_ref()
-                .and_then(|open| visible.iter().position(|chat| chat.id == *open));
-            let next = number.unwrap_or_else(|| match current {
-                Some(index) => (index as i64 + step).rem_euclid(visible.len() as i64) as usize,
-                None => 0,
-            });
-            if let Some(next) = visible.get(next).map(|chat| chat.id.clone()) {
-                if number.is_some() {
-                    app.search_selected = None;
+        if let Some(index) = number
+            && let Some(next) = super::chats::favorite_bar_chats(app)
+                .get(index)
+                .map(|chat| chat.id.clone())
+        {
+            app.search_selected = None;
+            // Opening a chat must not shift the Unread list underfoot.
+            if app.search.trim().is_empty() && !app.show_archived {
+                actions.push(Action::KeepUnread(next.clone()));
+            }
+            app.scroll_chat_into_view = Some(next.clone());
+            actions.push(Action::OpenChat(next));
+        }
+        if step != 0 {
+            let visible = app.visible_chats();
+            if !visible.is_empty() {
+                let current = app
+                    .open_chat
+                    .as_ref()
+                    .and_then(|open| visible.iter().position(|chat| chat.id == *open));
+                let next = match current {
+                    Some(index) => (index as i64 + step).rem_euclid(visible.len() as i64) as usize,
+                    None => 0,
+                };
+                if let Some(next) = visible.get(next).map(|chat| chat.id.clone()) {
+                    // Stepping through the Unread list must not shift it underfoot.
+                    if app.search.trim().is_empty() && !app.show_archived {
+                        actions.push(Action::KeepUnread(next.clone()));
+                    }
+                    app.scroll_chat_into_view = Some(next.clone());
+                    actions.push(Action::OpenChat(next));
                 }
-                // Stepping through the Unread list must not shift it underfoot.
-                if app.search.trim().is_empty() && !app.show_archived {
-                    actions.push(Action::KeepUnread(next.clone()));
-                }
-                app.scroll_chat_into_view = Some(next.clone());
-                actions.push(Action::OpenChat(next));
             }
         }
     }
@@ -578,6 +595,40 @@ fn take_chat_number(input: &mut egui::InputState) -> Option<usize> {
                 ..
             } = event
             && modifiers.matches_exact(Modifiers::COMMAND)
+            && let Some(index) = keys.iter().position(|candidate| candidate == key)
+        {
+            number = Some(index);
+            return false;
+        }
+        true
+    });
+    number
+}
+
+/// Takes an exact Alt/Option+1..9 press, the sidebar filter's place,
+/// leaving modified number keys alone.
+fn take_filter_number(input: &mut egui::InputState) -> Option<usize> {
+    let keys = [
+        Key::Num1,
+        Key::Num2,
+        Key::Num3,
+        Key::Num4,
+        Key::Num5,
+        Key::Num6,
+        Key::Num7,
+        Key::Num8,
+        Key::Num9,
+    ];
+    let mut number = None;
+    input.events.retain(|event| {
+        if number.is_none()
+            && let egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } = event
+            && modifiers.matches_exact(Modifiers::ALT)
             && let Some(index) = keys.iter().position(|candidate| candidate == key)
         {
             number = Some(index);
@@ -942,21 +993,15 @@ fn control_alone(modifiers: Modifiers) -> bool {
 }
 
 /// The message list's modifier held alone: Control on macOS, Alt elsewhere.
+#[cfg(target_os = "macos")]
 fn messages_modifier_alone(modifiers: Modifiers) -> bool {
-    if cfg!(target_os = "macos") {
-        control_alone(modifiers)
-    } else {
-        modifiers.matches_exact(Modifiers::ALT)
-    }
+    control_alone(modifiers)
 }
 
-/// The message list's shortcut: Alt+2, but Control+2 on macOS, where
-/// Command with a digit opens a chat. `label` shows "Control" as ⌃ there.
-const MESSAGES_KEYS: &str = if cfg!(target_os = "macos") {
-    "Control+2"
-} else {
-    "Alt+2"
-};
+/// The message list's shortcut on macOS: Control+2, where Command with a
+/// digit opens a favorite. Elsewhere Alt+2 picks the second sidebar filter.
+#[cfg(target_os = "macos")]
+const MESSAGES_KEYS: &str = "Control+2";
 
 /// Shortcuts shown in the help dialog.
 pub const SHORTCUTS: &[(&str, &str)] = &[
@@ -970,7 +1015,11 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+L", "Focus the message input"),
     ("Alt+↑ / Alt+↓", "Previous / next chat"),
     ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
-    ("Ctrl+1..9", "Open a chat by its position in the chat list"),
+    ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
+    (
+        "Alt+1..6",
+        "Pick a chat filter by its place in the sidebar (outside text fields)",
+    ),
     ("Ctrl+Shift+1", "Chats"),
     ("Ctrl+Shift+2", "Calls"),
     ("↑", "Edit the previous message (when the input is empty)"),
@@ -992,6 +1041,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Ctrl+End",
         "Jump to the newest message (when the input is empty)",
     ),
+    #[cfg(target_os = "macos")]
     (MESSAGES_KEYS, "Go to the message list"),
     (
         "↑ / ↓, Home / End, PgUp / PgDn",
@@ -1469,6 +1519,15 @@ mod tests {
         assert!(matches!(app.actions.as_slice(), [Action::CloseUpdate]));
     }
 
+    /// Marks every chat a favorites-bar favorite in creation order.
+    fn favorite_all(app: &mut App) {
+        for (index, chat) in app.chats.iter_mut().enumerate() {
+            chat.favorite = true;
+            chat.favorite_position = index as u32;
+            chat.backend_account = Some("wa-personal".into());
+        }
+    }
+
     fn app_with_chats(count: usize) -> (tempfile::TempDir, App, Vec<String>) {
         let root = tempfile::tempdir().unwrap();
         let mut app = App::headless(
@@ -1592,6 +1651,7 @@ mod tests {
     #[test]
     fn numbered_shortcuts_open_each_position_with_platform_command_modifiers() {
         let (_root, mut app, ids) = app_with_chats(9);
+        favorite_all(&mut app);
         let ctx = egui::Context::default();
         for modifiers in ctrl_shift().map(|modifiers| Modifiers {
             shift: false,
@@ -1621,17 +1681,20 @@ mod tests {
     }
 
     #[test]
-    fn numbered_shortcuts_follow_pins_filters_search_and_archived_order() {
+    fn numbered_shortcuts_follow_the_favorites_bar_not_the_list() {
         let (_root, mut app, ids) = app_with_chats(4);
+        favorite_all(&mut app);
         let ctx = egui::Context::default();
+        // Pinned, archived and locked favorites leave the bar (a pinned one
+        // shows under Pinned instead): only the first chat keeps a number.
         app.chats[3].pinned = true;
         app.chats[2].archived = true;
         app.chats[1].locked = true;
         assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND));
-        assert!(app.actions.contains(&Action::OpenChat(ids[3].clone())));
+        assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
         app.actions.clear();
         assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::COMMAND));
-        assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
+        assert!(app.actions.is_empty());
 
         app.chat_filter = crate::model::ChatFilter::Unread;
         app.chats[0].unread = 1;
@@ -1640,26 +1703,27 @@ mod tests {
         assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
         assert!(app.actions.contains(&Action::KeepUnread(ids[0].clone())));
 
-        app.search = "Chat 02".into();
+        app.search = "Chat 00".into();
         app.search_selected = Some(ids[0].clone());
         app.actions.clear();
         press(&mut app, &ctx, Key::Num9, Modifiers::COMMAND);
         assert!(app.actions.is_empty());
         assert_eq!(app.search_selected.as_ref(), Some(&ids[0]));
         press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND);
-        assert_eq!(app.actions, [Action::OpenChat(ids[2].clone())]);
+        assert_eq!(app.actions, [Action::OpenChat(ids[0].clone())]);
         assert!(app.search_selected.is_none());
 
         app.search.clear();
         app.show_archived = true;
         app.actions.clear();
         press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND);
-        assert_eq!(app.actions, [Action::OpenChat(ids[2].clone())]);
+        assert_eq!(app.actions, [Action::OpenChat(ids[0].clone())]);
     }
 
     #[test]
     fn numbered_shortcuts_do_not_wrap_missing_positions_or_change_zero_zoom() {
         let (_root, mut app, ids) = app_with_chats(2);
+        favorite_all(&mut app);
         let ctx = egui::Context::default();
         app.open_chat = Some(ids[0].clone());
         for key in [Key::Num3, Key::Num9] {
@@ -1681,12 +1745,47 @@ mod tests {
         for modifiers in [
             Modifiers::NONE,
             Modifiers::SHIFT,
-            Modifiers::ALT,
             Modifiers::COMMAND | Modifiers::ALT,
         ] {
             assert!(press(&mut app, &ctx, Key::Num1, modifiers));
             assert!(app.actions.is_empty());
         }
+    }
+
+    /// Option+1..n picks the sidebar's nth filter; beyond the filter count
+    /// the key is taken but inert, so no other binding can disagree.
+    #[test]
+    fn option_numbered_shortcuts_pick_sidebar_filters() {
+        let (_root, mut app, _ids) = app_with_chats(2);
+        let ctx = egui::Context::default();
+        use crate::model::ChatFilter;
+        assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
+        assert!(
+            app.actions
+                .contains(&Action::SetChatFilter(ChatFilter::EVERY[0]))
+        );
+        app.actions.clear();
+        assert!(!press(&mut app, &ctx, Key::Num6, Modifiers::ALT));
+        assert!(
+            app.actions
+                .contains(&Action::SetChatFilter(ChatFilter::EVERY[5]))
+        );
+        app.actions.clear();
+        assert!(!press(&mut app, &ctx, Key::Num7, Modifiers::ALT));
+        assert!(app.actions.is_empty());
+    }
+
+    /// A focused text field keeps Option+digit: layouts type characters
+    /// with it, such as @ or brackets, that must reach the field.
+    #[test]
+    fn option_numbered_shortcuts_yield_to_a_focused_text_field() {
+        let (_root, mut app, _ids) = app_with_chats(2);
+        let ctx = egui::Context::default();
+        let field = egui::Id::new("composer-text");
+        egui::TextEditState::default().store(&ctx, field);
+        ctx.memory_mut(|memory| memory.request_focus(field));
+        assert!(press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
+        assert!(app.actions.is_empty());
     }
 
     /// Ctrl+Shift+1 and Ctrl+Shift+2 (Cmd on macOS) lead to the rail's

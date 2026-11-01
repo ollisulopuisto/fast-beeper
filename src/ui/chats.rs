@@ -1086,7 +1086,10 @@ const FAVORITE_AVATAR: f32 = 36.0;
 /// preview, so the bar stays a strip of quick jump targets rather than a
 /// second chat list. Favorite toggles, context menus and unread badges
 /// behave exactly as in the list.
-pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
+/// The favorites bar's chats in bar order: favorite position, then recent
+/// activity, then id. Command+1..9 jumps by this same order, so the bar and
+/// the keys never disagree about which chat a number means.
+pub(super) fn favorite_bar_chats(app: &App) -> Vec<Chat> {
     // A chat that is both favorited and pinned shows under Pinned only:
     // two sections listing the same chat would read as a bug.
     let pins: Vec<ChatId> = app
@@ -1107,15 +1110,20 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
         })
         .cloned()
         .collect();
-    if favorites.is_empty() {
-        return;
-    }
     favorites.sort_by(|a, b| {
         a.favorite_position
             .cmp(&b.favorite_position)
             .then_with(|| b.last_activity.cmp(&a.last_activity))
             .then(a.id.cmp(&b.id))
     });
+    favorites
+}
+
+pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
+    let favorites = favorite_bar_chats(app);
+    if favorites.is_empty() {
+        return;
+    }
     let palette = app.palette;
     ui.label(
         egui::RichText::new("Favorites · all networks")
@@ -1131,8 +1139,8 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
     widgets::chip_scroll_row(ui, "beeper-global-favorites", |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-            for chat in &favorites {
-                favorite_chip(app, ui, chat);
+            for (index, chat) in favorites.iter().enumerate() {
+                favorite_chip(app, ui, chat, index);
             }
         });
     });
@@ -1143,7 +1151,7 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
 /// count, opening the chat on click. The hover text names the chat and the
 /// right-click menu is the chat row's, so nothing the full row offered is
 /// lost with the preview.
-fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
+fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat, index: usize) -> egui::Response {
     let palette = app.palette;
     let title = app.chat_title(chat);
     let selected = app.open_chat.as_deref() == Some(chat.id.as_str());
@@ -1225,13 +1233,17 @@ fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Respons
     ui.ctx()
         .data_mut(|data| data.insert_temp(favorite_chip_id(&chat.id), response.rect));
     // With no name or preview on screen, the hover names the chat (and its
-    // network when the backend supplied one).
+    // network when the backend supplied one) and its Command-digit jump.
+    let mut hover = match &chat.network {
+        Some(network) => format!("{}\n{}", title, network),
+        None => title,
+    };
+    if index < 9 {
+        hover.push_str(&format!("\nCmd+{}", index + 1));
+    }
     let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(match &chat.network {
-            Some(network) => format!("{}\n{}", title, network),
-            None => title,
-        });
+        .on_hover_text(hover);
     if response.clicked() {
         app.actions.push(Action::OpenChat(chat.id.clone()));
     }
