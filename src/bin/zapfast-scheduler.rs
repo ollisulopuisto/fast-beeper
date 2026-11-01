@@ -68,9 +68,16 @@ fn new_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let random = std::fs::read("/dev/urandom")
+    let random = std::fs::File::open("/dev/urandom")
         .ok()
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .and_then(|mut f| {
+            let mut bytes = [0u8; 4];
+            // Exactly 4 bytes: fs::read on /dev/urandom never sees EOF and
+            // grows until the OOM killer stops it.
+            f.read_exact(&mut bytes)
+                .ok()
+                .map(|_| u32::from_le_bytes(bytes))
+        })
         .unwrap_or(0);
     format!("sl-{nanos:x}-{random:08x}")
 }
