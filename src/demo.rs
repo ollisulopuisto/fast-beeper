@@ -492,26 +492,28 @@ pub fn populate(app: &mut App) {
         let mut chat = Chat::new(sample.id.to_owned(), sample.name.to_owned());
         chat.last_activity = now - sample.minutes_ago * 60;
         chat.unread = sample.unread;
-        // Six favorites, in the phone's order rather than by recency. The
-        // sidebar's favorites bar wraps the five that are not pinned and
-        // shows each badge variant: a count, a muted count, a lone dot and
-        // no badge.
+        // Seven favorites, in the phone's order rather than by recency.
+        // The sidebar's favorites bar wraps the six that are not pinned
+        // onto a second row (locked Yael stays out) and shows each badge
+        // variant: a muted count, a lone dot and no badge.
         chat.favorite = matches!(
             sample.name,
             "Ada Lovelace"
                 | "Rust Berlin"
-                | "Yael"
                 | "Grace Hopper"
                 | "Katherine Johnson"
+                | "Family"
                 | "Margaret Hamilton"
+                | "Section 8 Berlin"
         );
         chat.favorite_position = match sample.name {
             "Ada Lovelace" => 0,
             "Rust Berlin" => 1,
-            "Yael" => 2,
-            "Grace Hopper" => 3,
-            "Katherine Johnson" => 4,
+            "Grace Hopper" => 2,
+            "Katherine Johnson" => 3,
+            "Family" => 4,
             "Margaret Hamilton" => 5,
+            "Section 8 Berlin" => 6,
             _ => u32::MAX,
         };
         // One chat carries the empty dot, so the sample shows both marks.
