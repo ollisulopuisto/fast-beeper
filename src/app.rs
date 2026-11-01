@@ -3242,6 +3242,31 @@ impl App {
         networks.into_iter().collect()
     }
 
+    /// Accounts under one network, as (key, name) pairs for the rail's
+    /// network plates; the key is what select_beeper_scope expects.
+    pub fn beeper_network_accounts(&self, network: &str) -> Vec<(String, String)> {
+        let mut rows = Vec::new();
+        for (origin, accounts) in &self.beeper_accounts {
+            for account in accounts {
+                let key =
+                    serde_json::to_string(&(origin, &account.id)).expect("string pair serializes");
+                let resolved = if account.network.is_empty() {
+                    self.chats
+                        .iter()
+                        .find(|chat| chat.backend_settings_key().as_ref() == Some(&key))
+                        .and_then(|chat| chat.backend_network.as_deref())
+                        .unwrap_or("")
+                } else {
+                    account.network.as_str()
+                };
+                if resolved == network {
+                    rows.push((key, account.name.clone()));
+                }
+            }
+        }
+        rows
+    }
+
     pub fn beeper_browse_accounts(&self) -> std::collections::BTreeMap<String, String> {
         let mut rows = std::collections::BTreeMap::new();
         for (origin, accounts) in &self.beeper_accounts {

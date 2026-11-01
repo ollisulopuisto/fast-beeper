@@ -996,6 +996,39 @@ fastframe_icons::icons! {
     }
 }
 
+/// The icon standing for a chat network; unknown networks get the
+/// generic chat glyph rather than a wrong vendor's mark.
+pub fn network_icon(network: &str) -> Icon {
+    let name = network.to_lowercase().replace([' ', '-', '_'], "");
+    if name.contains("whatsapp") {
+        Icon::NetworkWhatsapp
+    } else if name.contains("signal") {
+        Icon::NetworkSignal
+    } else if name.contains("telegram") {
+        Icon::NetworkTelegram
+    } else if name.contains("instagram") {
+        Icon::NetworkInstagram
+    } else if name.contains("messenger") {
+        Icon::NetworkMessenger
+    } else if name.contains("facebook") {
+        Icon::NetworkFacebook
+    } else if name.contains("slack") {
+        Icon::NetworkSlack
+    } else if name.contains("discord") {
+        Icon::NetworkDiscord
+    } else if name.contains("googlemessages") {
+        Icon::NetworkGooglemessages
+    } else if name.contains("matrix") {
+        Icon::NetworkMatrix
+    } else if name.contains("imessage") {
+        Icon::NetworkImessage
+    } else if name.contains("linkedin") {
+        Icon::NetworkLinkedin
+    } else {
+        Icon::MessageCircle
+    }
+}
+
 /// A static icon.
 pub fn icon(ui: &mut egui::Ui, icon: Icon, size: f32, color: Color32) -> Response {
     ui.add(icon.image(color, size))

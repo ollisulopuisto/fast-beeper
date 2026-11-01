@@ -787,63 +787,9 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
         });
-        let networks = app.beeper_browse_networks();
-        if !networks.is_empty() {
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Networks")
-                    .small()
-                    .color(palette.secondary),
-            );
-            // Every network is directly reachable; the first ten keep their
-            // Ctrl+Alt+1..0 shortcuts.
-            for (index, network) in networks.iter().enumerate() {
-                let selected = app.beeper_network_filter.as_ref() == Some(network);
-                let name: &str = if network.is_empty() {
-                    "Network not supplied"
-                } else {
-                    network
-                };
-                let row = widgets::filter_row(ui, &palette, name, 0, selected, 0.0);
-                let row = if index < 10 {
-                    row.on_hover_text(format!(
-                        "{name} ({})",
-                        super::keys::label(&format!("Ctrl+Alt+{}", (index + 1) % 10))
-                    ))
-                } else {
-                    row
-                };
-                if row.clicked() {
-                    // A second click on the active network shows every network again.
-                    let next = if selected {
-                        None
-                    } else {
-                        Some(network.clone())
-                    };
-                    app.select_beeper_scope(next, None);
-                }
-            }
-            // With a network chosen, its accounts indent under it, as they
-            // did under the rail's network buttons.
-            if let Some(network) = app.beeper_network_filter.clone() {
-                for (key, label) in app.beeper_browse_accounts() {
-                    let selected = app.beeper_account_filter.as_ref() == Some(&key);
-                    let short = label
-                        .split(" \u{00b7} ")
-                        .nth(1)
-                        .unwrap_or(&label)
-                        .split(" [")
-                        .next()
-                        .unwrap_or(&label);
-                    if widgets::filter_row(ui, &palette, short, 0, selected, 12.0)
-                        .on_hover_text(&label)
-                        .clicked()
-                    {
-                        let account = if selected { None } else { Some(key) };
-                        app.select_beeper_scope(Some(network.clone()), account);
-                    }
-                }
-            }
+        // Networks live beside the rail's bottom destinations now; the
+        // follow-up queues keep their rows here.
+        if !app.beeper_browse_networks().is_empty() {
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new("Queues")
