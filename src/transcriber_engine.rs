@@ -78,14 +78,26 @@ impl Engine for WhisperCpp {
     }
 }
 
-/// The household Whisper behind the Wyoming protocol: TCP, one JSON
-/// describe/transcribe handshake, audio streamed as WAV. Wyoming is the
-/// user's measured accuracy winner and already runs on the Studio, so a
-/// voice note can reuse it without loading a second model.
+/// PCM the Wyoming service accepts: 16 kHz mono signed 16-bit LE.
+pub const WYOMING_RATE: u32 = 16_000;
+
+/// Converts a downloaded voice note into Wyoming PCM. The app wires its
+/// existing rodio/symphonia decode here; tests inject fixtures. Keeping
+/// it a trait object means the engine module never links the audio stack.
+pub type PcmDecoder = Box<dyn FnMut(&Path) -> Result<Vec<u8>, String> + Send>;
+
+/// The household Whisper behind the Wyoming protocol: TCP JSON events,
+/// audio streamed as raw 16 kHz mono chunks. Wyoming is the user's
+/// measured accuracy winner and already runs on the Studio, so a voice
+/// note reuses it without loading a second model. The address is explicit
+/// config; an unset or unreachable service is a definitive job error,
+/// never a silent fallback to another engine.
 pub struct Wyoming {
     /// host:port of the Wyoming Whisper service.
     pub addr: String,
     pub timeout: Duration,
+    /// Turns an encoded voice note (ogg/opus, m4a, mp3) into Wyoming PCM.
+    pub decode: Option<PcmDecoder>,
 }
 
 impl Wyoming {
@@ -93,16 +105,133 @@ impl Wyoming {
         Self {
             addr: addr.into(),
             timeout: Duration::from_secs(120),
+            decode: None,
         }
+    }
+
+    fn write_event(
+        stream: &mut std::net::TcpStream,
+        event: &serde_json::Value,
+        payload: Option<&[u8]>,
+    ) -> Result<(), String> {
+        use std::io::Write;
+        let mut line = serde_json::to_string(event).map_err(|e| e.to_string())?;
+        if let Some(payload) = payload {
+            // Insert payload_length into the event header.
+            line.pop(); // closing brace
+            line.push_str(&format!(",\"payload_length\":{}}}", payload.len()));
+        }
+        stream
+            .write_all(line.as_bytes())
+            .and_then(|()| stream.write_all(b"\n"))
+            .map_err(|e| format!("wyoming write: {e}"))?;
+        if let Some(payload) = payload {
+            stream
+                .write_all(payload)
+                .map_err(|e| format!("wyoming audio write: {e}"))?;
+        }
+        Ok(())
     }
 }
 
 impl Engine for Wyoming {
-    fn transcribe(&mut self, _audio: &Path, _language: &str) -> Result<String, String> {
-        // The Wyoming event protocol needs audio resampled to 16 kHz mono
-        // PCM; that conversion lands with the audio pipeline work. The
-        // adapter is declared now so daemon wiring has both engines.
-        Err("wyoming adapter not yet implemented".into())
+    fn transcribe(&mut self, audio: &Path, language: &str) -> Result<String, String> {
+        use std::io::{BufRead, Read};
+        let decode = self
+            .decode
+            .as_mut()
+            .ok_or_else(|| "wyoming: no PCM decoder wired".to_string())?;
+        let pcm = decode(audio)?;
+        let addr = self.addr.clone();
+        let timeout = self.timeout;
+        let mut stream = std::net::TcpStream::connect(
+            addr.parse::<std::net::SocketAddr>()
+                .map_err(|e| format!("wyoming address {addr:?} invalid: {e}"))?,
+        )
+        .map_err(|e| format!("wyoming service at {addr} unreachable: {e}"))?;
+        stream
+            .set_read_timeout(Some(timeout))
+            .and_then(|()| stream.set_write_timeout(Some(timeout)))
+            .map_err(|e| format!("wyoming timeout config: {e}"))?;
+
+        let transcribe = if language.is_empty() {
+            serde_json::json!({"type": "transcribe"})
+        } else {
+            serde_json::json!({"type": "transcribe", "data": {"language": language}})
+        };
+        Self::write_event(&mut stream, &transcribe, None)?;
+        Self::write_event(
+            &mut stream,
+            &serde_json::json!({
+                "type": "audio-start",
+                "data": {"format": "raw", "rate": WYOMING_RATE, "width": 2, "channels": 1}
+            }),
+            None,
+        )?;
+        for chunk in pcm.chunks(8192) {
+            Self::write_event(
+                &mut stream,
+                &serde_json::json!({
+                    "type": "audio-chunk",
+                    "data": {"rate": WYOMING_RATE, "width": 2, "channels": 1}
+                }),
+                Some(chunk),
+            )?;
+        }
+        Self::write_event(
+            &mut stream,
+            &serde_json::json!({"type": "audio-stop"}),
+            None,
+        )?;
+
+        // Events are JSON lines; a payload_length in the header means that
+        // many binary bytes follow before the next line.
+        let mut reader = std::io::BufReader::new(stream);
+        let deadline = Instant::now() + timeout;
+        loop {
+            if Instant::now() > deadline {
+                return Err("wyoming timed out waiting for the transcript".into());
+            }
+            let mut line = String::new();
+            let n = reader
+                .read_line(&mut line)
+                .map_err(|e| format!("wyoming read: {e}"))?;
+            if n == 0 {
+                return Err("wyoming closed without a transcript".into());
+            }
+            let event: serde_json::Value =
+                serde_json::from_str(line.trim()).map_err(|e| format!("wyoming bad event: {e}"))?;
+            if let Some(len) = event.get("payload_length").and_then(|v| v.as_u64()) {
+                let mut buf = vec![0u8; len as usize];
+                reader
+                    .read_exact(&mut buf)
+                    .map_err(|e| format!("wyoming payload read: {e}"))?;
+            }
+            match event.get("type").and_then(|t| t.as_str()) {
+                Some("transcript") => {
+                    let text = event
+                        .get("data")
+                        .and_then(|d| d.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if text.is_empty() {
+                        return Err("wyoming returned an empty transcript".into());
+                    }
+                    return Ok(text);
+                }
+                Some("error") => {
+                    let msg = event
+                        .get("data")
+                        .and_then(|d| d.get("message"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("unknown");
+                    return Err(format!("wyoming service error: {msg}"));
+                }
+                _ => continue,
+            }
+        }
     }
 }
 
@@ -167,10 +296,99 @@ mod tests {
         std::fs::remove_file(bin).ok();
     }
 
+    use std::io::{BufRead, Read, Write};
+    use std::net::TcpListener;
+
+    /// A Wyoming stub: speaks the event protocol, records what it heard,
+    /// replies with a fixed transcript. Proves framing, payload handling
+    /// and language forwarding without the real service.
+    fn wyoming_stub(reply_text: &'static str) -> (String, std::sync::mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(stream);
+            let mut log = String::new();
+            let mut audio_bytes = 0usize;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 {
+                    break;
+                }
+                log.push_str(&line);
+                let event: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+                if let Some(len) = event.get("payload_length").and_then(|v| v.as_u64()) {
+                    let mut buf = vec![0u8; len as usize];
+                    reader.read_exact(&mut buf).unwrap();
+                    audio_bytes += len as usize;
+                }
+                if event.get("type").and_then(|t| t.as_str()) == Some("audio-stop") {
+                    let reply = format!(
+                        "{{\"type\":\"transcript\",\"data\":{{\"text\":\"{}\"}}}}\n",
+                        reply_text
+                    );
+                    reader.get_mut().write_all(reply.as_bytes()).unwrap();
+                    break;
+                }
+            }
+            tx.send(format!("{log}|audio_bytes={audio_bytes}")).unwrap();
+        });
+        (addr, rx)
+    }
+
+    fn pcm_fixture(len: usize) -> Vec<u8> {
+        vec![0x5Au8; len]
+    }
+
     #[test]
-    fn wyoming_adapter_declared_but_unimplemented() {
-        let mut engine = Wyoming::new("192.0.2.1:10300");
+    fn wyoming_streams_pcm_and_returns_transcript() {
+        let (addr, rx) = wyoming_stub("hei maailma");
+        let mut engine = Wyoming::new(addr);
+        engine.decode = Some(Box::new(|_| Ok(pcm_fixture(9000))));
+        let text = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap();
+        assert_eq!(text, "hei maailma");
+        let log = rx.recv().unwrap();
+        assert!(log.contains("\"type\":\"transcribe\""));
+        assert!(log.contains("\"language\":\"fi\""));
+        assert!(log.contains("\"type\":\"audio-start\""));
+        assert!(log.contains("\"rate\":16000"));
+        // 9000 bytes = 8192 + 808 in two chunks.
+        assert!(log.ends_with("audio_bytes=9000"), "log: {log}");
+    }
+
+    #[test]
+    fn wyoming_empty_language_omits_language_field() {
+        let (addr, rx) = wyoming_stub("ok");
+        let mut engine = Wyoming::new(addr);
+        engine.decode = Some(Box::new(|_| Ok(pcm_fixture(4))));
+        engine.transcribe(Path::new("/a.ogg"), "").unwrap();
+        let log = rx.recv().unwrap();
+        let line = log.lines().next().unwrap();
+        assert!(line.contains("\"type\":\"transcribe\""));
+        assert!(!line.contains("language"), "line: {line}");
+    }
+
+    #[test]
+    fn wyoming_unreachable_is_definitive_error() {
+        let mut engine = Wyoming::new("127.0.0.1:1");
+        engine.decode = Some(Box::new(|_| Ok(pcm_fixture(4))));
         let err = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap_err();
-        assert!(err.contains("not yet implemented"));
+        assert!(err.contains("unreachable"), "got: {err}");
+    }
+
+    #[test]
+    fn wyoming_requires_decoder() {
+        let mut engine = Wyoming::new("127.0.0.1:1");
+        let err = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap_err();
+        assert!(err.contains("no PCM decoder"), "got: {err}");
+    }
+
+    #[test]
+    fn wyoming_bad_address_is_definitive_error() {
+        let mut engine = Wyoming::new("not-an-addr");
+        engine.decode = Some(Box::new(|_| Ok(pcm_fixture(4))));
+        let err = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap_err();
+        assert!(err.contains("invalid"), "got: {err}");
     }
 }

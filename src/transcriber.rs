@@ -136,7 +136,7 @@ impl Store {
         Ok(Self { root, max_bytes })
     }
 
-    fn file_for(&self, chat_id: &str, message_id: &str) -> PathBuf {
+    fn file_for(&self, account_id: &str, chat_id: &str, message_id: &str) -> PathBuf {
         let safe = |s: &str| {
             s.chars()
                 .map(|c| {
@@ -149,17 +149,55 @@ impl Store {
                 .collect::<String>()
         };
         self.root
+            .join(safe(account_id))
             .join(safe(chat_id))
             .join(format!("{}.txt", safe(message_id)))
     }
 
-    pub fn get(&self, chat_id: &str, message_id: &str) -> Option<String> {
-        std::fs::read_to_string(self.file_for(chat_id, message_id)).ok()
+    pub fn get(&self, account_id: &str, chat_id: &str, message_id: &str) -> Option<String> {
+        std::fs::read_to_string(self.file_for(account_id, chat_id, message_id)).ok()
+    }
+
+    /// Removes one transcript, e.g. when its message is deleted.
+    pub fn remove(&self, account_id: &str, chat_id: &str, message_id: &str) -> std::io::Result<()> {
+        match std::fs::remove_file(self.file_for(account_id, chat_id, message_id)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Privacy control: removes every transcript of one chat.
+    pub fn remove_chat(&self, account_id: &str, chat_id: &str) -> std::io::Result<()> {
+        let file = self.file_for(account_id, chat_id, "_");
+        let dir = file.parent().map(Path::to_path_buf).unwrap_or(file);
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Privacy control: removes every transcript of every chat.
+    pub fn clear(&self) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(&self.root)?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path)?;
+            }
+        }
+        Ok(())
     }
 
     /// Writes one transcript and evicts oldest files past the cap.
-    pub fn put(&self, chat_id: &str, message_id: &str, text: &str) -> std::io::Result<()> {
-        let file = self.file_for(chat_id, message_id);
+    pub fn put(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        message_id: &str,
+        text: &str,
+    ) -> std::io::Result<()> {
+        let file = self.file_for(account_id, chat_id, message_id);
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent)?;
             #[cfg(unix)]
@@ -178,17 +216,31 @@ impl Store {
     }
 
     /// Evicts oldest-modified transcript files until under the cap.
+    /// Symlinks are never followed or removed through: symlink_metadata
+    /// keeps a planted link from pointing the store outside its root.
     fn evict(&self) -> std::io::Result<()> {
         let mut files: Vec<(u64, std::time::SystemTime, PathBuf)> = Vec::new();
-        for chat in std::fs::read_dir(&self.root)?.flatten() {
-            for entry in std::fs::read_dir(chat.path())?.flatten() {
-                if let Ok(meta) = entry.metadata() {
-                    if meta.is_file() {
-                        files.push((
-                            meta.len(),
-                            meta.modified().unwrap_or(std::time::UNIX_EPOCH),
-                            entry.path(),
-                        ));
+        for account in std::fs::read_dir(&self.root)?.flatten() {
+            if !account.path().is_dir() {
+                continue;
+            }
+            for chat in std::fs::read_dir(account.path())?.flatten() {
+                if !chat.path().is_dir() {
+                    continue;
+                }
+                for entry in std::fs::read_dir(chat.path())?.flatten() {
+                    // DirEntry::file_type never follows links, so a symlink
+                    // is excluded before any metadata call touches its target.
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_file() {
+                            if let Ok(meta) = entry.metadata() {
+                                files.push((
+                                    meta.len(),
+                                    meta.modified().unwrap_or(std::time::UNIX_EPOCH),
+                                    entry.path(),
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -268,8 +320,13 @@ mod tests {
     fn store_roundtrip_and_unsafe_ids() {
         let dir = std::env::temp_dir().join(format!("tr-store-{}", std::process::id()));
         let store = Store::new(dir.clone(), 1 << 20).unwrap();
-        store.put("chat 9/4", "m!1", "hei maailma").unwrap();
-        assert_eq!(store.get("chat 9/4", "m!1").as_deref(), Some("hei maailma"));
+        store
+            .put("acc-1", "chat 9/4", "m!1", "hei maailma")
+            .unwrap();
+        assert_eq!(
+            store.get("acc-1", "chat 9/4", "m!1").as_deref(),
+            Some("hei maailma")
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -277,12 +334,63 @@ mod tests {
     fn store_evicts_oldest_past_cap() {
         let dir = std::env::temp_dir().join(format!("tr-evict-{}", std::process::id()));
         let store = Store::new(dir.clone(), 10).unwrap();
-        store.put("c", "old", "12345678").unwrap();
+        store.put("a", "c", "old", "12345678").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        store.put("c", "new", "12345678").unwrap();
-        assert_eq!(store.get("c", "old"), None);
-        assert_eq!(store.get("c", "new").as_deref(), Some("12345678"));
+        store.put("a", "c", "new", "12345678").unwrap();
+        assert_eq!(store.get("a", "c", "old"), None);
+        assert_eq!(store.get("a", "c", "new").as_deref(), Some("12345678"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn store_isolates_accounts_and_chats() {
+        let dir = std::env::temp_dir().join(format!("tr-iso-{}", std::process::id()));
+        let store = Store::new(dir.clone(), 1 << 20).unwrap();
+        store.put("acc-1", "c", "m", "one").unwrap();
+        store.put("acc-2", "c", "m", "two").unwrap();
+        store.put("acc-1", "d", "m", "three").unwrap();
+        assert_eq!(store.get("acc-1", "c", "m").as_deref(), Some("one"));
+        assert_eq!(store.get("acc-2", "c", "m").as_deref(), Some("two"));
+        assert_eq!(store.get("acc-1", "d", "m").as_deref(), Some("three"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn store_delete_controls() {
+        let dir = std::env::temp_dir().join(format!("tr-del-{}", std::process::id()));
+        let store = Store::new(dir.clone(), 1 << 20).unwrap();
+        store.put("a", "c1", "m1", "x").unwrap();
+        store.put("a", "c1", "m2", "y").unwrap();
+        store.put("a", "c2", "m3", "z").unwrap();
+        store.remove("a", "c1", "m1").unwrap();
+        assert_eq!(store.get("a", "c1", "m1"), None);
+        assert_eq!(store.get("a", "c1", "m2").as_deref(), Some("y"));
+        store.remove_chat("a", "c1").unwrap();
+        assert_eq!(store.get("a", "c1", "m2"), None);
+        assert_eq!(store.get("a", "c2", "m3").as_deref(), Some("z"));
+        store.clear().unwrap();
+        assert_eq!(store.get("a", "c2", "m3"), None);
+        // Deleting what is absent is not an error.
+        store.remove("a", "c1", "m1").unwrap();
+        store.remove_chat("a", "gone").unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn store_eviction_ignores_symlinks() {
+        let dir = std::env::temp_dir().join(format!("tr-sym-{}", std::process::id()));
+        let store = Store::new(dir.clone(), 10).unwrap();
+        store.put("a", "c", "real", "12345678").unwrap();
+        // A planted symlink inside the store pointing outside it: eviction
+        // must neither follow nor delete through it.
+        let outside = std::env::temp_dir().join(format!("tr-outside-{}", std::process::id()));
+        std::fs::write(&outside, "keep me").unwrap();
+        std::os::unix::fs::symlink(&outside, store.file_for("a", "c", "link")).unwrap();
+        store.put("a", "c", "new", "12345678").unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&outside).ok();
     }
 
     #[cfg(unix)]
@@ -291,8 +399,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("tr-perms-{}", std::process::id()));
         let store = Store::new(dir.clone(), 1 << 20).unwrap();
-        store.put("c", "m", "secret words").unwrap();
-        let mode = std::fs::metadata(store.file_for("c", "m"))
+        store.put("a", "c", "m", "secret words").unwrap();
+        let mode = std::fs::metadata(store.file_for("a", "c", "m"))
             .unwrap()
             .permissions()
             .mode();
