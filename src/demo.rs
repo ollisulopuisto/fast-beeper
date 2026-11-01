@@ -5370,7 +5370,16 @@ mod tests {
 
     #[test]
     fn carousel_cards_scroll_without_widening_the_chat_and_copy_locally() {
-        for (width, cards) in [(640.0, 3), (1180.0, 3), (1180.0, 2), (1180.0, 1)] {
+        // The combined sidebar takes 164 points beside the list: at 1180
+        // even two cards overflow into the carousel's arrows, while the
+        // fits cases need a wider window for the same conversation.
+        for (width, cards, fits) in [
+            (640.0, 3, false),
+            (1180.0, 3, false),
+            (1180.0, 2, false),
+            (1344.0, 2, true),
+            (1344.0, 1, true),
+        ] {
             let mut app = app();
             carousel_sample(&mut app, cards);
             app.backend.record_demo_commands();
@@ -5413,15 +5422,18 @@ mod tests {
                     .unwrap();
                 assert!(second.left() >= first.right());
             }
+            assert!(
+                ctx.data(|data| data.get_temp::<egui::Rect>(bubble.with(("carousel-arrow", -1))))
+                    .is_none(),
+                "{width}/{cards}: scrolled to the start, no previous arrow"
+            );
+            assert_eq!(
+                ctx.data(|data| data.get_temp::<egui::Rect>(bubble.with(("carousel-arrow", 1))))
+                    .is_some(),
+                !fits,
+                "{width}/{cards}: a next arrow exactly when the cards overflow"
+            );
             if cards < 3 {
-                for direction in [-1, 1] {
-                    assert!(
-                        ctx.data(|data| data
-                            .get_temp::<egui::Rect>(bubble.with(("carousel-arrow", direction))))
-                            .is_none(),
-                        "fitting cards need no navigation arrows"
-                    );
-                }
                 let last = ctx
                     .data(|data| {
                         data.get_temp::<egui::Rect>(bubble.with(("carousel-card", cards - 1)))
@@ -20330,7 +20342,8 @@ mod long_chat_tests {
             .expect("the message list has drawn")
             .0
         };
-        let over_list = egui::pos2(150.0, 400.0);
+        // Over the list, which starts right of the 216-point sidebar.
+        let over_list = egui::pos2(360.0, 400.0);
         let over_messages = egui::pos2(700.0, 400.0);
         let settle = |app: &mut App| {
             for _ in 0..90 {
@@ -21664,8 +21677,8 @@ mod rail_tests {
             let rail = rail_rect(&ctx).expect("the rail is drawn");
             assert!(rail.left() < 1.0, "{macos}: at the left edge: {rail:?}");
             assert!(
-                (rail.width() - crate::ui::chats::compact_width(&ctx)).abs() < 1.0,
-                "{macos}: as wide as the collapsed list was: {rail:?}"
+                (rail.width() - crate::ui::rail::WIDTH).abs() < 1.0,
+                "{macos}: the combined sidebar's width beside the list: {rail:?}"
             );
             let header = list_header(&ctx).expect("the list is drawn");
             assert!(
