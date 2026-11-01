@@ -98,7 +98,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 pub fn full_show(app: &mut App, ui: &mut egui::Ui) {
     search_keyboard(app, ui);
     let palette = app.palette;
-    super::rail::show(app, ui, false);
+    super::rail::show(app, ui, false, false);
     egui::CentralPanel::default()
         .frame(Frame::new().fill(palette.panel).inner_margin(Margin::ZERO))
         .show(ui, |ui| {
@@ -2098,11 +2098,11 @@ pub fn compact_chat_id(chat: &str) -> egui::Id {
     egui::Id::new(("chat-rail", chat))
 }
 
-/// Width of the navigation rail, which the chats' avatars fill while the
+/// Width of the compact rail, which the chats' avatars fill while the
 /// list is hidden. On macOS the traffic lights reach past it, over the
 /// header beside it.
 pub fn compact_width(_ctx: &egui::Context) -> f32 {
-    super::rail::WIDTH
+    super::rail::COMPACT
 }
 
 /// The rail's avatars while the list is hidden: the chats the full list
@@ -3147,7 +3147,7 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ui| super::super::rail::show(&mut app, ui, true),
+                |ui| super::super::rail::show(&mut app, ui, true, true),
             );
             output.textures_delta.clear();
         };
@@ -3284,7 +3284,7 @@ mod tests {
             },
             |ui| {
                 super::super::keys::handle(app, ui.ctx());
-                super::super::rail::show(app, ui, true);
+                super::super::rail::show(app, ui, true, true);
             },
         );
         output.textures_delta.clear();
@@ -3457,7 +3457,7 @@ mod tests {
                 },
                 |ui| {
                     if collapsed {
-                        super::super::rail::show(app, ui, true);
+                        super::super::rail::show(app, ui, true, true);
                     } else {
                         show(app, ui);
                     }
