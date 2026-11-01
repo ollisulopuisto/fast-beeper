@@ -20805,7 +20805,8 @@ mod receipt_tests {
     async fn a_forever_muted_chat_stays_archived_through_sync_unarchives() {
         let (mut worker, _events, _inbox, _wa) = worker();
         let time = whatsapp_rust::wacore::time::now_utc();
-        let sync_unarchive = |timestamp: jiff::Timestamp| {
+        let sync_unarchive =
+            |timestamp: whatsapp_rust::chrono::DateTime<whatsapp_rust::chrono::Utc>| {
             Arc::new(wa_events::Event::ArchiveUpdate(
                 wa_events::ArchiveUpdate::builder()
                     .jid(PEER.parse().unwrap())
