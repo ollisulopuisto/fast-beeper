@@ -1775,7 +1775,7 @@ pub fn filter_row(
         vec2((width - indent).max(0.0), height),
     );
     theme::reveal_focus(&response);
-    theme::focus_outline(ui, response.id, rect, 6.0.into());
+    theme::focus_outline(ui, response.id, rect, 6.0);
     if ui.is_rect_visible(rect) {
         let color = if selected {
             palette.accent
