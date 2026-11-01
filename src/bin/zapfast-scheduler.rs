@@ -31,7 +31,10 @@
 //!   POST /v1/scheduled                      add: {account_id, chat_id, text,
 //!                                           reply_to?, due_at} (unix seconds)
 //!   POST /v1/scheduled/{id}/cancel
-//!   POST /v1/scheduled/{id}/retry           after reconcile NotFound
+//!   POST /v1/scheduled/{id}/retry           Failed/Missed freely; Uncertain
+//!                                           needs {"confirm_duplicate":true}
+//!   POST /v1/scheduled/{id}/reconcile       check an Uncertain item against
+//!                                           the chat history (no resend)
 //!   POST /v1/scheduled/{id}/edit            {text?, due_at?}
 //!   POST /v1/scheduled/{id}/send-now        deliver immediately
 //!
@@ -44,7 +47,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use zapfast::scheduler::{Queue, Scheduler};
+use zapfast::scheduler::{Queue, Scheduler, Send};
 use zapfast::scheduler_api::ServerSender;
 
 fn now() -> i64 {
@@ -145,6 +148,7 @@ fn handle(
     path: &std::path::Path,
     token: &str,
     validator: &mut ServerSender,
+    reconciler: &mut ServerSender,
 ) {
     let Some((method, req_path, headers, body)) = read_request(stream) else {
         return json_response(stream, "400 Bad Request", r#"{"error":"bad request"}"#);
@@ -186,6 +190,7 @@ fn handle(
         now(),
         &new_id,
         &mut |chat, account| validator.validate_chat(chat, account),
+        &mut |item| reconciler.reconcile(item),
     );
     if changed {
         persist(queue, path);
@@ -268,6 +273,13 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let mut reconciler = match ServerSender::new(base_url.clone(), &token) {
+        Ok(sender) => sender,
+        Err(e) => {
+            eprintln!("zapfast-scheduler: {e}");
+            std::process::exit(1);
+        }
+    };
     let mut validator = match ServerSender::new(base_url, &token) {
         Ok(sender) => sender,
         Err(e) => {
@@ -318,6 +330,7 @@ fn main() {
                     &path,
                     &control_token,
                     &mut validator,
+                    &mut reconciler,
                 ),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(_) => break,
