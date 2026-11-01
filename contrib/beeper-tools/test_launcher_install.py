@@ -20,8 +20,8 @@ class SchedulerInstallTests(unittest.TestCase):
         self.assertIn('alertFirstButtonReturn else { return }', SOURCE)
 
     def test_install_checks_remote_architecture(self):
-        self.assertIn('"uname -m"', SOURCE)
-        self.assertIn('== "arm64"', SOURCE)
+        self.assertIn('uname -s; uname -m', SOURCE)
+        self.assertIn('Darwin\\narm64', SOURCE)
 
     def test_tokens_travel_on_stdin_never_argv(self):
         self.assertIn('stdin: Data(beeperToken.utf8)', SOURCE)

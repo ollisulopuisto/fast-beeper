@@ -175,9 +175,9 @@ func launch(_ connection: Connection) throws {
     // Mirrors contrib/send-later/install_macos.sh over SSH: bundled daemon,
     // 0600 control token, launchd agent. Tokens never travel on argv.
     func installScheduler(_ connection: Connection, bundled: URL, beeperToken: String) {
-        let arch = remote(connection, "uname -m")
+        let arch = remote(connection, "uname -s; uname -m")
         guard arch.0 == 0,
-              String(decoding: arch.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "arm64" else {
+              String(decoding: arch.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "Darwin\narm64" else {
             let alert = NSAlert()
             alert.messageText = "Send Later needs an Apple Silicon Server Mac"
             alert.informativeText = "The bundled scheduler runs on Apple Silicon only. Send Later stays off; everything else keeps working."
@@ -308,10 +308,11 @@ func launch(_ connection: Connection) throws {
     guard let (tunnel, hold, schedulerForwarded) = opened else { throw LaunchError.tunnel }
     defer { stop(tunnel) }
     _ = hold
-    if !schedulerForwarded {
-        // Without our own 23376 listener the app must not send a previously
-        // synced scheduler token to whatever occupies the local port.
-        try? manager.removeItem(at: profile.appendingPathComponent("config/scheduler-token"))
+    // Clear a token from a previous Server before either sync or API-only
+    // fallback. If removal fails, do not launch a client that could use it.
+    let cachedSchedulerToken = profile.appendingPathComponent("config/scheduler-token")
+    if manager.fileExists(atPath: cachedSchedulerToken.path) {
+        try manager.removeItem(at: cachedSchedulerToken)
     }
 
     offerSchedulerInstall(connection, beeperToken: token)
