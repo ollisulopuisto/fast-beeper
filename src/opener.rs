@@ -107,9 +107,15 @@ impl egui::plugin::Plugin for DetachedLinks {
             let egui::OutputCommand::OpenUrl(link) = command else {
                 return true;
             };
-            if let Err(error) = (self.open)(&link.url) {
-                // The address may come from a message, so it is not logged.
-                log::warn!("could not open a link: {error}");
+            // Ensure links passing to desktop launchers conform to allowed
+            // web/mail protocols to prevent arbitrary protocol handler execution.
+            if let Some(safe_url) = crate::safety::external_url(&link.url) {
+                if let Err(error) = (self.open)(&safe_url) {
+                    // The address may come from a message, so it is not logged.
+                    log::warn!("could not open a link: {error}");
+                }
+            } else {
+                log::warn!("declined opening link with disallowed scheme or invalid format");
             }
             false
         });
@@ -258,6 +264,10 @@ mod tests {
             ui.ctx().copy_text("kept".into());
             ui.ctx()
                 .open_url(egui::OpenUrl::same_tab("https://example.invalid/b"));
+            // Disallowed or dangerous schemes must be rejected.
+            ui.ctx().open_url(egui::OpenUrl::new_tab("file:///bin/sh"));
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab("javascript:alert(1)"));
         });
         output.textures_delta.clear();
         assert_eq!(
