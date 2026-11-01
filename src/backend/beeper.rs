@@ -1232,6 +1232,13 @@ impl Api {
         if documents {
             attachment["type"] = "file".into();
         }
+        // The contract's text is an optional string: with no caption the
+        // field goes away. An explicit null is not a string, and Beeper
+        // answers the message send with 400 Bad Request.
+        let mut message = serde_json::json!({ "attachment": attachment });
+        if let Some(caption) = caption {
+            message["text"] = caption.into();
+        }
         let response = self
             .http
             .post(format!(
@@ -1240,11 +1247,13 @@ impl Api {
                 encode_segment(chat)
             ))
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(serde_json::json!({ "attachment": attachment, "text": caption }).to_string())
+            .body(message.to_string())
             .send()
             .map_err(|_| "Attachment send outcome unknown; check history before retrying")?;
         if !response.status().is_success() {
-            return Err(format!("Attachment send returned {}", response.status()));
+            // Same whitelisted-hint error as text sends: a validation 400
+            // names the rejected field without echoing message content.
+            return Err(safe_send_error(response));
         }
         serde_json::from_str(&bounded_json_body(response).map_err(|e| {
             format!("{e}; attachment send outcome unknown, check history before retrying")
@@ -5146,6 +5155,93 @@ mod tests {
             .send_file("work-account-chat", &path, true, Some("caption"))
             .unwrap();
         assert_eq!(accepted.chat, "work-account-chat");
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn attachment_send_omits_the_text_field_without_a_caption() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0u8; 8192];
+                let length = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..length]);
+                let body = if index == 0 {
+                    assert!(request.starts_with("POST /v1/assets/upload/base64 "));
+                    r#"{"uploadID":"upload-no-caption"}"#
+                } else {
+                    assert!(request.starts_with("POST /v1/chats/chat/messages "));
+                    assert!(request.contains("upload-no-caption"));
+                    // An explicit null text is not the contract's optional
+                    // string; without a caption the field goes away.
+                    assert!(!request.contains("\"text\""));
+                    r#"{"pendingMessageID":"pending-no-caption","chatID":"chat"}"#
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url: base,
+            token: "test".into(),
+        })
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hello.txt");
+        std::fs::write(&path, b"hello").unwrap();
+        let accepted = api.send_file("chat", &path, false, None).unwrap();
+        assert_eq!(accepted.pending_id, "pending-no-caption");
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn attachment_send_error_names_the_rejected_field() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0u8; 8192];
+                let length = stream.read(&mut buffer).unwrap();
+                let _ = String::from_utf8_lossy(&buffer[..length]);
+                let (status, body) = if index == 0 {
+                    ("200 OK", r#"{"uploadID":"upload-refused"}"#)
+                } else {
+                    (
+                        "400 Bad Request",
+                        r#"{"error":{"path":["text"],"message":"expected string, received null","input":"REDACTED-CONTENT"}}"#,
+                    )
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status,
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url: base,
+            token: "test".into(),
+        })
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hello.txt");
+        std::fs::write(&path, b"hello").unwrap();
+        let error = api.send_file("chat", &path, false, None).unwrap_err();
+        assert!(error.contains("400"), "{error}");
+        assert!(error.contains("invalid field text"), "{error}");
+        // The server's message/input values never reach the error.
+        assert!(!error.contains("REDACTED-CONTENT"), "{error}");
         worker.join().unwrap();
     }
 
