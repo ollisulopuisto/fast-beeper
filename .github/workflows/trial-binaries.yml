@@ -15,6 +15,7 @@ on:
           - x86_64-unknown-linux-gnu
           - x86_64-pc-windows-msvc
           - all
+          - shots-only
 
 permissions:
   contents: read
@@ -46,7 +47,7 @@ jobs:
               dict(os='windows-2025', target='x86_64-pc-windows-msvc', executable='zapfast.exe'),
           ]
           selected = [r for r in rows if os.environ['TARGET'] in ('all', r['target'])]
-          if not selected:
+          if not selected and os.environ['TARGET'] != 'shots-only':
               raise SystemExit('Unknown target; refusing build')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write('matrix=' + json.dumps(dict(include=selected)) + '\n')
@@ -127,3 +128,51 @@ jobs:
           echo '### Trial binary: ${{ matrix.target }}' >> "$GITHUB_STEP_SUMMARY"
           echo 'Unsigned / unnotarized. Existing Beeper Desktop or Server required. No token or profile bundled.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Artifact uploads require repository variable FAST_BEEPER_UPLOAD_ARTIFACTS=true after storage/budget review.' >> "$GITHUB_STEP_SUMMARY"
+
+  # Rendered-pixel evidence for layout work: demo screenshots of the screens
+  # and window sizes the layout tests reason about, as a run artifact (never
+  # in the tree, per policy). Runs only on an explicit shots-only dispatch.
+  shots:
+    name: demo shots (macOS)
+    if: ${{ github.event.repository.private == false && inputs.target == 'shots-only' }}
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: test-v1
+      - name: Build the demo
+        run: mbx build --locked --features demo
+      - name: Capture the layouts
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/layout-shots"
+          mkdir -p "$out"
+          shot() {
+            name="$1"; size="$2"; page="$3"; shift 3
+            ./target/debug/zapfast --demo-shot "$out/$name.png" \
+              --demo-size "$size" --demo-page "$page" --demo-shot-delay 6000 "$@"
+            test -s "$out/$name.png"
+          }
+          # The combined sidebar beside the list, and where it must fall
+          # back to the compact rail.
+          shot chat-1180x780 1180x780 chat
+          shot chat-960x780 960x780 chat
+          shot chat-700x600 700x600 chat
+          shot chat-640x780 640x780 chat
+          shot chat-600x780 600x780 chat
+          # The list hidden: avatars fill the compact rail.
+          shot rail-1180x780 1180x780 rail
+          # Settings keeps its old content width beside the compact rail.
+          shot settings-960x780 960x780 settings
+          # ZapFast's own title bar (GNOME): the header clears the buttons.
+          shot chat-titlebar-700x600 700x600 chat --demo-titlebar
+          # A short window scrolls the rail instead of losing its foot.
+          shot chat-1180x300 1180x300 chat
+      - uses: actions/upload-artifact@v7
+        with:
+          name: layout-shots
+          path: ${{ runner.temp }}/layout-shots/*.png
+          retention-days: 7
