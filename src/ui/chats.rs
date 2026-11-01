@@ -1147,9 +1147,7 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
         results(app, ui);
         return;
     }
-    let global_pins = !app.show_archived
-        && !app.beeper_reply_later_filter
-        && app.chats.iter().any(|c| c.backend_account.is_some());
+    let global_pins = app.dedups_pins();
     let chats: Vec<Chat> = app
         .visible_chats()
         .into_iter()

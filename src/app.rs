@@ -3097,6 +3097,18 @@ impl App {
             .any(|saved| members.contains(saved))
     }
 
+    /// Whether the main list drops pinned chats into the sidebar's Pinned
+    /// section. Only the unfiltered All view deduplicates: a filtered view
+    /// (Unread, a label) must list every match, pins included, so the filter
+    /// count and the list agree.
+    pub fn dedups_pins(&self) -> bool {
+        !self.show_archived
+            && !self.beeper_reply_later_filter
+            && self.chat_filter == ChatFilter::All
+            && self.label_filter.is_none()
+            && self.chats.iter().any(|c| c.backend_account.is_some())
+    }
+
     pub fn beeper_global_pins(&self) -> Vec<Chat> {
         let mut pins: Vec<_> = self
             .chats
@@ -22587,6 +22599,32 @@ mod tests {
         app.apply(Action::SetChatFilter(ChatFilter::All), &ctx);
         assert!(!app.show_archived, "choosing a filter leaves the archive");
         assert_eq!(names(&app), ["Ada"]);
+    }
+
+    #[test]
+    fn unread_filter_keeps_pinned_chats_in_the_list() {
+        let mut app = app();
+        app.chats = vec![
+            Chat {
+                pinned: true,
+                unread: 3,
+                backend_account: Some("work".into()),
+                ..Chat::new("pinned".into(), "Pinned".into())
+            },
+            Chat {
+                unread: 1,
+                backend_account: Some("work".into()),
+                ..Chat::new("plain".into(), "Plain".into())
+            },
+        ];
+        // All view dedups pinned chats into the sidebar section.
+        app.chat_filter = ChatFilter::All;
+        assert!(app.dedups_pins());
+        // The Unread filter must list every unread chat, pins included, so
+        // the chip count and the rows agree.
+        app.chat_filter = ChatFilter::Unread;
+        assert!(!app.dedups_pins());
+        assert_eq!(app.unread_chats(ChatFilter::Unread), 2);
     }
 
     #[test]
