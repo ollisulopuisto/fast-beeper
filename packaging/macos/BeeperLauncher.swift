@@ -145,6 +145,11 @@ func launch(_ connection: Connection) throws {
     guard let (tunnel, hold, schedulerForwarded) = opened else { throw LaunchError.tunnel }
     defer { stop(tunnel) }
     _ = hold
+    if !schedulerForwarded {
+        // Without our own 23376 listener the app must not send a previously
+        // synced scheduler token to whatever occupies the local port.
+        try? manager.removeItem(at: profile.appendingPathComponent("config/scheduler-token"))
+    }
 
     // Best effort: the scheduler's control token lives only on the Server Mac
     // and reaches this Mac through the same SSH trust, 0600 on both ends.

@@ -176,34 +176,3 @@ jobs:
           name: layout-shots
           path: ${{ runner.temp }}/layout-shots/*.png
           retention-days: 7
-  verify-delivered-dmg:
-    name: Verify delivered DMG contents
-    runs-on: macos-15
-    timeout-minutes: 10
-    steps:
-      - name: Download delivered trial artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: fast-beeper-aarch64-apple-darwin-59e2b6f40817e18d5ff5131905bdafd247a14f9a
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: 41295626707
-      - name: Mount DMG and inspect embedded binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          dmg=$(ls app-dist/*.dmg)
-          mount=$(mktemp -d)/mount; mkdir -p "$mount"
-          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount" >/dev/null
-          app="$mount/ZapFast Beeper.app"
-          client="$app/Contents/MacOS/zapfast-client"
-          launcher="$app/Contents/MacOS/zapfast"
-          unzip -q -o dist/*.zip -d "$TMPDIR/distzip"
-          raw=$(find "$TMPDIR/distzip" -type f -name 'zapfast*' | head -1)
-          echo "embedded client: $(shasum -a 256 "$client")"
-          echo "dist client:     $(shasum -a 256 "$raw")"
-          cmp -s "$client" "$raw" && echo 'embedded client == built client (byte-identical)' || { echo 'FAIL: DMG client differs from built client'; exit 1; }
-          strings -a "$client" | grep -q 'Beeper send returned' && echo 'client HAS new send error wording' || { echo 'FAIL: client missing new send wording'; exit 1; }
-          strings -a "$client" | grep -q 'Attachment send returned' && { echo 'FAIL: client still has pre-#37 toast wording'; exit 1; } || echo 'client lacks old 400 toast wording (matches 59e2b6f)'
-          strings -a "$client" | grep -q 'Locked chats' && echo 'client HAS new sidebar strings' || { echo 'FAIL: client missing sidebar strings'; exit 1; }
-          strings -a "$launcher" | grep -q 'Connect to your existing Beeper Server' && echo 'launcher is the compiled Beeper SSH launcher' || { echo 'FAIL: launcher missing Connect dialog strings'; exit 1; }
-          hdiutil detach "$mount" >/dev/null
