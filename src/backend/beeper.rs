@@ -1334,6 +1334,41 @@ fn readable_name(value: &Option<String>) -> Option<String> {
         .cloned()
 }
 
+/// Mention links in a rich body, as (id, label) pairs the mapper records:
+/// the bridge marks a mention up as a matrix.to anchor whose text is the
+/// person's name. Labels carry the same basic entity decoding the text gets.
+fn rich_text_mentions(raw: &str) -> Vec<crate::model::MentionRef> {
+    const MARK: &str = "https://matrix.to/#/@";
+    let mut mentions = Vec::new();
+    let mut rest = raw;
+    while let Some(start) = rest.find(MARK) {
+        let after = &rest[start + MARK.len()..];
+        let Some(id_end) = after.find(|c| c == '"' || c == '\'') else {
+            break;
+        };
+        let id = format!("@{}", &after[..id_end]);
+        let Some(label_start) = after[id_end..]
+            .find('>')
+            .map(|i| start + MARK.len() + id_end + i + 1)
+        else {
+            break;
+        };
+        let Some(label_end) = rest[label_start..].find("</a>").map(|i| label_start + i) else {
+            break;
+        };
+        let label = plain_rich_text(&rest[label_start..label_end]);
+        if !label.is_empty()
+            && !mentions
+                .iter()
+                .any(|m: &crate::model::MentionRef| m.id == id)
+        {
+            mentions.push(crate::model::MentionRef { user: label, id });
+        }
+        rest = &rest[label_end + 4..];
+    }
+    mentions
+}
+
 /// Conservative rich-text fallback. Never executes markup, loads assets or
 /// interprets CSS. Only an explicitly HTML-looking body is converted; ordinary
 /// angle-bracket text is left alone. Unknown entities remain literal.
@@ -1477,6 +1512,14 @@ fn plain_rich_text(raw: &str) -> String {
                             }
                         } else {
                             link = safe_html_href(tag);
+                            // Mention links render as their @name token, as
+                            // WhatsApp's do, so markup can chip them.
+                            if link
+                                .as_deref()
+                                .is_some_and(|url| url.starts_with("https://matrix.to/#/@"))
+                            {
+                                out.push('@');
+                            }
                         }
                     }
                     if matches!(
@@ -1680,7 +1723,11 @@ fn map_message(m: &BeeperMessage, fallback_chat: &str) -> Message {
             })
             .collect(),
         edited: m.edited_timestamp.is_some(),
-        mentions: Vec::new(),
+        mentions: m
+            .text
+            .as_deref()
+            .map(rich_text_mentions)
+            .unwrap_or_default(),
         forwarded: false,
         thumbnail: None,
     }
@@ -3240,7 +3287,11 @@ mod tests {
     #[test]
     fn matrix_mention_links_keep_the_name_without_the_url() {
         let raw = "<p>hey <a href=\"https://matrix.to/#/@wl_6ds:local-signal.localhost\">Mikael Kasurinen</a> look</p>";
-        assert_eq!(plain_rich_text(raw), "hey Mikael Kasurinen look");
+        assert_eq!(plain_rich_text(raw), "hey @Mikael Kasurinen look");
+        let mentions = rich_text_mentions(raw);
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].id, "@wl_6ds:local-signal.localhost");
+        assert_eq!(mentions[0].user, "Mikael Kasurinen");
         // Ordinary links keep their destination beside the label.
         let raw = "<p>see <a href=\"https://example.com/page\">this</a></p>";
         assert_eq!(plain_rich_text(raw), "see this (https://example.com/page)");
