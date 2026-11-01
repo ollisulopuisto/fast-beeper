@@ -144,7 +144,7 @@ jobs:
   shots:
     name: demo shots (macOS)
     if: ${{ github.event.repository.private == false && inputs.target == 'shots-only' }}
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
