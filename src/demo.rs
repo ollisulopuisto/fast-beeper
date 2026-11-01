@@ -5370,9 +5370,16 @@ mod tests {
 
     #[test]
     fn carousel_cards_scroll_without_widening_the_chat_and_copy_locally() {
-        // The combined sidebar takes 164 points beside the list: the fits
-        // cases need a wider window for the same conversation.
-        for (width, cards) in [(640.0, 3), (1180.0, 3), (1344.0, 2), (1344.0, 1)] {
+        // The combined sidebar takes 164 points beside the list: at 1180
+        // even two cards overflow into the carousel's arrows, while the
+        // fits cases need a wider window for the same conversation.
+        for (width, cards, fits) in [
+            (640.0, 3, false),
+            (1180.0, 3, false),
+            (1180.0, 2, false),
+            (1344.0, 2, true),
+            (1344.0, 1, true),
+        ] {
             let mut app = app();
             carousel_sample(&mut app, cards);
             app.backend.record_demo_commands();
@@ -5415,15 +5422,18 @@ mod tests {
                     .unwrap();
                 assert!(second.left() >= first.right());
             }
+            assert!(
+                ctx.data(|data| data.get_temp::<egui::Rect>(bubble.with(("carousel-arrow", -1))))
+                    .is_none(),
+                "{width}/{cards}: scrolled to the start, no previous arrow"
+            );
+            assert_eq!(
+                ctx.data(|data| data.get_temp::<egui::Rect>(bubble.with(("carousel-arrow", 1))))
+                    .is_some(),
+                !fits,
+                "{width}/{cards}: a next arrow exactly when the cards overflow"
+            );
             if cards < 3 {
-                for direction in [-1, 1] {
-                    assert!(
-                        ctx.data(|data| data
-                            .get_temp::<egui::Rect>(bubble.with(("carousel-arrow", direction))))
-                            .is_none(),
-                        "fitting cards need no navigation arrows"
-                    );
-                }
                 let last = ctx
                     .data(|data| {
                         data.get_temp::<egui::Rect>(bubble.with(("carousel-card", cards - 1)))
