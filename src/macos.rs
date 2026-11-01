@@ -157,12 +157,14 @@ pub fn attach(ctx: &egui::Context) {
 /// `applicationShouldHandleReopen:hasVisibleWindows:` injected onto the
 /// application delegate's class: winit deliberately registers no handler for
 /// it (its platform docs assign the decision to the app), and ZapFast's
-/// window is destroyed when it closes to the tray, so activating the app
-/// from the Dock, Cmd-Tab, or an app switcher with no window left surfaced
-/// none. The injected method restores miniaturized windows - the behavior
-/// the absent default handler provided - and otherwise asks for a window
-/// through the same action the tray's Show uses. The delegate instance
-/// stays winit's; only the missing method is added to its class.
+/// window is destroyed when it closes to the tray, so reopening the app
+/// from the Dock or Finder with no window left surfaced none. AppKit does
+/// not send this message for Cmd-Tab or app-switcher activation; that path
+/// is covered by `did_become_active` below. The injected method restores
+/// miniaturized windows - the behavior the absent default handler
+/// provided - and otherwise asks for a window through the same action the
+/// tray's Show uses. The delegate instance stays winit's; only the
+/// missing method is added to its class.
 unsafe extern "C-unwind" fn reopen(
     _this: &objc2::runtime::AnyObject,
     _sel: objc2::runtime::Sel,
@@ -195,6 +197,44 @@ unsafe extern "C-unwind" fn reopen(
         }
     }
     objc2::runtime::Bool::YES
+}
+
+/// `applicationDidBecomeActive:` injected alongside `reopen`: AppKit sends
+/// no reopen message when the app is activated through Cmd-Tab or an app
+/// switcher, so with the window closed to the tray the activation changed
+/// only the menu bar. The injected method asks for a window through the
+/// same action the tray's Show uses whenever activation finds no visible
+/// window; a window left miniaturized is restored through the app's own
+/// unminimize path. The first activation after launch is skipped: winit
+/// creates the startup window itself, and a hidden start must not pop one
+/// up.
+unsafe extern "C-unwind" fn did_become_active(
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _notification: &objc2::runtime::AnyObject,
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LAUNCH_ACTIVATION_SEEN: AtomicBool = AtomicBool::new(false);
+    if !LAUNCH_ACTIVATION_SEEN.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    // A visible window (including a native panel or file dialog) already
+    // gives the switch something to show. Miniaturized windows report not
+    // visible and go through the app's restore path.
+    if app.windows().iter().any(|window| window.isVisible()) {
+        return;
+    }
+    EVENTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push("show-window".into());
+    if let Some(ctx) = &*REPAINT.lock().unwrap_or_else(|p| p.into_inner()) {
+        ctx.request_repaint();
+    }
 }
 
 /// Adds `reopen` to the application delegate's class once winit has set its
@@ -252,7 +292,39 @@ fn install_reopen_handler() {
             description.types,
         )
     };
-    if added.as_bool() {
+    if !added.as_bool() {
+        return;
+    }
+    // Same injection for Cmd-Tab / app-switcher activation.
+    let active_sel = objc2::sel!(applicationDidBecomeActive:);
+    if class.instance_method(active_sel).is_some() {
+        INSTALLED.store(true, Ordering::Relaxed);
+        return;
+    }
+    let active_description = unsafe {
+        objc2::ffi::protocol_getMethodDescription(
+            std::ptr::from_ref(protocol),
+            active_sel,
+            Bool::new(false),
+            Bool::new(true),
+        )
+    };
+    if active_description.types.is_null() {
+        INSTALLED.store(true, Ordering::Relaxed);
+        return;
+    }
+    let active_added = unsafe {
+        objc2::ffi::class_addMethod(
+            std::ptr::from_ref(class).cast_mut(),
+            active_sel,
+            std::mem::transmute::<
+                unsafe extern "C-unwind" fn(&objc2::runtime::AnyObject, Sel, &objc2::runtime::AnyObject),
+                Imp,
+            >(did_become_active),
+            active_description.types,
+        )
+    };
+    if active_added.as_bool() {
         INSTALLED.store(true, Ordering::Relaxed);
     }
 }
