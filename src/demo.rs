@@ -5433,7 +5433,7 @@ mod tests {
                 !fits,
                 "{width}/{cards}: a next arrow exactly when the cards overflow"
             );
-            if cards < 3 {
+            if fits {
                 let last = ctx
                     .data(|data| {
                         data.get_temp::<egui::Rect>(bubble.with(("carousel-card", cards - 1)))
@@ -14353,12 +14353,25 @@ mod tests {
                 .map(|(_, node)| node)
                 .collect();
         }
-        let bells: Vec<_> = nodes
+        // The tree's node order follows the frame's layers, not the popup's
+        // rows, so the bells are read in the order they appear on screen.
+        let mut bells: Vec<_> = nodes
             .iter()
             .filter(|node| node.label() == Some("Mute notifications"))
-            .map(|node| node.toggled() == Some(egui::accesskit::Toggled::True))
+            .map(|node| {
+                (
+                    node.bounds().map(|bounds| (bounds.min.y, bounds.min.x)),
+                    node.toggled() == Some(egui::accesskit::Toggled::True),
+                )
+            })
             .collect();
-        assert_eq!(bells, [false, true], "one bell per account, the second on");
+        bells.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let states: Vec<_> = bells.iter().map(|(_, state)| *state).collect();
+        assert_eq!(
+            states,
+            [false, true],
+            "one bell per account, the second on: {bells:?}"
+        );
         // Only the muted account's row says so, not the one on screen.
         let said: Vec<_> = nodes
             .iter()

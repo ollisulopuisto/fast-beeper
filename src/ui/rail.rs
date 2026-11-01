@@ -271,7 +271,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                 // the sidebar beside the list moves nothing.
                 ui.allocate_ui_with_layout(
                     vec2(COMPACT, AVATAR),
-                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         super::accounts::avatar_button(app, ui, AVATAR).tab_stop(Stop::Profile);
                     },
