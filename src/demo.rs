@@ -6,20 +6,11 @@ pub mod tour;
 /// Set by the `rail-bottom` shot page: the navigation rail is captured
 /// scrolled to its end, as after a wheel scroll, proving the lower
 /// sections stay reachable.
-static SHOT_RAIL_BOTTOM: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static SHOT_RAIL_BOTTOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether the SHOT_RAIL_BOTTOM seed has been consumed this run.
-static SHOT_RAIL_BOTTOM_SEEDED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// True exactly once per capture when the rail should start at its end:
-/// the seed is a large finite overshoot that egui clamps to the real
-/// maximum at the end of the same frame, so later frames - and the
-/// screenshot - draw the true end position.
-pub fn take_rail_bottom() -> bool {
+/// Whether demo captures draw the navigation rail scrolled to its end.
+pub fn rail_bottom() -> bool {
     SHOT_RAIL_BOTTOM.load(std::sync::atomic::Ordering::Relaxed)
-        && !SHOT_RAIL_BOTTOM_SEEDED.swap(true, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(test)]
