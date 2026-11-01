@@ -55,6 +55,11 @@ pub fn destination_id(destination: Destination) -> egui::Id {
     egui::Id::new(("nav-rail-destination", destination as u8))
 }
 
+/// Stable id of a network's plate, for tests and the demo.
+pub fn network_plate_id(network: &str) -> egui::Id {
+    egui::Id::new(("nav-rail-network", network))
+}
+
 /// How far the macOS traffic lights reach past the rail: what a header
 /// beside the rail leaves free at its left. Zero elsewhere and in full
 /// screen. The caption buttons ZapFast draws on the left (GNOME) are not
@@ -207,8 +212,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
         .into_iter()
         .filter(|destination| destination.offered(app))
         .collect();
+        let networks = app.beeper_browse_networks();
         let top_height = 2.0 * CELL;
-        let foot = bottom.len() as f32 * (PLATE + GAP) + GAP + AVATAR + GAP;
+        let foot = (bottom.len() + networks.len()) as f32 * (PLATE + GAP) + GAP + AVATAR + GAP;
         let minimum = top_height
             + foot
             + if hidden {
@@ -280,6 +286,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                 }
                 let rest = (ui.available_height() - foot).max(0.0);
                 ui.add_space(rest);
+                // Beeper networks sit beside the other bottom destinations;
+                // a plate filters to its network, a right-click its accounts.
+                for (index, network) in networks.iter().enumerate() {
+                    ui.add_space(GAP);
+                    network_plate(app, ui, &palette, network, index);
+                }
                 for destination in bottom {
                     ui.add_space(GAP);
                     destination_button(app, ui, &palette, destination, PLATE);
@@ -338,6 +350,89 @@ fn show_list_button(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
 /// One destination: its icon on a rounded plate, lit as the selected chat
 /// row is while the window shows it, with its name and shortcut in the
 /// tooltip, in a cell `height` points tall.
+/// One Beeper network as a bottom plate: click filters the chats to that
+/// network (again clears), right-click lists its accounts. The plate
+/// lights while its network scope is active.
+fn network_plate(app: &mut App, ui: &mut egui::Ui, palette: &Palette, network: &str, index: usize) {
+    let lit = app.beeper_network_filter.as_deref() == Some(network);
+    let name: &str = if network.is_empty() {
+        "Network not supplied"
+    } else {
+        network
+    };
+    let accounts = app.beeper_network_accounts(network);
+    let mut label = if index < 10 {
+        format!(
+            "{name} ({})",
+            super::keys::label(&format!("Ctrl+Alt+{}", (index + 1) % 10))
+        )
+    } else {
+        name.to_owned()
+    };
+    if !accounts.is_empty() {
+        label.push_str("\nRight-click: accounts");
+    }
+    let (cell, _) = ui.allocate_exact_size(vec2(ui.available_width(), PLATE), Sense::hover());
+    let plate = Rect::from_center_size(
+        egui::pos2(cell.min.x + COMPACT / 2.0, cell.center().y),
+        Vec2::splat(PLATE),
+    );
+    let response = ui
+        .interact(plate, network_plate_id(network), Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    theme::reveal_focus(&response);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            lit,
+            label.as_str(),
+        )
+    });
+    if ui.is_rect_visible(plate) {
+        let hovered = response.hovered() || response.has_focus();
+        if lit {
+            widgets::highlight_card(ui, palette, plate, palette.surface_active);
+        } else if hovered {
+            widgets::highlight_card(ui, palette, plate, palette.surface_hover);
+        }
+        let tint = if lit || hovered {
+            palette.text
+        } else {
+            palette.secondary
+        };
+        let scale = if response.is_pointer_button_down_on() {
+            0.92
+        } else {
+            1.0
+        };
+        theme::paint_icon(ui, theme::network_icon(network), plate, ICON * scale, tint);
+    }
+    let response = response.on_hover_text(label);
+    if !accounts.is_empty() {
+        response.context_menu(|ui| {
+            for (key, account) in &accounts {
+                let selected = app.beeper_account_filter.as_ref() == Some(key);
+                let item = if selected {
+                    format!("{account} (showing - pick to show the whole network)")
+                } else {
+                    account.clone()
+                };
+                if widgets::menu_item(ui, palette, None, item.as_str()) {
+                    let account = if selected { None } else { Some(key.clone()) };
+                    app.select_beeper_scope(Some(network.to_owned()), account);
+                    ui.close();
+                }
+            }
+        });
+    }
+    if response.clicked() {
+        // A second click on the active network shows every network again.
+        let next = if lit { None } else { Some(network.to_owned()) };
+        app.select_beeper_scope(next, None);
+    }
+}
+
 fn destination_button(
     app: &mut App,
     ui: &mut egui::Ui,
