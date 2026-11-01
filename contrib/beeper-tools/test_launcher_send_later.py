@@ -20,7 +20,7 @@ class SendLaterSafetyTests(unittest.TestCase):
         # The READY marker proves our SSH session owns the forward before any
         # token is read from the Server Mac; the sync stays inside that gate.
         gate = SOURCE.index('if schedulerForwarded {')
-        query = SOURCE.index('Application Support/zapfast/scheduler-token')
+        query = SOURCE.index('let tokenQuery = ssh(connection, extra: [])')
         self.assertIn('printf READY; cat >/dev/null', SOURCE)
         self.assertIn('marker == Data("READY".utf8)', SOURCE)
         self.assertIn('ExitOnForwardFailure=yes', SOURCE)

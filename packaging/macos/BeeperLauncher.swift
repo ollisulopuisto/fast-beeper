@@ -115,8 +115,13 @@ func launch(_ connection: Connection) throws {
         let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-scheduler")
         guard manager.isExecutableFile(atPath: bundled.path) else { return }
         let declined = profile.appendingPathComponent("scheduler-install-declined")
-        guard !manager.fileExists(atPath: declined.path) else { return }
-        let check = ssh(connection, extra: ["pgrep -f zapfast-scheduler >/dev/null 2>&1 && echo RUNNING || true"])
+        let reconfigure = CommandLine.arguments.contains("--reconfigure")
+            || NSEvent.modifierFlags.contains(.option)
+        guard reconfigure || !manager.fileExists(atPath: declined.path) else { return }
+        let check = ssh(connection, extra: ["""
+        TOKEN_FILE="$HOME/Library/Application Support/zapfast/scheduler-token"
+        [ -f "$TOKEN_FILE" ] && curl -sf -m 5 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" http://127.0.0.1:23376/v1/health 2>/dev/null | grep -q '"ok":true' && echo HEALTHY || true
+        """])
         let checkOut = Pipe()
         check.standardOutput = checkOut
         guard (try? check.run()) != nil else { return }
@@ -126,10 +131,10 @@ func launch(_ connection: Connection) throws {
         checkTimeout.cancel()
         check.waitUntilExit()
         guard check.terminationStatus == 0,
-              !String(decoding: checkData, as: UTF8.self).contains("RUNNING") else { return }
+              !String(decoding: checkData, as: UTF8.self).contains("HEALTHY") else { return }
         let alert = NSAlert()
         alert.messageText = "Set up Send Later on \(connection.host)?"
-        alert.informativeText = "ZapFast can copy its scheduler to the Server Mac and start it as a login agent, so scheduled messages send even when this app is closed. Nothing else changes, and you can remove it later (see contrib/send-later)."
+        alert.informativeText = "ZapFast can copy its scheduler to the Server Mac and start it as a login agent, so scheduled messages send even when this app is closed. You can remove it later (see contrib/send-later). Don't Ask Again hides this until you relaunch while holding Option."
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Later")
         alert.addButton(withTitle: "Don't Ask Again")
@@ -183,7 +188,7 @@ func launch(_ connection: Connection) throws {
         cat > "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
         chmod 755 "$HOME/Library/Application Support/zapfast/bin/zapfast-scheduler"
         """, stdin: binaryData)
-        guard copy.0 == 0 else { installFailed(connection); return }
+        guard copy.0 == 0 else { installFailed(connection, stage: "copying the scheduler") ; return }
         let tokens = remote(connection, """
         APP_SUPPORT="$HOME/Library/Application Support/zapfast"
         [ -f "$APP_SUPPORT/scheduler-token" ] || openssl rand -hex 32 > "$APP_SUPPORT/scheduler-token"
@@ -191,7 +196,7 @@ func launch(_ connection: Connection) throws {
         ln -sf "$APP_SUPPORT/scheduler-token" "$HOME/.config/zapfast/scheduler-token"
         [ -f "$APP_SUPPORT/beeper-token" ] && echo HAVE || echo NEED
         """)
-        guard tokens.0 == 0 else { installFailed(connection); return }
+        guard tokens.0 == 0 else { installFailed(connection, stage: "writing the control token"); return }
         if String(decoding: tokens.1, as: UTF8.self).contains("NEED") {
             _ = remote(connection, "umask 077 && cat > \"$HOME/Library/Application Support/zapfast/beeper-token\"",
                        stdin: Data(beeperToken.utf8))
@@ -237,7 +242,7 @@ func launch(_ connection: Connection) throws {
         launchctl unload "$PLIST" 2>/dev/null || true
         launchctl load "$PLIST"
         sleep 1
-        pgrep -f zapfast-scheduler >/dev/null && echo RUNNING
+        curl -sf -m 5 -H "Authorization: Bearer $(cat "$APP_SUPPORT/scheduler-token")" http://127.0.0.1:23376/v1/health 2>/dev/null | grep -q '"ok":true' && echo RUNNING
         """)
         if String(decoding: service.1, as: UTF8.self).contains("RUNNING") {
             let alert = NSAlert()
@@ -245,14 +250,14 @@ func launch(_ connection: Connection) throws {
             alert.informativeText = "The scheduler is running on \(connection.host) as a login agent."
             alert.runModal()
         } else {
-            installFailed(connection)
+            installFailed(connection, stage: "starting the scheduler service")
         }
     }
 
-    func installFailed(_ connection: Connection) {
+    func installFailed(_ connection: Connection, stage: String) {
         let alert = NSAlert()
         alert.messageText = "Send Later setup did not finish"
-        alert.informativeText = "Nothing else changed on \(connection.host). You can retry next launch or run contrib/send-later/install_macos.sh on the Server Mac."
+        alert.informativeText = "Setup stopped while \(stage) on \(connection.host). Anything already copied stays there and is reused on a safe retry (relaunch while holding Option), or see contrib/send-later for manual install and removal."
         alert.runModal()
     }
 
