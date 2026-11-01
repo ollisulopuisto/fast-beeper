@@ -332,7 +332,7 @@ func launch(_ connection: Connection) throws {
         let tokenData = tokenOut.fileHandleForReading.readDataToEndOfFile()
         tokenTimeout.cancel()
         tokenQuery.waitUntilExit()
-        if tokenQuery.terminationStatus == 0, let tokenData,
+        if tokenQuery.terminationStatus == 0,
            let schedulerToken = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !schedulerToken.isEmpty, schedulerToken.count <= 256,
            valid(schedulerToken, pattern: "^[A-Za-z0-9._~+-]+$") {
