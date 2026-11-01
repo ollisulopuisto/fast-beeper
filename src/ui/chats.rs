@@ -1188,7 +1188,7 @@ fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Respons
         if chat.looks_unread() {
             // The badge respects the same settings as the chat list: a dot
             // only when counts are off, dimmed in a muted chat.
-            widgets::unread_indicator(
+            let badge_width = widgets::unread_indicator(
                 ui,
                 &palette,
                 compact_badge_center(avatar_rect),
@@ -1200,6 +1200,15 @@ fn favorite_chip(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Respons
                 chat.marked_unread || !app.settings.beeper.show_unread_counts,
                 chat.muted(crate::util::now()),
             );
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(
+                    favorite_badge_id(&chat.id),
+                    Rect::from_center_size(
+                        compact_badge_center(avatar_rect),
+                        Vec2::splat(badge_width),
+                    ),
+                )
+            });
         }
     }
     ui.ctx()
@@ -2260,6 +2269,11 @@ pub fn compact_chat_id(chat: &str) -> egui::Id {
 /// Where one favorite chip in the sidebar's favorites bar was drawn.
 pub fn favorite_chip_id(chat: &str) -> egui::Id {
     egui::Id::new(("favorite-chip", chat))
+}
+
+/// Where a favorite chip's unread badge was drawn, when the chat has one.
+pub fn favorite_badge_id(chat: &str) -> egui::Id {
+    egui::Id::new(("favorite-chip-badge", chat))
 }
 
 /// Width of the compact rail, which the chats' avatars fill while the
@@ -3664,12 +3678,40 @@ mod tests {
         let directory = tempfile::tempdir().expect("temp dir");
         let (mut app, _events) =
             App::headless(AppDirs::under(directory.path()), Settings::default());
-        let mut favorite = Chat::new("491700000101@s.whatsapp.net".into(), "Fave".into());
-        favorite.favorite = true;
-        favorite.backend_account = Some("wa-personal".into());
-        favorite.unread = 4;
-        favorite.last_activity = 20;
-        app.chats.push(favorite.clone());
+        let favorite = |n: u32, name: &str| {
+            let mut chat = Chat::new(format!("4917000001{n:02}@s.whatsapp.net"), name.into());
+            chat.favorite = true;
+            chat.favorite_position = n;
+            chat.backend_account = Some("wa-personal".into());
+            chat.last_activity = 20;
+            chat
+        };
+        let counted = favorite(0, "Counted");
+        let dotted = {
+            let mut chat = favorite(1, "Dotted");
+            chat.marked_unread = true;
+            chat
+        };
+        let quiet = favorite(2, "Quiet");
+        let wrapped_a = favorite(3, "Wrapped A");
+        let wrapped_b = favorite(4, "Wrapped B");
+        let pinned_favorite = {
+            let mut chat = favorite(5, "Pinned favorite");
+            chat.pinned = true;
+            chat
+        };
+        let mut counted = counted;
+        counted.unread = 4;
+        for chat in [
+            counted.clone(),
+            dotted.clone(),
+            quiet.clone(),
+            wrapped_a.clone(),
+            wrapped_b.clone(),
+            pinned_favorite.clone(),
+        ] {
+            app.chats.push(chat);
+        }
         let ctx = egui::Context::default();
         app.attach(&ctx);
         let mut frame = |events| {
@@ -3684,15 +3726,55 @@ mod tests {
             output.textures_delta.clear();
         };
         frame(vec![]);
-        let rect = ctx
-            .data(|data| data.get_temp::<Rect>(favorite_chip_id(&favorite.id)))
-            .expect("the bar draws the favorite");
+        let chip = |chat: &Chat| {
+            ctx.data(|data| data.get_temp::<Rect>(favorite_chip_id(&chat.id)))
+                .expect("the bar draws every favorite")
+        };
+        let first = chip(&counted);
+        for chat in [&dotted, &quiet, &wrapped_a, &wrapped_b] {
+            let rect = chip(chat);
+            assert!(
+                (rect.width() - FAVORITE_CELL).abs() < 1.0
+                    && (rect.height() - FAVORITE_CELL).abs() < 1.0,
+                "a favorite is one avatar chip of {FAVORITE_CELL} points, not a chat row"
+            );
+        }
+        // A chat that is also pinned shows under Pinned only.
         assert!(
-            (rect.width() - FAVORITE_CELL).abs() < 1.0
-                && (rect.height() - FAVORITE_CELL).abs() < 1.0,
-            "a favorite is one avatar chip of {FAVORITE_CELL} points, not a chat row"
+            ctx.data(|data| data.get_temp::<Rect>(favorite_chip_id(&pinned_favorite.id)))
+                .is_none(),
+            "a pinned favorite leaves the bar to the Pinned section"
         );
-        let position = rect.center();
+        // Five chips at 44 points plus spacing do not fit one 216-point
+        // rail row: the fifth wraps below the first.
+        let last = chip(&wrapped_b);
+        assert!(
+            last.top() > first.bottom() - 1.0,
+            "the fifth chip wraps to a second row"
+        );
+        // Badges: a count for the unread chat, a dot for the marked one,
+        // nothing for the read one, and every badge inside the rail panel.
+        let rail_right = super::super::rail::WIDTH;
+        let badge =
+            |chat: &Chat| ctx.data(|data| data.get_temp::<Rect>(favorite_badge_id(&chat.id)));
+        let counted_badge = badge(&counted).expect("an unread favorite carries its count");
+        assert!(
+            counted_badge.width() > 8.0,
+            "a count badge is wider than a bare dot"
+        );
+        assert!(
+            badge(&dotted).is_some(),
+            "a chat only marked unread keeps its dot"
+        );
+        assert!(badge(&quiet).is_none(), "a read favorite shows no badge");
+        for chat in [&counted, &dotted] {
+            let rect = badge(chat).expect("the badge is drawn");
+            assert!(
+                rect.right() <= rail_right + 1.0,
+                "the badge stays inside the rail"
+            );
+        }
+        let position = first.center();
         for pressed in [true, false] {
             frame(vec![
                 egui::Event::PointerMoved(position),
@@ -3705,7 +3787,7 @@ mod tests {
             ]);
         }
         assert!(
-            app.actions.contains(&Action::OpenChat(favorite.id.clone())),
+            app.actions.contains(&Action::OpenChat(counted.id.clone())),
             "clicking a favorite chip opens the chat"
         );
     }
