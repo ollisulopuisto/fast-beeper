@@ -3,7 +3,7 @@
 use egui::{Align, Frame, Key, Layout, Margin, Rect, Sense, Vec2, pos2, vec2};
 
 use crate::app::App;
-use crate::model::{Action, Chat, ChatFilter, Contact, Dialog, Message, Page};
+use crate::model::{Action, Chat, ChatFilter, ChatId, Contact, Dialog, Message, Page};
 use crate::theme::{self, Icon, Palette};
 
 use super::conversation;

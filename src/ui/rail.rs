@@ -185,7 +185,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                 // too narrow for one row.
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                    for destination in [
+                    // Collected first: the filter borrows the app, the
+                    // buttons mutate it.
+                    let destinations: Vec<Destination> = [
                         Destination::Chats,
                         Destination::Calls,
                         Destination::Starred,
@@ -195,7 +197,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                     ]
                     .into_iter()
                     .filter(|destination| destination.offered(app))
-                    {
+                    .collect();
+                    for destination in destinations {
                         destination_button(app, ui, &palette, destination, PLATE + GAP);
                     }
                     ui.vertical_centered(|ui| {
