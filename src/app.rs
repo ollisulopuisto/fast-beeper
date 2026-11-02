@@ -591,6 +591,9 @@ pub struct App {
     pub composer_tools_open: bool,
     /// In-chat audio player.
     pub player: Player,
+    /// Local voice-note transcription worker; `None` until a Wyoming
+    /// service address is set. Audio and transcripts stay on the machine.
+    pub transcriber: Option<crate::transcribe_worker::Worker>,
     /// In-chat video player.
     pub video: crate::video::Player,
     /// Chat of the loaded video; leaving it stops the video.
@@ -1172,6 +1175,42 @@ fn tray_action(event: fastframe_tray::Event, window_hidden: bool) -> Option<Acti
     })
 }
 
+/// Builds the transcription worker when a local Wyoming service is
+/// configured. The address is explicit config: unset disables
+/// transcription, unreachable fails each job with a clear error - there
+/// is no silent fallback and no cloud path.
+fn transcriber_worker(
+    waker: &Waker,
+    dirs: &crate::paths::AppDirs,
+    settings: &Settings,
+) -> Option<crate::transcribe_worker::Worker> {
+    let address = settings.transcription_wyoming.trim();
+    if address.is_empty() {
+        return None;
+    }
+    let store = match crate::transcriber::Store::new(dirs.state.join("transcripts"), 32 << 20) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("zapfast: transcript store unavailable: {error}");
+            return None;
+        }
+    };
+    let mut engine = crate::transcriber_engine::Wyoming::new(address);
+    engine.decode = Some(Box::new(|path: &std::path::Path| {
+        crate::audio::decode_for_transcription(path)
+            .map(|samples| crate::transcriber::wyoming_pcm_from_mono(&samples, crate::voice::RATE))
+    }));
+    let wake = {
+        let waker = waker.clone();
+        move || waker.wake()
+    };
+    Some(crate::transcribe_worker::Worker::spawn(
+        Box::new(engine),
+        store,
+        wake,
+    ))
+}
+
 /// The tray item: ZapFast's icon, and a menu to show or hide the window,
 /// to lock it while an app lock password is set, and to quit. The title and
 /// the menu never name a chat, so they are safe while locked.
@@ -1313,6 +1352,8 @@ impl App {
         }
         let login_waker = waker.clone();
         app.login_item.read(move || login_waker.wake());
+        // Voice-note transcription only with a configured local service.
+        app.transcriber = transcriber_worker(waker, &app.dirs, &app.settings);
         let _ = app.roster.save_to(&app.files, &app.dirs.accounts_file());
         Ok(app)
     }
@@ -1518,6 +1559,7 @@ impl App {
             next_pending_id: 0,
             composer_tools_open: false,
             player: Player::new(waker.clone()),
+            transcriber: None,
             video: crate::video::Player::new(waker.clone()),
             video_chat: None,
             video_wanted: None,
@@ -8644,6 +8686,34 @@ impl App {
                 self.sync_voice_speed();
                 if let Err(error) = self.player.seek(&message, &path, fraction) {
                     self.toast_error(error);
+                }
+            }
+            Action::TranscribeVoice {
+                chat,
+                message,
+                path,
+            } => {
+                if let Some(worker) = &self.transcriber {
+                    let language = {
+                        let pinned = self.settings.transcription_language.trim().to_string();
+                        (!pinned.is_empty()).then_some(pinned)
+                    };
+                    worker.transcribe(
+                        crate::transcriber::Job {
+                            message_id: message,
+                            chat_id: chat,
+                            audio: path,
+                            duration_secs: None,
+                            language: None,
+                        },
+                        self.account().id.0.clone(),
+                        language,
+                    );
+                } else {
+                    self.toast(crate::i18n::gettext(
+                        self.locale,
+                        "Set the transcription service in Settings first",
+                    ));
                 }
             }
             Action::SetVoiceSpeed(speed) => {
