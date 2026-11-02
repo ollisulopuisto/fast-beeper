@@ -129,6 +129,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     {
         state = State::default();
     }
+    // A reply whose source left the link is dropped, never re-routed.
+    if state
+        .reply
+        .as_ref()
+        .is_some_and(|(source, _)| !valid.contains(source))
+    {
+        state.reply = None;
+    }
     let mut routing_error = None;
     if state.destination.is_none() && state.reply.is_none() {
         match person.default_destination(&valid) {
@@ -317,8 +325,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     } else {
         false
     };
-    // The composer pins to the bottom of the view, with the destination
-    // control directly above it. The first bottom panel shown lands lowest.
+    // The composer pins to the bottom of the view; the destination and
+    // Send Later ride its right end, grouped beside Send. The first bottom
+    // panel shown lands lowest.
     let destination = state
         .destination
         .as_ref()
@@ -327,7 +336,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     if let Some(destination) = &destination {
         let had_quote = app.reply_to.is_some();
         let before = app.actions.len();
-        super::conversation::composer_with_capabilities(app, ui, destination, false);
+        let chosen = destination_label(app, state.destination.as_ref());
+        let extras_width = measure_extras(ui, &chosen);
+        let mut render = |app: &mut App, ui: &mut egui::Ui| {
+            destination_extras(app, ui, &mut state, &valid, cross_over, &chosen);
+        };
+        super::conversation::composer_with_capabilities(
+            app,
+            ui,
+            destination,
+            false,
+            Some(super::conversation::ComposerExtras {
+                width: extras_width,
+                render: &mut render,
+            }),
+        );
         if had_quote && app.reply_to.is_none() {
             state.reply = None;
             if !state.explicit {
@@ -383,57 +406,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 ui.small("Nothing is routed automatically.");
             });
     }
-    egui::Panel::bottom("linked-destination")
-        .show_separator_line(false)
-        .frame(
-            egui::Frame::new()
-                .fill(egui::Color32::TRANSPARENT)
-                .inner_margin(egui::Margin {
-                    left: 8,
-                    right: 8,
-                    top: 0,
-                    bottom: 0,
-                }),
-        )
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let chosen = destination
-                    .as_ref()
-                    .map(network_label)
-                    .unwrap_or("Choose destination");
-                egui::ComboBox::from_id_salt("person-destination")
-                    .selected_text(chosen)
-                    .show_ui(ui, |ui| {
-                        for member in &valid {
-                            let c = app.chat(&member.chat).unwrap();
-                            if ui
-                                .selectable_label(
-                                    state.destination.as_ref() == Some(member),
-                                    format!("{} · {}", c.name, source_label(app, &valid, member)),
-                                )
-                                .clicked()
-                            {
-                                state.explicit = true;
-                                state.destination = Some(member.clone());
-                                app.reply_to = state.reply.as_ref().and_then(|(source, id)| {
-                                    crate::merged::reply_route(source, member, id)
-                                });
-                            }
-                        }
-                    });
-                if let Some(destination) = &destination {
-                    let via = network_label(destination);
-                    let label = account_name(app, destination);
-                    ui.small(format!("Sending via {via}{label}"));
-                    if cross_over {
-                        ui.colored_label(
-                            egui::Color32::YELLOW,
-                            "Cross-over: plain new message on selected destination. No reply reference.",
-                        );
-                    }
-                }
-            });
-        });
     let messages = crate::merged::ordered_refs(
         valid
             .iter()
@@ -503,15 +475,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     {
         selected_reply = Some((member.clone(), message.id.clone()));
     }
-    let remaining = ui.available_height().max(100.0);
     let mut actions = Vec::new();
     let mut refused_action = false;
     let rows_key = key.with("row-heights");
     let mut cache = ui
         .ctx()
         .data_mut(|data| data.remove_temp::<RowCache>(rows_key).unwrap_or_default());
-    if (cache.width - ui.available_width()).abs() > 0.5 {
-        cache.width = ui.available_width();
+    let timeline = ui
+        .available_rect_before_wrap()
+        .shrink2(egui::vec2(super::conversation::TIMELINE_SIDE, 0.0));
+    if (cache.width - timeline.width()).abs() > 0.5 {
+        cache.width = timeline.width();
         cache.heights.clear();
     }
     // Cap retained layout metadata, not the user's loaded history.
@@ -522,140 +496,202 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let mut previous_header = None;
     let mut previous_laid_out = false;
     let mut previous_on_screen = false;
-    let output = egui::ScrollArea::vertical()
-        .id_salt(("person-timeline", &person.members))
-        .stick_to_bottom(!filtered)
-        .min_scrolled_height(remaining)
-        .max_height(remaining)
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            let viewport = ui.clip_rect();
-            if visible.is_empty() {
-                ui.label(if filtered {
-                    "No matches in loaded history."
-                } else {
-                    "Loading linked histories…"
-                });
-            }
-            for original_message in visible {
-                let day = jiff::Timestamp::from_second(original_message.timestamp)
-                    .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
-                    .unwrap_or_default();
-                let header = (
-                    original_message.chat.clone(),
-                    original_message.sender.clone(),
-                    day.clone(),
-                    original_message.from_me,
-                );
-                let boundary = crate::merged::header_boundary(
-                    previous_header.as_ref().map(
-                        |(chat, sender, day, from_me): &(String, String, String, bool)| {
-                            (chat.as_str(), sender.as_str(), day.as_str(), *from_me)
-                        },
-                    ),
-                    (&header.0, &header.1, &header.2, header.3),
-                );
-                previous_header = Some(header);
-                let row_key = (original_message.chat.clone(), original_message.id.clone());
-                let top = ui.cursor().top();
-                let height = cache.heights.get(&row_key).copied().unwrap_or_else(|| {
-                    super::conversation::linked_estimated_height(original_message, cache.width)
-                });
-                if !crate::merged::row_near_view(
-                    top,
-                    height,
-                    viewport.top(),
-                    viewport.bottom(),
-                    250.0,
-                ) {
-                    cache.heights.entry(row_key).or_insert(height);
-                    ui.add_space(height);
-                    previous_laid_out = false;
-                    previous_on_screen = false;
-                    continue;
-                }
-                let mut updated;
-                let message = if let Some(quote) = &original_message.quoted {
-                    if quote
-                        .chat
-                        .as_deref()
-                        .is_none_or(|source| source == original_message.chat)
-                    {
-                        if let Some(original) = app
-                            .conversations
-                            .get(&original_message.chat)
-                            .and_then(|history| history.message(&quote.id))
-                        {
-                            updated = original_message.clone();
-                            let quote = updated.quoted.as_mut().unwrap();
-                            quote.sender = original.sender.clone();
-                            quote.sender_name = original.sender_name.clone();
-                            quote.summary = original.content.full_summary();
-                            quote.labelled = Some(original.content.labelled());
-                            quote.mentions = original.mentions.clone();
-                            &updated
+    let output = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(timeline), |ui| {
+            let remaining = ui.available_height().max(100.0);
+            let output = egui::ScrollArea::vertical()
+                .id_salt(("person-timeline", &person.members))
+                .stick_to_bottom(!filtered)
+                .min_scrolled_height(remaining)
+                .max_height(remaining)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let viewport = ui.clip_rect();
+                    if visible.is_empty() {
+                        ui.label(if filtered {
+                            "No matches in loaded history."
+                        } else {
+                            "Loading linked histories…"
+                        });
+                    }
+                    for original_message in visible {
+                        let day = jiff::Timestamp::from_second(original_message.timestamp)
+                            .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
+                            .unwrap_or_default();
+                        let header = (
+                            original_message.chat.clone(),
+                            original_message.sender.clone(),
+                            day.clone(),
+                            original_message.from_me,
+                        );
+                        let boundary = crate::merged::header_boundary(
+                            previous_header.as_ref().map(
+                                |(chat, sender, day, from_me): &(String, String, String, bool)| {
+                                    (chat.as_str(), sender.as_str(), day.as_str(), *from_me)
+                                },
+                            ),
+                            (&header.0, &header.1, &header.2, header.3),
+                        );
+                        let day_boundary = previous_header.as_ref().is_none_or(
+                            |(_, _, previous_day, _): &(String, String, String, bool)| {
+                                *previous_day != day
+                            },
+                        );
+                        previous_header = Some(header);
+                        let row_key = (original_message.chat.clone(), original_message.id.clone());
+                        let top = ui.cursor().top();
+                        let height = cache.heights.get(&row_key).copied().unwrap_or_else(|| {
+                            super::conversation::linked_estimated_height(
+                                original_message,
+                                cache.width,
+                            )
+                        });
+                        if !crate::merged::row_near_view(
+                            top,
+                            height,
+                            viewport.top(),
+                            viewport.bottom(),
+                            250.0,
+                        ) {
+                            cache.heights.entry(row_key).or_insert(height);
+                            ui.add_space(height);
+                            previous_laid_out = false;
+                            previous_on_screen = false;
+                            continue;
+                        }
+                        let mut updated;
+                        let message = if let Some(quote) = &original_message.quoted {
+                            if quote
+                                .chat
+                                .as_deref()
+                                .is_none_or(|source| source == original_message.chat)
+                            {
+                                if let Some(original) = app
+                                    .conversations
+                                    .get(&original_message.chat)
+                                    .and_then(|history| history.message(&quote.id))
+                                {
+                                    updated = original_message.clone();
+                                    let quote = updated.quoted.as_mut().unwrap();
+                                    quote.sender = original.sender.clone();
+                                    quote.sender_name = original.sender_name.clone();
+                                    quote.summary = original.content.full_summary();
+                                    quote.labelled = Some(original.content.labelled());
+                                    quote.mentions = original.mentions.clone();
+                                    &updated
+                                } else {
+                                    original_message
+                                }
+                            } else {
+                                original_message
+                            }
                         } else {
                             original_message
-                        }
-                    } else {
-                        original_message
-                    }
-                } else {
-                    original_message
-                };
-                let Some(member) = valid.iter().find(|m| m.chat == message.chat) else {
-                    continue;
-                };
-                let source_chat = app.chat(&message.chat).unwrap().clone();
-                let on_screen = top >= viewport.top();
-                // Colour is never the only cue: every bubble in a mixed
-                // timeline names its source network in text above it. The
-                // day still appears only where the day actually changes.
-                ui.push_id((&message.chat, &message.id), |ui| {
-                    let source = source_label(app, &valid, member);
-                    let sender = if message.from_me {
-                        "You"
-                    } else {
-                        message.sender_name.as_deref().unwrap_or("Sender")
-                    };
-                    if boundary {
-                        ui.small(format!("{day} · {source} · {sender}"));
-                    } else {
-                        ui.small(format!("{source} · {sender}"));
-                    }
-                    let before = actions.len();
-                    super::conversation::linked_bubble(
-                        app,
-                        ui,
-                        &source_chat,
-                        message,
-                        &mut actions,
-                    );
-                    let reply = actions.drain(before..).collect::<Vec<_>>();
-                    for action in reply {
-                        match action {
-                            Action::Reply(id) => {
-                                selected_reply = Some((member.clone(), id));
+                        };
+                        let Some(member) = valid.iter().find(|m| m.chat == message.chat) else {
+                            continue;
+                        };
+                        let source_chat = app.chat(&message.chat).unwrap().clone();
+                        let on_screen = top >= viewport.top();
+                        // The day alone earns a text line, where it changes.
+                        // The source reads from the bubble's network tint and
+                        // the small network icon beside the bubble, so colour
+                        // is never the only cue; the icon's hover carries the
+                        // full label with the exact time.
+                        ui.push_id((&message.chat, &message.id), |ui| {
+                            let source = source_label(app, &valid, member);
+                            let sender = if message.from_me {
+                                "You"
+                            } else {
+                                message.sender_name.as_deref().unwrap_or("Sender")
+                            };
+                            if day_boundary {
+                                ui.small(&day);
+                            } else if boundary {
+                                ui.add_space(4.0);
                             }
-                            Action::Edit(_)
-                            | Action::SelectMessage(_)
-                            | Action::SweepMessages { .. }
-                            | Action::TranslateLocally(_) => refused_action = true,
-                            other => actions.push(other),
+                            let exact = jiff::Timestamp::from_second(message.timestamp)
+                                .map(|t| {
+                                    let zoned = t.to_zoned(jiff::tz::TimeZone::system());
+                                    format!(
+                                        "{} {:02}:{:02}",
+                                        zoned.date(),
+                                        zoned.time().hour(),
+                                        zoned.time().minute()
+                                    )
+                                })
+                                .unwrap_or_default();
+                            let meta = format!("{exact} · {source} · {sender}");
+                            let tint = crate::theme::network_tint(network_label(&source_chat))
+                                .unwrap_or(app.conversation_palette().secondary);
+                            let icon = crate::theme::network_icon(network_label(&source_chat));
+                            let network_chip = |ui: &mut egui::Ui| {
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::Vec2::splat(16.0),
+                                    egui::Sense::hover(),
+                                );
+                                crate::theme::paint_icon(ui, icon, rect, 16.0, tint);
+                                response.on_hover_text(&meta);
+                            };
+                            let before = actions.len();
+                            ui.horizontal(|ui| {
+                                if !message.from_me {
+                                    network_chip(ui);
+                                }
+                                // Outgoing rows reserve the icon's room
+                                // first, so the full-width bubble cannot
+                                // crowd it past the edge.
+                                let bubble_width = if message.from_me {
+                                    (ui.available_width() - 16.0 - ui.spacing().item_spacing.x)
+                                        .max(0.0)
+                                } else {
+                                    ui.available_width()
+                                };
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(bubble_width, 0.0),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        super::conversation::linked_bubble(
+                                            app,
+                                            ui,
+                                            &source_chat,
+                                            message,
+                                            &mut actions,
+                                        );
+                                    },
+                                );
+                                if message.from_me {
+                                    network_chip(ui);
+                                }
+                            });
+                            let reply = actions.drain(before..).collect::<Vec<_>>();
+                            for action in reply {
+                                match action {
+                                    Action::Reply(id) => {
+                                        selected_reply = Some((member.clone(), id));
+                                    }
+                                    Action::Edit(_)
+                                    | Action::SelectMessage(_)
+                                    | Action::SweepMessages { .. }
+                                    | Action::TranslateLocally(_) => refused_action = true,
+                                    other => actions.push(other),
+                                }
+                            }
+                        });
+                        previous_laid_out = true;
+                        previous_on_screen = on_screen;
+                        let measured = (ui.cursor().top() - top).max(1.0);
+                        if top < viewport.top() {
+                            grew_above += measured - height;
                         }
+                        cache.heights.insert(row_key, measured);
                     }
+                    // Keep the last bubble/hover actions above the fixed composer.
+                    ui.add_space(20.0);
                 });
-                previous_laid_out = true;
-                previous_on_screen = on_screen;
-                let measured = (ui.cursor().top() - top).max(1.0);
-                if top < viewport.top() {
-                    grew_above += measured - height;
-                }
-                cache.heights.insert(row_key, measured);
-            }
-            // Keep the last bubble/hover actions above the fixed composer.
-            ui.add_space(20.0);
-        });
+            output
+        })
+        .inner;
     let bottom = (output.content_size.y - output.inner_rect.height()).max(0.0);
     if grew_above.abs() > 0.5 && output.state.offset.y > 1.0 && output.state.offset.y < bottom - 2.0
     {
@@ -667,10 +703,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     }
     ui.ctx().data_mut(|data| data.insert_temp(rows_key, cache));
     if let Some((member, id)) = selected_reply {
-        state.explicit = false;
         state.reply = Some((member.clone(), id.clone()));
-        state.destination = Some(member.clone());
-        app.reply_to = crate::merged::reply_route(&member, &member, &id);
+        // A reply routes home by default: the source's own network and
+        // account. An explicit destination choice stands instead, and the
+        // cross-over warning says the reply reference does not travel.
+        if !state.explicit {
+            state.destination = Some(member.clone());
+        }
+        app.reply_to = state
+            .destination
+            .as_ref()
+            .and_then(|destination| crate::merged::reply_route(&member, destination, &id));
     }
     if refused_action {
         app.toast(
@@ -680,6 +723,103 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     app.actions.extend(actions);
     ui.ctx().data_mut(|d| d.insert_temp(key, state));
     true
+}
+
+/// The destination selector's caption: the member's network and account,
+/// capped so the composer keeps its field.
+fn destination_label(app: &App, destination: Option<&Member>) -> String {
+    let Some(member) = destination else {
+        return "Choose destination".into();
+    };
+    let Some(chat) = app.chat(&member.chat) else {
+        return "Choose destination".into();
+    };
+    let label = format!("{}{}", network_label(chat), account_name(app, chat));
+    let mut short: String = label.chars().take(26).collect();
+    if label.chars().count() > 26 {
+        short.push('\u{2026}');
+    }
+    short
+}
+
+/// The width the composer's extras reserve: the clock, its gap, and the
+/// selector with its padding and arrow, plus slack.
+fn measure_extras(ui: &egui::Ui, chosen: &str) -> f32 {
+    let text = ui
+        .painter()
+        .layout_no_wrap(
+            chosen.to_owned(),
+            egui::TextStyle::Button.resolve(ui.style()),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x;
+    34.0 + ui.spacing().item_spacing.x + text + 2.0 * ui.spacing().button_padding.x + 28.0
+}
+
+/// The composer's right-end controls in the linked view: Send Later, then
+/// the destination, which names the network and account until Send.
+fn destination_extras(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    state: &mut State,
+    valid: &[Member],
+    cross_over: bool,
+    chosen: &str,
+) {
+    let palette = app.conversation_palette();
+    let schedulable =
+        app.editing.is_none() && (!app.composer.trim().is_empty() || !app.pending.is_empty());
+    let clock = ui
+        .add_enabled_ui(schedulable, |ui| {
+            crate::theme::icon_button(
+                ui,
+                crate::theme::Icon::Clock,
+                22.0,
+                palette.secondary,
+                palette.text,
+                "Send later",
+            )
+        })
+        .inner;
+    if clock.clicked() {
+        app.actions
+            .push(Action::ShowDialog(crate::model::Dialog::SendLater));
+    }
+    let text = if cross_over {
+        egui::RichText::new(chosen.to_owned()).color(palette.warning)
+    } else {
+        egui::RichText::new(chosen.to_owned())
+    };
+    egui::ComboBox::from_id_salt("person-destination")
+        .selected_text(text)
+        .show_ui(ui, |ui| {
+            for member in valid {
+                let Some(c) = app.chat(&member.chat) else {
+                    continue;
+                };
+                if ui
+                    .selectable_label(
+                        state.destination.as_ref() == Some(member),
+                        format!("{} · {}", c.name, source_label(app, valid, member)),
+                    )
+                    .clicked()
+                {
+                    state.explicit = true;
+                    state.destination = Some(member.clone());
+                    app.reply_to = state
+                        .reply
+                        .as_ref()
+                        .and_then(|(source, id)| crate::merged::reply_route(source, member, id));
+                }
+            }
+        })
+        .response
+        .on_hover_text(if cross_over {
+            "Cross-over: a plain new message on the selected destination, without the reply reference"
+        } else {
+            "The network and account new messages send from"
+        });
 }
 
 /// The account's own name from the Beeper inventory, for "Sending via":
