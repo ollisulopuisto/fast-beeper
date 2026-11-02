@@ -1600,6 +1600,9 @@ pub(crate) fn composer_with_capabilities(
             let view_once = app.editing.is_none()
                 && (app.pending_supports_view_once() || app.pending_view_once);
             let view_once_width = if view_once { COMPOSER_CONTROL + ui.spacing().item_spacing.x } else { 0.0 };
+            // Send Later sits beside Send, visible rather than hidden behind a
+            // right-click; its room is reserved so the field does not jump.
+            let later_width = if app.editing.is_none() { button_width + ui.spacing().item_spacing.x } else { 0.0 };
             let field_margin = ((line - line_height) / 2.0).round().max(0.0);
             // Measure this frame's draft at the text column's width, so the
             // field and the panel holding it grow on the keystroke that wraps
@@ -1672,7 +1675,7 @@ pub(crate) fn composer_with_capabilities(
                 }
                 // The send button closes the row, flush with the field's end.
                 let field_width =
-                    (ui.available_width() - button_width - view_once_width - ui.spacing().item_spacing.x).max(0.0);
+                    (ui.available_width() - button_width - view_once_width - later_width - ui.spacing().item_spacing.x).max(0.0);
                 // The ink is centred on the controls, not the line box: the
                 // span from a capital's top to a descender's bottom sits as far
                 // from the field's top as from its bottom. Inter's box leaves
@@ -1887,6 +1890,27 @@ pub(crate) fn composer_with_capabilities(
                 } else {
                     (palette.surface, palette.surface_hover, palette.dim)
                 };
+                if app.editing.is_none() {
+                    let can_schedule =
+                        !app.composer.trim().is_empty() || !app.pending.is_empty();
+                    let later = last_line(ui, line, |ui| {
+                        ui.add_enabled_ui(can_schedule, |ui| {
+                            theme::circle_button(
+                                ui,
+                                Icon::Clock,
+                                button_width,
+                                palette.surface,
+                                palette.surface_hover,
+                                palette.secondary,
+                                "Send later",
+                            )
+                        })
+                        .inner
+                    });
+                    if later.clicked() {
+                        app.actions.push(Action::ShowDialog(Dialog::SendLater));
+                    }
+                }
                 last_line(ui, line, |ui| if !ready && app.editing.is_none() && attachments {
                     // An empty composer changes the send button to record.
                     if theme::circle_button(
