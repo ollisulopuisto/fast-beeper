@@ -171,13 +171,18 @@ unsafe extern "C-unwind" fn reopen(
     _sender: &NSApplication,
     has_visible_windows: objc2::runtime::Bool,
 ) -> objc2::runtime::Bool {
-    if has_visible_windows.as_bool() {
-        return objc2::runtime::Bool::YES;
-    }
     let Some(mtm) = objc2::MainThreadMarker::new() else {
         return objc2::runtime::Bool::YES;
     };
     let app = NSApplication::sharedApplication(mtm);
+    // Bring the app's windows forward on every Dock reopen, visible or not:
+    // the default behavior cannot be relied on when the process was started
+    // by a launcher rather than by LaunchServices itself.
+    #[allow(deprecated, reason = "its replacement needs macOS 14")]
+    app.activateIgnoringOtherApps(true);
+    if has_visible_windows.as_bool() {
+        return objc2::runtime::Bool::YES;
+    }
     // Miniaturized windows are not visible; restore them like the default
     // handler would. Anything else means the window is gone.
     let mut restored = false;
