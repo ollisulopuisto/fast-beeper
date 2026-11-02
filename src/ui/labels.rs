@@ -6,7 +6,7 @@
 
 use std::borrow::Cow;
 
-use egui::{Color32, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
+use egui::{Color32, CornerRadius, Rect, Sense, Stroke, Vec2, pos2, vec2};
 
 use crate::app::App;
 use crate::i18n::{Locale, gettext, ngettext, pgettext};
@@ -100,10 +100,10 @@ pub fn chip_row(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     }
     ui.add_space(2.0);
     let row = widgets::chip_scroll_row(ui, "label-chips", |ui| {
-        ui.horizontal_wrapped(|ui| {
+        // One dot per row down the rail's single column.
+        ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
             label_chips(app, ui, palette);
-            ui.add_space(4.0);
         });
     });
     ui.ctx()
@@ -127,7 +127,7 @@ fn label_chips(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     let mut pick: Option<Option<String>> = None;
     for (index, (id, name, count, color)) in rows.into_iter().enumerate() {
         let selected = active.as_deref() == Some(id.as_str());
-        let chip = widgets::dotted_chip(ui, palette, Some(color), &name, count, selected)
+        let chip = label_dot(ui, palette, color, &name, count, selected)
             .tab_stop(Stop::Label(u8::try_from(index).unwrap_or(u8::MAX)));
         ui.ctx()
             .data_mut(|data| data.insert_temp(chip_id(&id), chip.rect));
@@ -154,6 +154,73 @@ fn label_chips(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     if let Some(label) = pick {
         app.actions.push(Action::SelectLabel(label));
     }
+}
+
+/// One label in the rail's column: its colour as the icon, its unread
+/// count as the corner badge, its name and count on the tooltip and
+/// accessibility label, like the filter icons beside it.
+fn label_dot(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    color: egui::Color32,
+    name: &str,
+    count: usize,
+    selected: bool,
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::splat(16.0 + theme::ICON_BUTTON_PAD), Sense::click());
+    theme::reveal_focus(&response);
+    theme::focus_outline(ui, response.id, rect, 6.0);
+    let tooltip = if count > 0 {
+        format!("{name} ({count} unread)")
+    } else {
+        name.to_owned()
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            selected,
+            tooltip.as_str(),
+        )
+    });
+    if ui.is_rect_visible(rect) {
+        if selected {
+            ui.painter()
+                .rect_filled(rect.shrink(1.0), 6.0, palette.accent.gamma_multiply(0.18));
+        } else if response.hovered() {
+            ui.painter()
+                .rect_filled(rect.shrink(1.0), 6.0, palette.surface_hover);
+        }
+        ui.painter().circle_filled(rect.center(), 7.0, color);
+        if selected {
+            ui.painter()
+                .circle_stroke(rect.center(), 7.0, egui::Stroke::new(2.0, palette.accent));
+        }
+        if count > 0 {
+            let label = if count > 99 {
+                "99+".to_owned()
+            } else {
+                count.to_string()
+            };
+            let galley =
+                ui.painter()
+                    .layout_no_wrap(label, theme::semibold(8.5), palette.on_accent);
+            let width = (galley.size().x + 8.0).max(14.0);
+            let badge = egui::Rect::from_center_size(
+                egui::pos2(rect.right() - 3.0, rect.top() + 3.0),
+                vec2(width, 14.0),
+            );
+            ui.painter().rect_filled(badge, 7.0, palette.accent);
+            ui.painter().galley(
+                badge.center() - galley.size() / 2.0,
+                galley,
+                palette.on_accent,
+            );
+        }
+    }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    response.on_hover_text(tooltip)
 }
 
 /// The labels a chat wears, as a submenu of the chat's context menu.

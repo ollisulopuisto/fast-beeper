@@ -98,7 +98,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 pub fn full_show(app: &mut App, ui: &mut egui::Ui) {
     search_keyboard(app, ui);
     let palette = app.palette;
-    super::rail::show(app, ui, false, false);
+    super::rail::show(app, ui, false);
     egui::CentralPanel::default()
         .frame(Frame::new().fill(palette.panel).inner_margin(Margin::ZERO))
         .show(ui, |ui| {
@@ -718,12 +718,11 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
     widgets::chip_scroll_row(ui, "chat-filters", |ui| {
-        // Compact icon row: one line of filter buttons, then networks
-        // (accounts indent under the active one), then the follow-up queues.
-        // Each icon's name and Option-digit shortcut live on its tooltip and
-        // accessibility label, so the row stays one line high.
-        ui.spacing_mut().item_spacing.y = 1.0;
-        ui.horizontal_wrapped(|ui| {
+        // One icon per row down the rail's single column: the icon carries
+        // the filter's unread badge, its name and shortcut the tooltip and
+        // accessibility label.
+        ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
+        ui.vertical_centered(|ui| {
             for (index, filter) in ChatFilter::EVERY.into_iter().enumerate() {
                 let count = match filter {
                     ChatFilter::All => 0,
@@ -787,44 +786,58 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
         });
-        // Networks live beside the rail's bottom destinations now; the
-        // follow-up queues keep their rows here.
+        // Networks live beside the rail's bottom destinations; the
+        // follow-up queues are icons in the same column.
         if !app.beeper_browse_networks().is_empty() {
             ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Queues")
-                    .small()
-                    .color(palette.secondary),
+            let unreplied = filter_icon(
+                ui,
+                &palette,
+                Icon::Reply,
+                0,
+                app.beeper_unreplied,
+                "Unreplied\nLatest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R",
             );
-            if widgets::filter_row(ui, &palette, "Unreplied", 0, app.beeper_unreplied, 0.0)
-                .on_hover_text("Latest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R")
-                .clicked()
-            {
+            if unreplied.clicked() {
                 app.beeper_reply_later_filter = false;
                 app.beeper_unreplied = !app.beeper_unreplied;
                 app.actions.push(Action::SetChatFilter(ChatFilter::All));
             }
-            if widgets::filter_row(ui, &palette, "Reply later", 0, app.beeper_reply_later_filter, 0.0)
-                .on_hover_text("Local queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat.")
-                .clicked()
-            {
+            let later = filter_icon(
+                ui,
+                &palette,
+                Icon::Clock,
+                0,
+                app.beeper_reply_later_filter,
+                "Reply later\nLocal queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat. Right-click: add or remove the open chat.",
+            );
+            // Toggling the open chat's place in the queue was the wide
+            // rail's text button; the icon's menu keeps it one click away.
+            let queued = app
+                .current_chat()
+                .is_some_and(|chat| app.reply_later_contains(chat));
+            let has_current = app.current_chat().is_some();
+            if has_current {
+                later.context_menu(|ui| {
+                    if widgets::menu_item(
+                        ui,
+                        &palette,
+                        None,
+                        if queued {
+                            "Remove from later"
+                        } else {
+                            "Reply later +"
+                        },
+                    ) {
+                        app.toggle_reply_later();
+                        ui.close();
+                    }
+                });
+            }
+            if later.clicked() {
                 app.beeper_reply_later_filter = !app.beeper_reply_later_filter;
                 app.beeper_unreplied = false;
                 app.actions.push(Action::SetChatFilter(ChatFilter::All));
-            }
-            if let Some(chat) = app.current_chat() {
-                let queued = app.reply_later_contains(chat);
-                if ui
-                    .small_button(if queued {
-                        "Remove from later"
-                    } else {
-                        "Reply later +"
-                    })
-                    .on_hover_text("Cmd+Shift+L: toggle current chat in local queue")
-                    .clicked()
-                {
-                    app.toggle_reply_later();
-                }
             }
         }
         ui.add_space(4.0);
@@ -1070,19 +1083,12 @@ pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
     if pins.is_empty() {
         return;
     }
-    let palette = app.palette;
-    ui.label(
-        egui::RichText::new("Pinned · all networks")
-            .small()
-            .color(palette.secondary),
-    );
     ui.spacing_mut().item_spacing.y = 0.0;
-    // The favorites bar's proven pattern: avatar+unread chips that wrap,
-    // with the rail's own scroll keeping every pin reachable. The hover
-    // names the chat, the right-click menu is the chat row's, so nothing
-    // the full rows offered is lost.
+    // One avatar per row down the rail's column, with the rail's own scroll
+    // keeping every pin reachable. The hover names the chat, the right-click
+    // menu is the chat row's, so nothing the full rows offered is lost.
     widgets::chip_scroll_row(ui, "beeper-global-pins", |ui| {
-        ui.horizontal_wrapped(|ui| {
+        ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
             for (index, chat) in pins.iter().enumerate() {
                 let shortcut = (index < 9)
@@ -1146,20 +1152,13 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
     if favorites.is_empty() {
         return;
     }
-    let palette = app.palette;
-    ui.label(
-        egui::RichText::new("Favorites · all networks")
-            .small()
-            .color(palette.secondary),
-    );
     ui.spacing_mut().item_spacing.y = 0.0;
-    // The label chips' proven pattern: one id scope around a directly
-    // allocated horizontal_wrapped. A per-chip scope stopped the wrap and
-    // the last chips overflowed the rail; a capping ScrollArea around the
-    // wrap clipped the second row mid-avatar. The rail's own scroll keeps
-    // every favorite reachable instead of a section cap.
+    // One avatar per row down the rail's column: a per-chip scope stopped
+    // the wrap and the last chips overflowed the rail; a capping ScrollArea
+    // clipped the second row mid-avatar. The rail's own scroll keeps every
+    // favorite reachable instead of a section cap.
     widgets::chip_scroll_row(ui, "beeper-global-favorites", |ui| {
-        ui.horizontal_wrapped(|ui| {
+        ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
             for (index, chat) in favorites.iter().enumerate() {
                 let shortcut =
@@ -3397,7 +3396,7 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ui| super::super::rail::show(&mut app, ui, true, true),
+                |ui| super::super::rail::show(&mut app, ui, true),
             );
             output.textures_delta.clear();
         };
@@ -3434,11 +3433,11 @@ mod tests {
         );
     }
 
-    /// The user requested no horizontal scrollbars. The six filters share
-    /// one compact icon row and the label chips wrap below, keeping every
-    /// filter/label reachable instead of retaining the old scrolling UI.
+    /// The user requested no horizontal scrollbars. The six filters stack
+    /// one icon per row down the rail's column with the label dots below,
+    /// keeping every filter/label reachable instead of the old scrolling UI.
     #[test]
-    fn narrow_chip_rows_wrap_within_the_viewport_without_horizontal_scrolling() {
+    fn narrow_chip_rows_stack_within_the_viewport_without_horizontal_scrolling() {
         let directory = tempfile::tempdir().unwrap();
         let (mut app, _events) =
             App::headless(AppDirs::under(directory.path()), Settings::default());
@@ -3485,10 +3484,20 @@ mod tests {
                 "chip outside viewport: {rect:?}"
             );
         }
-        // All six filters share one row; the label chips still wrap below.
-        let filter_row_top = before[0].top();
-        for rect in &before[..ChatFilter::EVERY.len()] {
-            assert_eq!(rect.top(), filter_row_top, "filters must share one row");
+        // One icon per row: every filter starts below the one before, the
+        // whole column shares one center line, and the label dots follow.
+        let column_x = before[0].center().x;
+        for pair in before[..ChatFilter::EVERY.len()].windows(2) {
+            assert!(
+                pair[1].top() >= pair[0].bottom() - 1.0,
+                "filters stack one per row: {pair:?}"
+            );
+        }
+        for rect in &before {
+            assert!(
+                (rect.center().x - column_x).abs() < 1.0,
+                "one centered column: {rect:?}"
+            );
         }
         assert!(before.last().unwrap().top() > before[ChatFilter::EVERY.len()].top());
         for pointer in [before[0].center(), before[ChatFilter::EVERY.len()].center()] {
@@ -3736,7 +3745,7 @@ mod tests {
         let (_directory, _app, _ids, ctx) = rail_app(0);
         let rail = Rect::from_min_size(
             egui::Pos2::ZERO,
-            vec2(super::super::rail::WIDTH, COMPACT_CELL),
+            vec2(super::super::rail::COMPACT, COMPACT_CELL),
         );
         let avatar = Rect::from_center_size(rail.center(), Vec2::splat(COMPACT_AVATAR));
         let mut width = 0.0;
@@ -3798,7 +3807,7 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ui| super::super::rail::show(&mut app, ui, false, false),
+                |ui| super::super::rail::show(&mut app, ui, false),
             );
             output.textures_delta.clear();
         };
@@ -3845,7 +3854,7 @@ mod tests {
         );
         // Badges: a count for the unread chat, a dot for the marked one,
         // nothing for the read one, and every badge inside the rail panel.
-        let rail_right = super::super::rail::WIDTH;
+        let rail_right = super::super::rail::COMPACT;
         let badge =
             |chat: &Chat| ctx.data(|data| data.get_temp::<Rect>(favorite_badge_id(&chat.id)));
         let counted_badge = badge(&counted).expect("an unread favorite carries its count");

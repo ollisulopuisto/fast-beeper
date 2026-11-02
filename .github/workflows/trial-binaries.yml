@@ -199,6 +199,11 @@ jobs:
           # destinations stay reachable by scrolling at this height.
           shot chat-networks-scrolled-1180x780 1180x780 chat,networks,rail-bottom
           shot chat-dark-networks-scrolled-1180x780 1180x780 chat,networks,theme=Catppuccin.json,rail-bottom
+          # A short window, fully populated rail: filters, queues, labels,
+          # favorites, pins and networks stay one icon column; the rail's
+          # own scroll reaches its end without touching the list's scroll.
+          shot chat-rail-full-700x600 700x600 chat,rail-full
+          shot chat-rail-full-scrolled-700x600 700x600 chat,rail-full,rail-bottom
           # The list hidden: avatars fill the compact rail.
           shot rail-1180x780 1180x780 rail
           # Settings keeps its old content width beside the compact rail.
