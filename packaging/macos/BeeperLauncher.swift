@@ -317,7 +317,8 @@ func launch(_ connection: Connection) throws {
             echo "scheduler still not healthy; last scheduler.log lines:" >&2
             tail -n 5 "$APP_SUPPORT/scheduler.log" >&2 2>/dev/null || true
         fi
-        [ -n "$ok" ] && echo RUNNING""")
+        [ -n "$ok" ] && echo RUNNING
+        """)
         if service.0 == 0, String(decoding: service.1, as: UTF8.self).contains("RUNNING") {
             let alert = NSAlert()
             alert.messageText = "Send Later is set up"

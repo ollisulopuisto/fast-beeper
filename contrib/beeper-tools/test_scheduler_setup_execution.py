@@ -88,7 +88,7 @@ def service_script():
     health = HEALTH.read_text().strip()
     open_marker = 'let service = remote(connection, """'
     i1 = SOURCE.index(open_marker) + len(open_marker)
-    i2 = SOURCE.index('echo RUNNING""")', i1)
+    i2 = SOURCE.index('echo RUNNING', i1)
     block = SOURCE[i1:i2]
     assert '"""' not in block, 'single literal: interpolation, not concatenation'
     lines = block.split('\n')
