@@ -16,6 +16,7 @@ struct State {
     explicit: bool,
     search: String,
     source_filter: Option<Member>,
+    search_open: bool,
 }
 /// Command maps to Cmd on macOS and Ctrl elsewhere, matching the rest of the app.
 pub fn latest_reply_shortcut() -> egui::KeyboardShortcut {
@@ -96,9 +97,34 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let ids: Vec<_> = valid.iter().map(|m| m.chat.clone()).collect();
     app.ensure_person_loaded(&ids);
     let key = egui::Id::new(("linked-person-state", &person.members));
-    let mut state = ui
-        .ctx()
-        .data_mut(|d| d.get_temp::<State>(key).unwrap_or_default());
+    let mut state = match ui.ctx().data_mut(|d| d.get_temp::<State>(key)) {
+        Some(state) => state,
+        None => {
+            let mut state = State::default();
+            // Demo captures seed a reply through a real route.
+            if crate::demo::linked_reply() {
+                let mut latest: Option<(Member, String, i64)> = None;
+                for member in &valid {
+                    if let Some(conversation) = app.conversations.get(&member.chat) {
+                        for message in &conversation.messages {
+                            if latest
+                                .as_ref()
+                                .is_none_or(|(_, _, ts)| message.timestamp > *ts)
+                            {
+                                latest =
+                                    Some((member.clone(), message.id.clone(), message.timestamp));
+                            }
+                        }
+                    }
+                }
+                if let Some((member, id, _)) = latest {
+                    state.reply = Some((member.clone(), id));
+                    state.destination = Some(member);
+                }
+            }
+            state
+        }
+    };
     if state
         .destination
         .as_ref()
@@ -106,30 +132,62 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     {
         state = State::default();
     }
+    let mut routing_error = None;
     if state.destination.is_none() && state.reply.is_none() {
         match person.default_destination(&valid) {
             Ok(primary) => state.destination = primary.cloned(),
-            Err(error) => {
-                ui.colored_label(egui::Color32::YELLOW, error);
-            }
+            Err(error) => routing_error = Some(error),
         }
     }
-
+    let message_count: usize = valid
+        .iter()
+        .map(|m| {
+            app.conversations
+                .get(&m.chat)
+                .map_or(0, |c| c.messages.len())
+        })
+        .sum();
     // Identity only: management and the explanatory notes live in the
     // Contact info panel, so the timeline keeps its room.
+    let searching =
+        state.search_open || !state.search.trim().is_empty() || state.source_filter.is_some();
     ui.horizontal(|ui| {
         ui.heading(&person.name);
         ui.label(format!("{} linked chats · local only", valid.len()));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button("Load older")
+                .on_hover_text(format!(
+                    "Load older from each chat. {message_count} loaded messages · Each member pages independently; this is not the full remote history."
+                ))
+                .clicked()
+            {
+                for member in &valid {
+                    app.load_older(&member.chat, true);
+                }
+            }
+            if ui
+                .selectable_label(searching, "Search")
+                .on_hover_text("Search the loaded messages and narrow by source")
+                .clicked()
+            {
+                state.search_open = !searching;
+                if !state.search_open {
+                    state.search.clear();
+                    state.source_filter = None;
+                }
+            }
+        });
     });
+    if let Some(error) = routing_error {
+        ui.colored_label(egui::Color32::YELLOW, error);
+    }
     // One compact line per distinct connection problem, sources combined;
     // the full backend text stays on hover instead of stacking per member.
     let mut warnings: Vec<(Vec<&str>, &String)> = Vec::new();
     for member in &valid {
         if let Some(error) = app.beeper_live_errors.get(&member.chat) {
-            let source = app
-                .chat(&member.chat)
-                .and_then(|c| c.network.as_deref())
-                .unwrap_or("Chat");
+            let source = app.chat(&member.chat).map(network_label).unwrap_or("Chat");
             match warnings.iter_mut().find(|(_, known)| *known == error) {
                 Some((sources, _)) if !sources.contains(&source) => sources.push(source),
                 Some(_) => {}
@@ -170,66 +228,63 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             "Some linked chats are unavailable or locked; they are excluded.",
         );
     }
-    ui.horizontal(|ui| {
-        let destination = state
-            .destination
-            .as_ref()
-            .and_then(|m| app.chat(&m.chat))
-            .map(|c| c.network.as_deref().unwrap_or(&c.name))
-            .unwrap_or("Choose destination");
-        egui::ComboBox::from_id_salt("person-destination")
-            .selected_text(destination)
-            .show_ui(ui, |ui| {
-                for member in &valid {
-                    let c = app.chat(&member.chat).unwrap();
-                    if ui
-                        .selectable_label(
-                            state.destination.as_ref() == Some(member),
-                            format!("{} · {}", c.name, source_label(app, &valid, member)),
-                        )
-                        .clicked()
-                    {
-                        state.explicit = true;
-                        state.destination = Some(member.clone());
-                        app.reply_to = state.reply.as_ref().and_then(|(source, id)| {
-                            crate::merged::reply_route(source, member, id)
-                        });
+    if searching {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.search)
+                    .hint_text("Search loaded messages")
+                    .desired_width(220.0),
+            );
+            let label = state
+                .source_filter
+                .as_ref()
+                .and_then(|m| app.chat(&m.chat))
+                .map(network_label)
+                .unwrap_or("All sources");
+            egui::ComboBox::from_id_salt("linked-source-filter")
+                .selected_text(label)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut state.source_filter, None, "All sources");
+                    for member in &valid {
+                        let c = app.chat(&member.chat).unwrap();
+                        ui.selectable_value(
+                            &mut state.source_filter,
+                            Some(member.clone()),
+                            format!("{} [{}]", network_label(c), member.account),
+                        );
                     }
-                }
-            });
-        if ui.button("Load older from each chat").clicked() {
-            for member in &valid {
-                app.load_older(&member.chat, true);
+                });
+            if ui.button("Clear search").clicked() {
+                state.search.clear();
+                state.source_filter = None;
             }
-        }
-    });
+        });
+    }
+    // Routing safety: no reply target and no chosen destination means no
+    // route at all - new text goes nowhere without an explicit choice.
     if state.reply.is_none() {
         app.reply_to = None;
     }
-    if let Some((source, id)) = &state.reply {
+    let cross_over = if let Some((source, id)) = &state.reply {
         app.reply_to = state
             .destination
             .as_ref()
             .and_then(|destination| crate::merged::reply_route(source, destination, id));
-        if state.destination.as_ref() != Some(source) {
-            ui.colored_label(
-                egui::Color32::YELLOW,
-                "Cross-over: plain new message on selected destination. No reply reference.",
-            );
-        }
-    }
-    if let Some(destination) = state
+        state.destination.as_ref() != Some(source)
+    } else {
+        false
+    };
+    // The composer pins to the bottom of the view, with the destination
+    // control directly above it. The first bottom panel shown lands lowest.
+    let destination = state
         .destination
         .as_ref()
         .and_then(|m| app.chat(&m.chat))
-        .cloned()
-    {
-        let via = destination.network.as_deref().unwrap_or("Beeper");
-        let label = account_name(app, &destination);
-        ui.label(format!("Sending via {via}{label}"));
+        .cloned();
+    if let Some(destination) = &destination {
         let had_quote = app.reply_to.is_some();
         let before = app.actions.len();
-        super::conversation::composer_with_capabilities(app, ui, &destination, false);
+        super::conversation::composer_with_capabilities(app, ui, destination, false);
         if had_quote && app.reply_to.is_none() {
             state.reply = None;
             if !state.explicit {
@@ -246,8 +301,82 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             }
         }
     } else {
-        ui.label("Choose a destination or reply to a message before writing. Nothing is routed automatically.");
+        // No route yet: the composer stays visible but inert, and says why.
+        egui::Panel::bottom("linked-composer-off")
+            .show_separator_line(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::TRANSPARENT)
+                    .inner_margin(egui::Margin {
+                        left: 8,
+                        right: 8,
+                        top: 0,
+                        bottom: 8,
+                    }),
+            )
+            .show(ui, |ui| {
+                ui.add_enabled_ui(false, |ui| {
+                    let mut draft = String::new();
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft)
+                            .hint_text("Choose a destination or reply to a message to write")
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.small("Nothing is routed automatically.");
+            });
     }
+    egui::Panel::bottom("linked-destination")
+        .show_separator_line(false)
+        .frame(
+            egui::Frame::new()
+                .fill(egui::Color32::TRANSPARENT)
+                .inner_margin(egui::Margin {
+                    left: 8,
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                }),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let chosen = destination
+                    .as_ref()
+                    .map(network_label)
+                    .unwrap_or("Choose destination");
+                egui::ComboBox::from_id_salt("person-destination")
+                    .selected_text(chosen)
+                    .show_ui(ui, |ui| {
+                        for member in &valid {
+                            let c = app.chat(&member.chat).unwrap();
+                            if ui
+                                .selectable_label(
+                                    state.destination.as_ref() == Some(member),
+                                    format!("{} · {}", c.name, source_label(app, &valid, member)),
+                                )
+                                .clicked()
+                            {
+                                state.explicit = true;
+                                state.destination = Some(member.clone());
+                                app.reply_to = state.reply.as_ref().and_then(|(source, id)| {
+                                    crate::merged::reply_route(source, member, id)
+                                });
+                            }
+                        }
+                    });
+                if let Some(destination) = &destination {
+                    let via = network_label(destination);
+                    let label = account_name(app, destination);
+                    ui.small(format!("Sending via {via}{label}"));
+                    if cross_over {
+                        ui.colored_label(
+                            egui::Color32::YELLOW,
+                            "Cross-over: plain new message on selected destination. No reply reference.",
+                        );
+                    }
+                }
+            });
+        });
     let messages = crate::merged::ordered_refs(
         valid
             .iter()
@@ -259,41 +388,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             })
             .collect(),
     );
-    ui.small(format!("{} loaded messages · Each member pages independently; this is not the full remote history.",messages.len()));
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut state.search)
-                .hint_text("Search loaded messages")
-                .desired_width(220.0),
-        );
-        let label = state
-            .source_filter
-            .as_ref()
-            .and_then(|m| app.chat(&m.chat))
-            .map(|c| c.network.as_deref().unwrap_or("Beeper"))
-            .unwrap_or("All sources");
-        egui::ComboBox::from_id_salt("linked-source-filter")
-            .selected_text(label)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut state.source_filter, None, "All sources");
-                for member in &valid {
-                    let c = app.chat(&member.chat).unwrap();
-                    ui.selectable_value(
-                        &mut state.source_filter,
-                        Some(member.clone()),
-                        format!(
-                            "{} [{}]",
-                            c.network.as_deref().unwrap_or("Beeper"),
-                            member.account
-                        ),
-                    );
-                }
-            });
-        if ui.button("Clear search").clicked() {
-            state.search.clear();
-            state.source_filter = None;
-        }
-    });
     let filtered = !state.search.trim().is_empty() || state.source_filter.is_some();
     let visible: Vec<_> = messages
         .into_iter()
@@ -310,7 +404,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             }
             let source = app
                 .chat(&message.chat)
-                .and_then(|c| c.network.as_deref())
+                .map(network_label)
                 .unwrap_or("Beeper");
             let body = match &message.content {
                 crate::model::Content::Text { text, .. }
@@ -327,7 +421,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             )
         })
         .collect();
-    if filtered {
+    if searching && filtered {
         ui.small(format!(
             "{} matches in loaded history only. Search does not change sending destination.",
             visible.len()
@@ -337,23 +431,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let shortcut = latest_reply_shortcut();
     let shortcut_label = ui.ctx().format_shortcut(&shortcut);
     let keyboard_reply = ui.input_mut(|input| input.consume_shortcut(&shortcut));
-    ui.horizontal_wrapped(|ui| {
-        if (ui.add_enabled(
-            crate::merged::latest_replyable(&visible).is_some(),
-            egui::Button::new(format!("Reply to latest match ({shortcut_label})")),
-        ).on_hover_text(format!("Keyboard fallback: {shortcut_label}. Uses the latest non-deleted loaded search result and its exact source. Narrow by search/source first.")).clicked() || keyboard_reply)
-            && let Some(message) = crate::merged::latest_replyable(&visible)
-            && let Some(member) = valid.iter().find(|member| member.chat == message.chat)
-        {
-            selected_reply = Some((member.clone(), message.id.clone()));
-        }
-    });
-    bounded_note(
-        ui,
-        &app.conversation_palette(),
-        "Or double-click a message / use its reply menu.",
-        true,
-    );
+    let mut clicked_reply = false;
+    if searching {
+        ui.horizontal_wrapped(|ui| {
+            clicked_reply = ui.add_enabled(
+                crate::merged::latest_replyable(&visible).is_some(),
+                egui::Button::new(format!("Reply to latest match ({shortcut_label})")),
+            ).on_hover_text(format!("Keyboard fallback: {shortcut_label}. Uses the latest non-deleted loaded search result and its exact source. Narrow by search/source first. Or double-click a message / use its reply menu.")).clicked();
+        });
+    }
+    if (clicked_reply || keyboard_reply)
+        && let Some(message) = crate::merged::latest_replyable(&visible)
+        && let Some(member) = valid.iter().find(|member| member.chat == message.chat)
+    {
+        selected_reply = Some((member.clone(), message.id.clone()));
+    }
     let remaining = ui.available_height().max(100.0);
     let mut actions = Vec::new();
     let mut refused_action = false;
@@ -545,17 +637,23 @@ fn account_name(app: &App, chat: &Chat) -> String {
         .unwrap_or_default()
 }
 
+/// The network a Beeper chat shows: the canonical API name first, then the
+/// decorated bridge label, then the generic fallback. Matches the field the
+/// bubble tint reads, so colour and text never disagree.
+fn network_label(chat: &Chat) -> &str {
+    chat.backend_network
+        .as_deref()
+        .or(chat.network.as_deref())
+        .unwrap_or("Beeper")
+}
+
 /// How a member reads in the linked view: its network, with the account's
 /// own name appended only when another member shares that network.
 fn source_label(app: &App, valid: &[Member], member: &Member) -> String {
     let chat = app.chat(&member.chat);
-    let network = chat
-        .and_then(|c| c.network.as_deref())
-        .unwrap_or("Beeper")
-        .to_owned();
+    let network = chat.map(network_label).unwrap_or("Beeper").to_owned();
     let shared = valid.iter().any(|other| {
-        other != member
-            && app.chat(&other.chat).and_then(|c| c.network.as_deref()) == Some(network.as_str())
+        other != member && app.chat(&other.chat).map(network_label) == Some(network.as_str())
     });
     if shared {
         if let Some(chat) = chat {
@@ -651,15 +749,11 @@ fn picker(
     let matches = |c: &&Chat| {
         query.is_empty()
             || c.name.to_lowercase().contains(&query)
-            || c.network
-                .as_deref()
-                .unwrap_or("Beeper")
-                .to_lowercase()
-                .contains(&query)
+            || network_label(c).to_lowercase().contains(&query)
     };
     let row = |ui: &mut egui::Ui, state: &mut Picker, c: &Chat| {
         let account = account_name(app, c);
-        let network = c.network.as_deref().unwrap_or("Beeper");
+        let network = network_label(c);
         let mut on = state.selected.contains(&c.id);
         if ui
             .checkbox(&mut on, format!("{} · {network}{account}", c.name))
@@ -690,14 +784,14 @@ fn picker(
     let mut networks: Vec<_> = candidates
         .iter()
         .filter(matches)
-        .map(|c| c.network.as_deref().unwrap_or("Beeper").to_owned())
+        .map(|c| network_label(c).to_owned())
         .collect();
     networks.sort();
     networks.dedup();
     for network in networks {
         let chats: Vec<_> = candidates
             .iter()
-            .filter(|c| c.network.as_deref().unwrap_or("Beeper") == network)
+            .filter(|c| network_label(c) == network)
             .filter(matches)
             .collect();
         egui::CollapsingHeader::new(format!("{network} ({})", chats.len()))
@@ -771,7 +865,16 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let key = egui::Id::new(("link-picker", &chat.id));
     let mut state = ui
         .ctx()
-        .data_mut(|d| d.get_temp::<Picker>(key).unwrap_or_default());
+        .data_mut(|d| d.get_temp::<Picker>(key))
+        .unwrap_or_else(|| {
+            crate::demo::link_picker_seed()
+                .map(|(search, selected)| Picker {
+                    open: true,
+                    search,
+                    selected,
+                })
+                .unwrap_or_default()
+        });
     if let Some(person) = &person {
         bounded_note(
             ui,
@@ -808,7 +911,7 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             .primary
             .as_ref()
             .and_then(|m| app.chat(&m.chat).filter(|c| m.matches(c)))
-            .map(|c| c.network.as_deref().unwrap_or(&c.name))
+            .map(network_label)
             .unwrap_or("No primary selected");
         egui::ComboBox::from_id_salt("person-primary")
             .selected_text(format!("Primary: {primary}"))
@@ -1021,6 +1124,17 @@ mod tests {
             !handled(&mut app, &ctx, &plain),
             "an unlinked chat stays a plain conversation"
         );
+    }
+
+    #[test]
+    fn the_source_label_names_the_canonical_network() {
+        let (mut wa, mut tg, person) = ada_pair();
+        wa.backend_network = Some("WhatsApp".into());
+        tg.backend_network = Some("Telegram".into());
+        let (_dir, app, _ctx) = linked_app(vec![wa, tg], vec![person]);
+        let valid = app.settings.beeper.people[0].members.clone();
+        assert_eq!(source_label(&app, &valid, &valid[0]), "WhatsApp");
+        assert_eq!(source_label(&app, &valid, &valid[1]), "Telegram");
     }
 
     #[test]
