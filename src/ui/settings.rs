@@ -497,7 +497,11 @@ fn sections(app: &App) -> Vec<Section> {
             if ui.button("Copy translation").clicked() { ui.ctx().copy_text(app.local_ai.output.clone()); }
         }
     });
-    beeper.block(vec!["Transcription".into(), "Voice notes".into(), "Wyoming".into(), "Whisper".into()], |ui, app| {
+    // Voice-note transcription is not Beeper-specific: every mode that
+    // can play a voice note must reach these controls, so the section is
+    // always listed, unlike the Beeper-only one above.
+    let mut transcription = Section::new(translated(locale, "Voice notes"));
+    transcription.block(vec!["Transcription".into(), "Voice notes".into(), "Wyoming".into(), "Whisper".into()], |ui, app| {
         ui.heading("Voice-note transcription");
         ui.label("A Wyoming Whisper service you already run, on this computer or your own network. The audio and the transcripts never leave for a cloud service; an unreachable address fails with a visible error, never a silent fallback. Empty disables transcription.");
         let before = (app.settings.transcription_wyoming.clone(), app.settings.transcription_language.clone());
@@ -506,11 +510,14 @@ fn sections(app: &App) -> Vec<Section> {
         ui.label("Language (\"fi\", \"en\", ...; empty = detect automatically)");
         ui.text_edit_singleline(&mut app.settings.transcription_language);
         if before != (app.settings.transcription_wyoming.clone(), app.settings.transcription_language.clone()) { app.actions.push(Action::SettingsChanged); }
-        ui.label("Transcripts are stored on this computer, per account and chat, and follow a chat you delete or clear.");
-        if ui.add_enabled(app.transcriber.is_some(), egui::Button::new("Delete all transcripts on this computer")).clicked() {
-            if let Some(worker) = &app.transcriber { worker.clear(); }
+        ui.label("Transcripts are stored on this computer, per account and chat, and follow a chat you delete or clear. Transcript text joins message search on this computer only.");
+        if ui.add_enabled(app.transcriber.is_some(), egui::Button::new("Delete all transcripts on this computer")).clicked()
+            && let Some(worker) = &app.transcriber
+        {
+            worker.clear();
         }
     });
+
     let mut appearance = Section::new(translated(locale, "Appearance"));
     let status = app
         .custom_themes
@@ -1098,6 +1105,7 @@ fn sections(app: &App) -> Vec<Section> {
     let mut sections = vec![
         appearance,
         chats,
+        transcription,
         notifications,
         privacy,
         system,

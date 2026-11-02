@@ -10368,7 +10368,7 @@ fn voice_transcript(
         message: message.id.clone(),
         path: path.to_path_buf(),
     };
-    match worker.get(&message.id) {
+    match worker.get(&view.chat.id, &message.id) {
         Some(crate::transcribe_worker::Status::Ready(text)) => {
             theme::paragraph(ui, text, theme::regular(12.0), palette.secondary);
         }
@@ -11480,6 +11480,7 @@ mod tests {
         let avatars = HashMap::new();
         let keyboard_navigation = std::cell::Cell::new(false);
         let view = View {
+            transcriber: None,
             palette: Palette::dark(),
             locale: app.locale,
             chat: &chat,

@@ -2156,8 +2156,9 @@ fn voice_sample(app: &mut App) {
 fn transcript_sample(app: &mut App) {
     voice_sample(app);
     app.settings.transcription_wyoming = "127.0.0.1:10300".into();
+    let chat = app.open_chat.clone().unwrap_or_default();
     app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-        "ada-voice".to_string(),
+        (chat, "ada-voice".to_string()),
         crate::transcribe_worker::Status::Ready(
             "Every word of this fixture transcript stayed on this machine; the local service did the work."
                 .to_string(),
@@ -6022,7 +6023,7 @@ mod tests {
         assert!(
             app.actions.iter().any(|action| matches!(
                 action,
-                Action::TranscribeVoice { message, path, .. }
+                crate::model::Action::TranscribeVoice { message, path, .. }
                     if (message == "ada-voice" || message == "you-voice")
                         && path.ends_with("demo-voice.ogg")
             )),
@@ -6086,8 +6087,9 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
 
+        let voice_chat = app.open_chat.clone().unwrap_or_default();
         app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-            "ada-voice".to_string(),
+            (voice_chat.clone(), "ada-voice".to_string()),
             crate::transcribe_worker::Status::Running,
         )]));
         let (_, texts) = settle(&mut app, &ctx, "Transcribing\u{2026}");
@@ -6097,7 +6099,7 @@ mod tests {
         );
 
         app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-            "ada-voice".to_string(),
+            (voice_chat.clone(), "ada-voice".to_string()),
             crate::transcribe_worker::Status::Ready(
                 "Every word stayed on this machine.".to_string(),
             ),
@@ -6111,7 +6113,7 @@ mod tests {
         );
 
         app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-            "ada-voice".to_string(),
+            (voice_chat.clone(), "ada-voice".to_string()),
             crate::transcribe_worker::Status::Failed("the service is unreachable".into()),
         )]));
         let (retry, texts) = settle(&mut app, &ctx, "Retry transcription");
@@ -6125,7 +6127,7 @@ mod tests {
         assert!(
             app.actions.iter().any(|action| matches!(
                 action,
-                Action::TranscribeVoice { message, .. } if message == "ada-voice"
+                crate::model::Action::TranscribeVoice { message, .. } if message == "ada-voice"
             )),
             "the retry requeues the same note"
         );

@@ -3328,7 +3328,8 @@ impl App {
         self.beeper_network_filter.is_some() || self.beeper_account_filter.is_some()
     }
     pub fn scoped_search_hits(&self) -> Vec<Message> {
-        self.search_hits
+        let mut hits: Vec<Message> = self
+            .search_hits
             .iter()
             .filter(|message| {
                 !self.beeper_scope_is_active()
@@ -3337,6 +3338,75 @@ impl App {
                         .is_some_and(|c| self.beeper_scope_matches(c))
             })
             .cloned()
+            .collect();
+        // Local voice-note transcripts join the same results. Locked chats
+        // stay out like the backend's hits, the secret-code prompt is not a
+        // query, and a hit the backend already returned is not duplicated.
+        if let Some(worker) = &self.transcriber
+            && !self.locked_folder_open()
+            && !self.secret_code_matched()
+        {
+            for hit in self.transcript_hit_messages(worker.search(self.search.trim())) {
+                if self.chat(&hit.chat).is_some_and(|chat| chat.locked) {
+                    continue;
+                }
+                if self.beeper_scope_is_active()
+                    && !self
+                        .chat(&hit.chat)
+                        .is_some_and(|c| self.beeper_scope_matches(c))
+                {
+                    continue;
+                }
+                if hits
+                    .iter()
+                    .any(|message| message.chat == hit.chat && message.id == hit.id)
+                {
+                    continue;
+                }
+                hits.push(hit);
+            }
+        }
+        hits
+    }
+
+    /// Transcript search hits as message rows: the archived message where
+    /// it is loaded, a synthetic one otherwise; the preview shows the
+    /// transcript line that matched, not the voice-note label. Both kinds
+    /// navigate to the source by chat + message id.
+    fn transcript_hit_messages(&self, hits: Vec<crate::transcriber::Hit>) -> Vec<Message> {
+        let query = self.search.trim().to_owned();
+        hits.into_iter()
+            .map(|hit| {
+                let mut message = self
+                    .conversations
+                    .get(&hit.chat_id)
+                    .and_then(|conversation| conversation.message(&hit.message_id))
+                    .cloned()
+                    .unwrap_or_else(|| Message {
+                        id: hit.message_id.clone(),
+                        chat: hit.chat_id.clone(),
+                        sender: hit.chat_id.clone(),
+                        sender_name: None,
+                        from_me: false,
+                        timestamp: hit.modified,
+                        content: Content::text(""),
+                        status: Delivery::None,
+                        delivered_at: None,
+                        read_at: None,
+                        quoted: None,
+                        reactions: Vec::new(),
+                        history_order: None,
+                        edited: false,
+                        mentions: Vec::new(),
+                        forwarded: false,
+                        thumbnail: None,
+                    });
+                let preview = Content::text(hit.text.clone())
+                    .text_matching(&query)
+                    .unwrap_or_else(|| hit.text.lines().next().unwrap_or("").trim().to_owned());
+                message.content = Content::text(preview);
+                message
+            })
             .collect()
     }
 
@@ -21839,6 +21909,74 @@ mod tests {
     }
 
     #[test]
+    fn transcript_hits_join_search_results_with_navigation() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
+        let chat = "peer@s.whatsapp.net";
+        let other = "friend@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Peer".into()));
+        app.chats.push(Chat::new(other.into(), "Friend".into()));
+        app.conversations
+            .entry(chat.into())
+            .or_default()
+            .merge(vec![message(chat, "m1", 100)], false);
+        // One transcript for the archived message, one for a message that
+        // is not loaded, one in another chat the query does not reach.
+        let store_dir = std::env::temp_dir().join(format!("app-tr-hits-{}", std::process::id()));
+        let store = crate::transcriber::Store::new(store_dir.clone(), 1 << 20).unwrap();
+        store.put("acc", chat, "m1", "hei maailma").unwrap();
+        store
+            .put(
+                "acc",
+                chat,
+                "m2",
+                "maailma from an unloaded note\nsecond line",
+            )
+            .unwrap();
+        store.put("acc", other, "m3", "unrelated").unwrap();
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
+        app.search = "maailma".into();
+        // The backend already returned the loaded message: no duplicate.
+        app.search_hits.push(message(chat, "m1", 100));
+
+        let hits = app.scoped_search_hits();
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        // The archived hit keeps its real timestamp and sender; its preview
+        // is the matched transcript line, not the voice-note label.
+        let loaded: Vec<_> = hits.iter().filter(|hit| hit.id == "m1").collect();
+        assert_eq!(loaded.len(), 1, "backend hit not duplicated");
+        assert_eq!(loaded[0].timestamp, 100);
+        assert!(loaded[0].summary().contains("hei maailma"));
+        // The unloaded hit still navigates by chat + message id.
+        let unloaded = hits.iter().find(|hit| hit.id == "m2").unwrap();
+        assert_eq!(unloaded.chat, chat);
+        assert!(unloaded.summary().contains("maailma from an unloaded note"));
+        // An empty query finds nothing.
+        app.search = "   ".into();
+        assert!(app.scoped_search_hits().is_empty());
+        std::fs::remove_dir_all(&store_dir).ok();
+    }
+
+    #[test]
+    fn locked_chats_transcripts_stay_out_of_plain_search() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
+        let chat = "secret@s.whatsapp.net";
+        let mut locked = Chat::new(chat.into(), "Secret".into());
+        locked.locked = true;
+        app.chats.push(locked);
+        let store_dir = std::env::temp_dir().join(format!("app-tr-lock-{}", std::process::id()));
+        let store = crate::transcriber::Store::new(store_dir.clone(), 1 << 20).unwrap();
+        store.put("acc", chat, "m1", "hei maailma").unwrap();
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
+        app.search = "maailma".into();
+        assert!(app.scoped_search_hits().is_empty());
+        std::fs::remove_dir_all(&store_dir).ok();
+    }
+
+    #[test]
     fn quotes_and_search_hits_flash_their_message_until_the_chat_changes() {
         let mut app = app();
         let ctx = egui::Context::default();
@@ -25744,7 +25882,6 @@ mod transcription_tests {
         app.apply_backend_event(
             Event::ChatCleared {
                 chat: "berta@s.whatsapp.net".into(),
-                cleared: true,
                 through: 0,
             },
             false,
