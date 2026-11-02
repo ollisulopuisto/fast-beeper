@@ -458,7 +458,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     continue;
                 };
                 let source_chat = app.chat(&message.chat).unwrap().clone();
-                let source = source_chat.network.as_deref().unwrap_or("Beeper");
                 let on_screen = top >= viewport.top();
                 // Colour is never the only cue: every bubble in a mixed
                 // timeline names its source network in text above it. The
@@ -556,10 +555,7 @@ fn source_label(app: &App, valid: &[Member], member: &Member) -> String {
         .to_owned();
     let shared = valid.iter().any(|other| {
         other != member
-            && app
-                .chat(&other.chat)
-                .and_then(|c| c.network.as_deref())
-                == Some(network.as_str())
+            && app.chat(&other.chat).and_then(|c| c.network.as_deref()) == Some(network.as_str())
     });
     if shared {
         if let Some(chat) = chat {
@@ -722,7 +718,11 @@ fn picker(
         .map(|c| c.name.clone())
         .collect();
     if !state.selected.is_empty() {
-        ui.small(format!("{} selected: {}", state.selected.len(), names.join(", ")));
+        ui.small(format!(
+            "{} selected: {}",
+            state.selected.len(),
+            names.join(", ")
+        ));
     }
     if over {
         ui.colored_label(
@@ -886,10 +886,7 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             "Local link only: combine this chat with the same person's other chats on this Beeper server.",
             true,
         );
-        if ui
-            .selectable_label(state.open, "Link person…")
-            .clicked()
-        {
+        if ui.selectable_label(state.open, "Link person…").clicked() {
             state.open = !state.open;
         }
         if state.open {
@@ -995,14 +992,7 @@ mod tests {
         };
         let free = member_chat("ada-free@signal", "signal");
         let (_dir, app, _ctx) = linked_app(
-            vec![
-                wa.clone(),
-                tg,
-                group,
-                locked,
-                other_origin,
-                free.clone(),
-            ],
+            vec![wa.clone(), tg, group, locked, other_origin, free.clone()],
             vec![person],
         );
         let candidates = link_candidates(&app, &wa);

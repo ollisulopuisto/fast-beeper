@@ -6283,7 +6283,7 @@ pub(crate) fn list_menu(
     let avatars = HashMap::new();
     let keyboard_navigation = std::cell::Cell::new(false);
     let view = View {
-        palette,
+        palette: app.conversation_palette(),
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
@@ -6350,7 +6350,7 @@ pub(crate) fn linked_bubble(
     let avatars = HashMap::new();
     let keyboard_navigation = std::cell::Cell::new(false);
     let view = View {
-        palette: app.conversation_palette(),
+        palette,
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
