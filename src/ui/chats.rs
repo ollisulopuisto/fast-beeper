@@ -1377,10 +1377,7 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
             };
             (title, "Choose All to see every chat.")
         } else if app.beeper_network_filter.is_some() {
-            (
-                "No chats in this view",
-                "Choose Chats for all networks.",
-            )
+            ("No chats in this view", "Choose Chats for all networks.")
         } else if app.syncing {
             ("Loading your chats", "Receiving history from your phone.")
         } else {
