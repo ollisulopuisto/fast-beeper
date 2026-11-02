@@ -527,7 +527,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let output = ui
         .scope_builder(egui::UiBuilder::new().max_rect(timeline), |ui| {
             let remaining = ui.available_height().max(100.0);
-            let output = egui::ScrollArea::vertical()
+            egui::ScrollArea::vertical()
                 .id_salt(("person-timeline", &person.members))
                 .stick_to_bottom(!filtered)
                 .min_scrolled_height(remaining)
@@ -719,8 +719,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     }
                     // Keep the last bubble/hover actions above the fixed composer.
                     ui.add_space(20.0);
-                });
-            output
+                })
         })
         .inner;
     let bottom = (output.content_size.y - output.inner_rect.height()).max(0.0);
