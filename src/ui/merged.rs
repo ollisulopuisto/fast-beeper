@@ -460,20 +460,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 let source_chat = app.chat(&message.chat).unwrap().clone();
                 let source = source_chat.network.as_deref().unwrap_or("Beeper");
                 let on_screen = top >= viewport.top();
-                let show_header =
-                    boundary || !previous_laid_out || (on_screen && !previous_on_screen);
+                // Colour is never the only cue: every bubble in a mixed
+                // timeline names its source network in text above it. The
+                // day still appears only where the day actually changes.
                 ui.push_id((&message.chat, &message.id), |ui| {
-                    if show_header {
-                        let source = source_label(app, &valid, member);
-                        ui.small(format!(
-                            "{} · {source} · {}",
-                            day,
-                            if message.from_me {
-                                "You"
-                            } else {
-                                message.sender_name.as_deref().unwrap_or("Sender")
-                            }
-                        ));
+                    let source = source_label(app, &valid, member);
+                    let sender = if message.from_me {
+                        "You"
+                    } else {
+                        message.sender_name.as_deref().unwrap_or("Sender")
+                    };
+                    if boundary {
+                        ui.small(format!("{day} · {source} · {sender}"));
+                    } else {
+                        ui.small(format!("{source} · {sender}"));
                     }
                     let before = actions.len();
                     super::conversation::linked_bubble(
