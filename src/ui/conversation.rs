@@ -120,10 +120,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             })
             .inner;
         composer(app, ui, &chat);
-        let list = ui
-            .available_rect_before_wrap()
-            .with_min_y(bar.top())
-            .shrink2(vec2(TIMELINE_SIDE, 0.0));
+        let list = ui.available_rect_before_wrap().with_min_y(bar.top());
         ui.scope_builder(egui::UiBuilder::new().max_rect(list), |ui| {
             messages(app, ui, &chat, bar.height());
         });
@@ -137,12 +134,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
     pin_banner(app, ui, &chat);
     composer(app, ui, &chat);
-    let timeline = ui
-        .available_rect_before_wrap()
-        .shrink2(vec2(TIMELINE_SIDE, 0.0));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(timeline), |ui| {
-        messages(app, ui, &chat, 0.0);
-    });
+    messages(app, ui, &chat, 0.0);
     // Over the messages, which scroll under the header.
     widgets::paint_shadow_below(
         ui,
@@ -165,8 +157,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Breathing room at the message timeline's sides, in every window state:
+/// Breathing room at a linked timeline's sides, in every window state:
 /// bubbles and day labels never touch the window or the chat list's edge.
+/// Ordinary conversations keep their own side margins.
 pub(crate) const TIMELINE_SIDE: f32 = 16.0;
 
 /// Height of the pinned-message line under the header. It is one line
