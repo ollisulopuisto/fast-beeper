@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use egui::epaint::text::{Galley, Glyph, TextFormat};
 use egui::epaint::{Mesh, Rect, Vec2};
-use icu_properties::{CodePointMapData, props::BidiClass};
+use icu_properties::{CodePointMapDataBorrowed, props::BidiClass};
 use unicode_bidi::BidiInfo;
 
 /// Lays out `job` and reorders each line with the Unicode bidi algorithm.
@@ -673,10 +673,18 @@ fn repack_glyph_vertices(row: &mut egui::epaint::text::Row) {
 }
 
 pub(crate) fn is_strong_rtl(c: char) -> bool {
-    matches!(
-        CodePointMapData::<BidiClass>::new().get(c),
-        BidiClass::RightToLeft | BidiClass::ArabicLetter
-    )
+    // Performance optimization: In Unicode, characters with BidiClass RightToLeft
+    // (R) or ArabicLetter (AL) begin in the Hebrew block at U+05BE. Characters
+    // below U+0590 (including all ASCII, Latin, Greek, and Cyrillic) are never
+    // strong RTL, so we fast-path return false.
+    if c < '\u{0590}' {
+        return false;
+    }
+    // Cache the ICU `CodePointMapDataBorrowed` once instead of instantiating it per char.
+    static BIDI_CLASSES: std::sync::OnceLock<CodePointMapDataBorrowed<'static, BidiClass>> =
+        std::sync::OnceLock::new();
+    let map = BIDI_CLASSES.get_or_init(CodePointMapDataBorrowed::<BidiClass>::new);
+    matches!(map.get(c), BidiClass::RightToLeft | BidiClass::ArabicLetter)
 }
 
 /// Characters with Unicode bidi class R or AL.
@@ -1116,6 +1124,26 @@ mod tests {
                 .iter()
                 .find_map(|root| search(root, 3, std::slice::from_ref(name)))
         })
+    }
+
+    #[test]
+    fn is_strong_rtl_identifies_rtl_and_rejects_non_rtl() {
+        // ASCII & Latin
+        for c in ['a', 'Z', '9', ' ', '$', '@', 'é', 'ñ', 'ü'] {
+            assert!(!is_strong_rtl(c), "expected non-RTL for {c:?}");
+        }
+        // Greek & Cyrillic (< U+0590)
+        for c in ['α', 'Ω', 'ж', 'Я'] {
+            assert!(!is_strong_rtl(c), "expected non-RTL for {c:?}");
+        }
+        // Hebrew & Arabic (>= U+0590)
+        for c in ['ש', 'ל', 'ו', 'ם', 'م', 'ر', 'ح', 'ب', 'ا'] {
+            assert!(is_strong_rtl(c), "expected RTL for {c:?}");
+        }
+        // CJK
+        for c in ['你', '好', 'あ', '한'] {
+            assert!(!is_strong_rtl(c), "expected non-RTL for {c:?}");
+        }
     }
 
     #[test]
