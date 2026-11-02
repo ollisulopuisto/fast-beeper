@@ -2080,6 +2080,46 @@ fn starred_sample(app: &mut App, menu: Option<&str>) {
 /// Audio fixtures vary voice-note and forwarding metadata independently without playback.
 /// Tags the sample chats with Beeper-style backend networks and accounts,
 /// so the sidebar's Networks and Queues sections render in demo shots.
+fn linked_sample(app: &mut App) {
+    networks_sample(app);
+    let wa = app.chats[0].clone();
+    let mut sg = wa.clone();
+    sg.id = "393331234567@signal".into();
+    sg.backend_network = Some("Signal".into());
+    sg.backend_account = Some("signal".into());
+    sg.last = None;
+    // Two Signal-side messages so the timeline visibly mixes sources.
+    let mut history = crate::model::Conversation::default();
+    for (index, text) in ["on Signal instead", "same person, other network"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut message = app
+            .conversations
+            .get(&wa.id)
+            .and_then(|c| c.messages.first().cloned())
+            .expect("the demo populates Ada's chat");
+        message.chat = sg.id.clone();
+        message.id = format!("sg-{index}");
+        message.timestamp += 30 + index as i64 * 30;
+        message.content = crate::model::Content::text(text);
+        message.quoted = None;
+        message.reactions = Default::default();
+        history.messages.push(message);
+    }
+    app.conversations.insert(sg.id.clone(), history);
+    let person = crate::merged::Person {
+        name: wa.name.clone(),
+        members: vec![
+            crate::merged::Member::of(&wa).unwrap(),
+            crate::merged::Member::of(&sg).unwrap(),
+        ],
+        primary: None,
+    };
+    app.settings.beeper.people.push(person);
+    app.chats.push(sg);
+}
+
 fn networks_sample(app: &mut App) {
     const ORIGIN: &str = "http://127.0.0.1:23374";
     // Each chat belongs to an account the inventory knows, so the account
@@ -3831,6 +3871,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // and the active network's accounts render, which also reveals
             // the Queues section.
             "networks" => networks_sample(app),
+            // Ada's WhatsApp chat linked with her Signal one: one person
+            // row in the list, one mixed-source timeline in the chat.
+            "linked" => linked_sample(app),
             "rail-full" => rail_full_sample(app),
             // Deterministic per-account appearance overrides for rendered
             // proof: the open chat's account (wa-personal) draws its

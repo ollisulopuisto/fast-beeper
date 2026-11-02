@@ -62,52 +62,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         .find(|p| p.members.iter().any(|m| Some(m) == current.as_ref()))
         .cloned();
     if person.is_none() {
-        ui.horizontal(|ui| {
-            ui.menu_button("Link person…", |ui| {
-                ui.label("Local link only. Choose the same person's other DM.");
-                let choices: Vec<_> = app
-                    .chats
-                    .iter()
-                    .filter(|c| {
-                        c.kind == ChatKind::Direct
-                            && !c.locked
-                            && c.id != chat.id
-                            && c.backend_account.is_some()
-                            && c.backend_origin == chat.backend_origin
-                            && app.chats.iter().filter(|known| known.id == c.id).count() == 1
-                    })
-                    .cloned()
-                    .collect();
-                for other in choices {
-                    let already = app
-                        .settings
-                        .beeper
-                        .people
-                        .iter()
-                        .any(|p| p.members.iter().any(|m| m.matches(&other)));
-                    if ui
-                        .add_enabled(
-                            !already,
-                            egui::Button::new(format!(
-                                "{} · {}",
-                                other.name,
-                                other.network.as_deref().unwrap_or("Beeper")
-                            )),
-                        )
-                        .clicked()
-                        && let (Some(first), Some(second)) = (current.clone(), Member::of(&other))
-                    {
-                        app.settings.beeper.people.push(Person {
-                            name: chat.name.clone(),
-                            members: vec![first, second],
-                            primary: None,
-                        });
-                        app.mark_settings_dirty();
-                        ui.close();
-                    }
-                }
-            });
-        });
+        // Linking lives in Contact info; the conversation top stays clean.
         return false;
     }
     let person = person.unwrap();
@@ -160,143 +115,48 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         }
     }
 
+    // Identity only: management and the explanatory notes live in the
+    // Contact info panel, so the timeline keeps its room.
     ui.horizontal(|ui| {
         ui.heading(&person.name);
         ui.label(format!("{} linked chats · local only", valid.len()));
-        if ui.button("Unlink").clicked() {
-            app.ensure_person_loaded(&[]);
-            app.settings.beeper.people.retain(|p| p != &person);
-            app.mark_settings_dirty();
-            state = State::default();
-        }
     });
-    bounded_note(
-        ui,
-        &app.conversation_palette(),
-        "One timeline. Reply keeps its source. Choosing another destination sends a new message.",
-        false,
-    );
-    bounded_note(
-        ui,
-        &app.conversation_palette(),
-        "Text sends only in linked view. Attachments and typing indicators are disabled here until source routing is verified.",
-        true,
-    );
-    if person.members.len() < 8 {
-        ui.menu_button("Add another chat…", |ui| {
-            let choices: Vec<_> = app
-                .chats
-                .iter()
-                .filter(|c| {
-                    c.kind == ChatKind::Direct
-                        && !c.locked
-                        && c.backend_account.is_some()
-                        && c.backend_origin == chat.backend_origin
-                        && app.chats.iter().filter(|known| known.id == c.id).count() == 1
-                        && !app
-                            .settings
-                            .beeper
-                            .people
-                            .iter()
-                            .any(|p| p.members.iter().any(|m| m.matches(c)))
-                })
-                .cloned()
-                .collect();
-            for other in choices {
-                if ui
-                    .button(format!(
-                        "{} · {}",
-                        other.name,
-                        other.network.as_deref().unwrap_or("Beeper")
-                    ))
-                    .clicked()
-                    && let Some(member) = Member::of(&other)
-                {
-                    if let Some(link) = app
-                        .settings
-                        .beeper
-                        .people
-                        .iter_mut()
-                        .find(|p| **p == person)
-                    {
-                        link.members.push(member);
-                    }
-                    app.mark_settings_dirty();
-                    ui.close();
-                }
-            }
-        });
-    }
-
-    ui.horizontal(|ui| {
-        let primary = person
-            .primary
-            .as_ref()
-            .and_then(|m| app.chat(&m.chat).filter(|c| m.matches(c)))
-            .map(|c| c.network.as_deref().unwrap_or(&c.name))
-            .unwrap_or("No primary selected");
-        egui::ComboBox::from_id_salt("person-primary")
-            .selected_text(format!("Primary: {primary}"))
-            .show_ui(ui, |ui| {
-                if ui
-                    .selectable_label(person.primary.is_none(), "No primary")
-                    .clicked()
-                {
-                    if let Some(link) = app
-                        .settings
-                        .beeper
-                        .people
-                        .iter_mut()
-                        .find(|p| **p == person)
-                    {
-                        link.primary = None;
-                    }
-                    if !state.explicit && state.reply.is_none() {
-                        state.destination = None;
-                    }
-                    app.mark_settings_dirty();
-                }
-                for member in &valid {
-                    let c = app.chat(&member.chat).unwrap();
-                    if ui
-                        .selectable_label(
-                            person.primary.as_ref() == Some(member),
-                            format!(
-                                "{} · {} [{}]",
-                                c.name,
-                                c.network.as_deref().unwrap_or("Beeper"),
-                                member.account
-                            ),
-                        )
-                        .clicked()
-                    {
-                        if let Some(link) = app
-                            .settings
-                            .beeper
-                            .people
-                            .iter_mut()
-                            .find(|p| **p == person)
-                        {
-                            link.primary = Some(member.clone());
-                        }
-                        if !state.explicit && state.reply.is_none() {
-                            state.destination = None;
-                        }
-                        app.mark_settings_dirty();
-                    }
-                }
-            });
-    });
+    // One compact line per distinct connection problem, sources combined;
+    // the full backend text stays on hover instead of stacking per member.
+    let mut warnings: Vec<(Vec<&str>, &String)> = Vec::new();
     for member in &valid {
-        super::conversation::beeper_live_warning(app, ui, &member.chat);
+        if let Some(error) = app.beeper_live_errors.get(&member.chat) {
+            let source = app
+                .chat(&member.chat)
+                .and_then(|c| c.network.as_deref())
+                .unwrap_or("Chat");
+            match warnings.iter_mut().find(|(_, known)| *known == error) {
+                Some((sources, _)) if !sources.contains(&source) => sources.push(source),
+                Some(_) => {}
+                None => warnings.push((vec![source], error)),
+            }
+        }
+    }
+    for (sources, error) in warnings {
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!(
+                    "{}: live updates unavailable; updates may be incomplete. Retrying automatically.",
+                    sources.join(", ")
+                ))
+                .color(app.conversation_palette().warning),
+            )
+            .wrap(),
+        )
+        .on_hover_text(error);
+    }
+    for member in &valid {
         if let Some(error) = app.beeper_history_errors.get(&member.chat).cloned() {
+            let source = source_label(app, &valid, member);
             ui.horizontal(|ui| {
                 ui.colored_label(
                     egui::Color32::YELLOW,
-                    format!(
-                        "Partial timeline: {} history failed: {error}",
-                        member.account
-                    ),
+                    format!("Partial timeline: {source} history failed: {error}"),
                 );
                 if ui.button("Retry history").clicked() {
                     app.retry_person_history(&member.chat);
@@ -325,12 +185,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     if ui
                         .selectable_label(
                             state.destination.as_ref() == Some(member),
-                            format!(
-                                "{} · {} [{}]",
-                                c.name,
-                                c.network.as_deref().unwrap_or("Beeper"),
-                                member.account
-                            ),
+                            format!("{} · {}", c.name, source_label(app, &valid, member)),
                         )
                         .clicked()
                     {
@@ -369,11 +224,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         .and_then(|m| app.chat(&m.chat))
         .cloned()
     {
-        ui.label(format!(
-            "Sending via {} · account {}",
-            destination.network.as_deref().unwrap_or("Beeper"),
-            destination.backend_account.as_deref().unwrap_or("")
-        ));
+        let via = destination.network.as_deref().unwrap_or("Beeper");
+        let label = account_name(app, &destination);
+        ui.label(format!("Sending via {via}{label}"));
         let had_quote = app.reply_to.is_some();
         let before = app.actions.len();
         super::conversation::composer_with_capabilities(app, ui, &destination, false);
@@ -611,10 +464,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     boundary || !previous_laid_out || (on_screen && !previous_on_screen);
                 ui.push_id((&message.chat, &message.id), |ui| {
                     if show_header {
+                        let source = source_label(app, &valid, member);
                         ui.small(format!(
-                            "{} · {source} [{}] · {}",
+                            "{} · {source} · {}",
                             day,
-                            member.account,
                             if message.from_me {
                                 "You"
                             } else {
@@ -681,6 +534,383 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     true
 }
 
+/// The account's own name from the Beeper inventory, for "Sending via":
+/// " · name" when the inventory knows it, nothing otherwise.
+fn account_name(app: &App, chat: &Chat) -> String {
+    app.beeper_accounts
+        .values()
+        .flatten()
+        .find(|account| Some(&account.id) == chat.backend_account.as_ref())
+        .filter(|account| !account.name.is_empty())
+        .map(|account| format!(" · {}", account.name))
+        .unwrap_or_default()
+}
+
+/// How a member reads in the linked view: its network, with the account's
+/// own name appended only when another member shares that network.
+fn source_label(app: &App, valid: &[Member], member: &Member) -> String {
+    let chat = app.chat(&member.chat);
+    let network = chat
+        .and_then(|c| c.network.as_deref())
+        .unwrap_or("Beeper")
+        .to_owned();
+    let shared = valid.iter().any(|other| {
+        other != member
+            && app
+                .chat(&other.chat)
+                .and_then(|c| c.network.as_deref())
+                == Some(network.as_str())
+    });
+    if shared {
+        if let Some(chat) = chat {
+            let label = account_name(app, chat);
+            if !label.is_empty() {
+                return format!("{network}{label}");
+            }
+        }
+        format!("{network} [{}]", member.account)
+    } else {
+        network
+    }
+}
+
+/// Fuzzy name matching for link suggestions: 0 exact, 1 prefix, 2
+/// substring, 3 subsequence; None when nothing matches. Case-insensitive.
+pub(crate) fn name_score(query: &str, candidate: &str) -> Option<u32> {
+    let query = query.trim().to_lowercase();
+    let candidate = candidate.trim().to_lowercase();
+    if query.is_empty() || candidate.is_empty() {
+        return None;
+    }
+    if candidate == query {
+        return Some(0);
+    }
+    if candidate.starts_with(&query) {
+        return Some(1);
+    }
+    if candidate.contains(&query) {
+        return Some(2);
+    }
+    let mut chars = candidate.chars();
+    if query
+        .chars()
+        .all(|wanted| chars.by_ref().any(|have| have == wanted))
+    {
+        return Some(3);
+    }
+    None
+}
+
+/// Chats the picker may offer for linking with `chat`: the same backend's
+/// unlocked direct chats, each known once, not already linked to anyone.
+fn link_candidates(app: &App, chat: &Chat) -> Vec<Chat> {
+    app.chats
+        .iter()
+        .filter(|c| {
+            c.kind == ChatKind::Direct
+                && !c.locked
+                && c.id != chat.id
+                && c.backend_account.is_some()
+                && c.backend_origin == chat.backend_origin
+                && app.chats.iter().filter(|known| known.id == c.id).count() == 1
+                && !app
+                    .settings
+                    .beeper
+                    .people
+                    .iter()
+                    .any(|p| p.members.iter().any(|m| m.matches(c)))
+        })
+        .cloned()
+        .collect()
+}
+
+#[derive(Clone, Default)]
+struct Picker {
+    open: bool,
+    search: String,
+    selected: Vec<String>,
+}
+
+/// One checkbox row per candidate, grouped as suggestions first, then a
+/// tree by network; the selection survives searching and folding.
+fn picker(
+    app: &App,
+    ui: &mut egui::Ui,
+    chat: &Chat,
+    base_name: &str,
+    state: &mut Picker,
+    already: usize,
+) -> Vec<Member> {
+    let candidates = link_candidates(app, chat);
+    if candidates.is_empty() {
+        ui.label("No other chats on this Beeper server can be linked.");
+        return Vec::new();
+    }
+    ui.add(
+        egui::TextEdit::singleline(&mut state.search)
+            .hint_text("Search chats")
+            .desired_width(f32::INFINITY),
+    );
+    let query = state.search.trim().to_lowercase();
+    let matches = |c: &&Chat| {
+        query.is_empty()
+            || c.name.to_lowercase().contains(&query)
+            || c.network
+                .as_deref()
+                .unwrap_or("Beeper")
+                .to_lowercase()
+                .contains(&query)
+    };
+    let row = |ui: &mut egui::Ui, state: &mut Picker, c: &Chat| {
+        let account = account_name(app, c);
+        let network = c.network.as_deref().unwrap_or("Beeper");
+        let mut on = state.selected.contains(&c.id);
+        if ui
+            .checkbox(&mut on, format!("{} · {network}{account}", c.name))
+            .changed()
+        {
+            if on {
+                state.selected.push(c.id.clone());
+            } else {
+                state.selected.retain(|id| id != &c.id);
+            }
+        }
+    };
+    if query.is_empty() {
+        let mut suggested: Vec<_> = candidates
+            .iter()
+            .filter_map(|c| name_score(base_name, &c.name).map(|score| (score, c)))
+            .collect();
+        suggested.sort_by_key(|(score, _)| *score);
+        suggested.truncate(3);
+        if !suggested.is_empty() {
+            ui.label("Suggested by name:");
+            for (_, c) in suggested {
+                row(ui, state, c);
+            }
+            ui.add_space(4.0);
+        }
+    }
+    let mut networks: Vec<_> = candidates
+        .iter()
+        .filter(matches)
+        .map(|c| c.network.as_deref().unwrap_or("Beeper").to_owned())
+        .collect();
+    networks.sort();
+    networks.dedup();
+    for network in networks {
+        let chats: Vec<_> = candidates
+            .iter()
+            .filter(|c| c.network.as_deref().unwrap_or("Beeper") == network)
+            .filter(matches)
+            .collect();
+        egui::CollapsingHeader::new(format!("{network} ({})", chats.len()))
+            .id_salt(("link-picker-network", &network))
+            .default_open(true)
+            .show(ui, |ui| {
+                for c in chats {
+                    row(ui, state, c);
+                }
+            });
+    }
+    let room = 8_usize.saturating_sub(already);
+    let over = state.selected.len() > room;
+    let names: Vec<_> = state
+        .selected
+        .iter()
+        .filter_map(|id| app.chat(id))
+        .map(|c| c.name.clone())
+        .collect();
+    if !state.selected.is_empty() {
+        ui.small(format!("{} selected: {}", state.selected.len(), names.join(", ")));
+    }
+    if over {
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            format!("A linked person supports up to 8 chats; {room} left."),
+        );
+    }
+    if ui
+        .add_enabled(
+            !state.selected.is_empty() && !over,
+            egui::Button::new("Link selected"),
+        )
+        .clicked()
+    {
+        return state
+            .selected
+            .iter()
+            .filter_map(|id| app.chat(id))
+            .filter_map(Member::of)
+            .collect();
+    }
+    Vec::new()
+}
+
+/// The Contact info section owning person links: the explanation, primary
+/// destination, unlinking, and the searchable picker. Returns false when
+/// the chat is not a linkable Beeper direct chat.
+pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
+    if chat.backend_account.is_none()
+        || chat.kind != ChatKind::Direct
+        || app.chats.iter().filter(|c| c.id == chat.id).count() != 1
+    {
+        return false;
+    }
+    let current = Member::of(chat);
+    let person = app
+        .settings
+        .beeper
+        .people
+        .iter()
+        .find(|p| p.members.iter().any(|m| Some(m) == current.as_ref()))
+        .cloned();
+    let palette = app.palette;
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new("Linked person").strong());
+    let key = egui::Id::new(("link-picker", &chat.id));
+    let mut state = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<Picker>(key).unwrap_or_default());
+    if let Some(person) = &person {
+        bounded_note(
+            ui,
+            &palette,
+            "One timeline. Reply keeps its source. Choosing another destination sends a new message.",
+            false,
+        );
+        bounded_note(
+            ui,
+            &palette,
+            "Text sends only in linked view. Attachments and typing indicators are disabled here until source routing is verified.",
+            true,
+        );
+        // The primary destination new messages fall back to.
+        let valid: Vec<_> = person
+            .members
+            .iter()
+            .filter(|m| {
+                app.chats.iter().any(|c| {
+                    m.matches(c)
+                        && !c.locked
+                        && c.kind == ChatKind::Direct
+                        && c.backend_origin == chat.backend_origin
+                        && app.chats.iter().filter(|known| known.id == c.id).count() == 1
+                })
+            })
+            .cloned()
+            .collect();
+        let state_key = egui::Id::new(("linked-person-state", &person.members));
+        let mut linked = ui
+            .ctx()
+            .data_mut(|d| d.get_temp::<State>(state_key).unwrap_or_default());
+        let primary = person
+            .primary
+            .as_ref()
+            .and_then(|m| app.chat(&m.chat).filter(|c| m.matches(c)))
+            .map(|c| c.network.as_deref().unwrap_or(&c.name))
+            .unwrap_or("No primary selected");
+        egui::ComboBox::from_id_salt("person-primary")
+            .selected_text(format!("Primary: {primary}"))
+            .show_ui(ui, |ui| {
+                let mut set = |app: &mut App, primary: Option<Member>| {
+                    if let Some(link) = app
+                        .settings
+                        .beeper
+                        .people
+                        .iter_mut()
+                        .find(|p| **p == *person)
+                    {
+                        link.primary = primary;
+                    }
+                    if !linked.explicit && linked.reply.is_none() {
+                        linked.destination = None;
+                    }
+                    app.mark_settings_dirty();
+                };
+                if ui
+                    .selectable_label(person.primary.is_none(), "No primary")
+                    .clicked()
+                {
+                    set(app, None);
+                }
+                for member in &valid {
+                    let c = app.chat(&member.chat).unwrap();
+                    if ui
+                        .selectable_label(
+                            person.primary.as_ref() == Some(member),
+                            format!("{} · {}", c.name, source_label(app, &valid, member)),
+                        )
+                        .clicked()
+                    {
+                        set(app, Some(member.clone()));
+                    }
+                }
+            });
+        ui.ctx().data_mut(|d| d.insert_temp(state_key, linked));
+        if ui.button("Unlink").clicked() {
+            app.ensure_person_loaded(&[]);
+            app.settings.beeper.people.retain(|p| p != person);
+            app.mark_settings_dirty();
+            ui.ctx().data_mut(|d| d.insert_temp(key, Picker::default()));
+            return true;
+        }
+        let base = person.name.clone();
+        let already = person.members.len();
+        if ui
+            .selectable_label(state.open, "Add chats to this person…")
+            .clicked()
+        {
+            state.open = !state.open;
+        }
+        if state.open {
+            let chosen = picker(app, ui, chat, &base, &mut state, already);
+            if !chosen.is_empty() {
+                if let Some(link) = app
+                    .settings
+                    .beeper
+                    .people
+                    .iter_mut()
+                    .find(|p| **p == *person)
+                {
+                    link.members.extend(chosen);
+                }
+                app.mark_settings_dirty();
+                state = Picker::default();
+            }
+        }
+    } else {
+        bounded_note(
+            ui,
+            &palette,
+            "Local link only: combine this chat with the same person's other chats on this Beeper server.",
+            true,
+        );
+        if ui
+            .selectable_label(state.open, "Link person…")
+            .clicked()
+        {
+            state.open = !state.open;
+        }
+        if state.open {
+            let chosen = picker(app, ui, chat, &chat.name, &mut state, 1);
+            if !chosen.is_empty()
+                && let Some(first) = current.clone()
+            {
+                app.settings.beeper.people.push(Person {
+                    name: chat.name.clone(),
+                    members: std::iter::once(first).chain(chosen).collect(),
+                    primary: None,
+                });
+                app.mark_settings_dirty();
+                state = Picker::default();
+            }
+        }
+    };
+    ui.ctx().data_mut(|d| d.insert_temp(key, state));
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -736,6 +966,51 @@ mod tests {
             primary: None,
         };
         (wa, tg, person)
+    }
+
+    #[test]
+    fn name_suggestions_rank_exact_prefix_substring_subsequence() {
+        assert_eq!(name_score("ada", "Ada"), Some(0));
+        assert_eq!(name_score("ada", "Ada Lovelace"), Some(1));
+        assert_eq!(name_score("love", "Ada Lovelace"), Some(2));
+        assert_eq!(name_score("aal", "Ada Lovelace"), Some(3));
+        assert_eq!(name_score("zzz", "Ada Lovelace"), None);
+        assert_eq!(name_score("", "Ada"), None);
+    }
+
+    #[test]
+    fn the_picker_offers_only_linkable_chats() {
+        let (wa, tg, person) = ada_pair();
+        let group = Chat {
+            kind: ChatKind::Group,
+            backend_origin: Some("local".into()),
+            backend_account: Some("whatsapp".into()),
+            ..Chat::new("family@g.us".into(), "Family".into())
+        };
+        let mut locked = member_chat("locked@s.whatsapp.net", "whatsapp");
+        locked.locked = true;
+        let other_origin = Chat {
+            backend_origin: Some("elsewhere".into()),
+            ..member_chat("ada-elsewhere@s.whatsapp.net", "whatsapp")
+        };
+        let free = member_chat("ada-free@signal", "signal");
+        let (_dir, app, _ctx) = linked_app(
+            vec![
+                wa.clone(),
+                tg,
+                group,
+                locked,
+                other_origin,
+                free.clone(),
+            ],
+            vec![person],
+        );
+        let candidates = link_candidates(&app, &wa);
+        assert_eq!(
+            candidates.iter().map(|c| &c.id).collect::<Vec<_>>(),
+            vec![&free.id],
+            "groups, locked chats, other origins and linked chats stay out"
+        );
     }
 
     #[test]
