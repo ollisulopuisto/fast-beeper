@@ -228,12 +228,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         ui.label(&tail);
         if actions_inline {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                actions(ui, app, state);
+                actions(ui, app, &mut state);
             });
         }
     });
     if !actions_inline {
-        ui.horizontal(|ui| actions(ui, app, state));
+        ui.horizontal(|ui| actions(ui, app, &mut state));
     }
     if let Some(error) = routing_error {
         ui.colored_label(egui::Color32::YELLOW, error);
