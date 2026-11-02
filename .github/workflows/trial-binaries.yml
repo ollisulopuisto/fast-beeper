@@ -188,6 +188,9 @@ jobs:
           # sender's label, the chip the name the id resolves to.
           shot chat-mentions-1180x780 1180x780 chat,mentions
           shot chat-dark-mentions-1180x780 1180x780 chat,mentions,theme=Catppuccin.json
+          # A transcribed voice note: the transcript wraps under the player.
+          shot chat-transcript-1180x780 1180x780 chat,transcript
+          shot chat-dark-transcript-1180x780 1180x780 chat,transcript,theme=Catppuccin.json
           # The same populated sidebar on a dark preset.
           shot chat-dark-networks-1180x780 1180x780 chat,networks,theme=Catppuccin.json
           # The populated rail scrolled to its end: Pinned and the bottom

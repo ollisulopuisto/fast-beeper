@@ -2116,6 +2116,55 @@ fn networks_sample(app: &mut App) {
     app.beeper_network_filter = Some("WhatsApp".into());
 }
 
+fn voice_sample(app: &mut App) {
+    // Use a valid clip for playback tests.
+    let tone: Vec<f32> = (0..crate::voice::RATE * 6)
+        .map(|i| {
+            let t = i as f32 / crate::voice::RATE as f32;
+            (t * 220.0 * std::f32::consts::TAU).sin() * 0.4 * (t * 1.3).sin().abs()
+        })
+        .collect();
+    let path = app.dirs.media_cache_dir().join("demo-voice.ogg");
+    if let Ok(bytes) = crate::voice::encode(&tone) {
+        let _ = std::fs::create_dir_all(path.parent().expect("a directory"));
+        let _ = std::fs::write(&path, bytes);
+    }
+    let waveform = crate::voice::waveform(&tone);
+    let open = app.open_chat.clone().unwrap_or_default();
+    for id in ["ada-voice", "you-voice"] {
+        if let Some(message) = app
+            .conversations
+            .get_mut(&open)
+            .and_then(|conversation| conversation.message_mut(id))
+            && let crate::model::Content::Audio {
+                media,
+                waveform: bars,
+                seconds,
+                ..
+            } = &mut message.content
+        {
+            media.path = Some(path.clone());
+            *bars = waveform.clone();
+            *seconds = Some(6);
+        }
+    }
+}
+
+/// A finished local transcription fixture: the transcript renders under
+/// the voice note's player. The service address is set so the worker
+/// exists; the stubbed status means no service is contacted.
+fn transcript_sample(app: &mut App) {
+    voice_sample(app);
+    app.settings.transcription_wyoming = "127.0.0.1:10300".into();
+    app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+        "ada-voice".to_string(),
+        crate::transcribe_worker::Status::Ready(
+            "Every word of this fixture transcript stayed on this machine; the local service did the work."
+                .to_string(),
+        ),
+    )]));
+}
+
 pub fn apply_flags(app: &mut App, page: Option<&str>) {
     let Some(page) = page else {
         return;
@@ -3590,39 +3639,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     }
                 }
             }
-            "voice" => {
-                // Use a valid clip for playback tests.
-                let tone: Vec<f32> = (0..crate::voice::RATE * 6)
-                    .map(|i| {
-                        let t = i as f32 / crate::voice::RATE as f32;
-                        (t * 220.0 * std::f32::consts::TAU).sin() * 0.4 * (t * 1.3).sin().abs()
-                    })
-                    .collect();
-                let path = app.dirs.media_cache_dir().join("demo-voice.ogg");
-                if let Ok(bytes) = crate::voice::encode(&tone) {
-                    let _ = std::fs::create_dir_all(path.parent().expect("a directory"));
-                    let _ = std::fs::write(&path, bytes);
-                }
-                let waveform = crate::voice::waveform(&tone);
-                let open = app.open_chat.clone().unwrap_or_default();
-                for id in ["ada-voice", "you-voice"] {
-                    if let Some(message) = app
-                        .conversations
-                        .get_mut(&open)
-                        .and_then(|conversation| conversation.message_mut(id))
-                        && let crate::model::Content::Audio {
-                            media,
-                            waveform: bars,
-                            seconds,
-                            ..
-                        } = &mut message.content
-                    {
-                        media.path = Some(path.clone());
-                        *bars = waveform.clone();
-                        *seconds = Some(6);
-                    }
-                }
-            }
+            "voice" => voice_sample(app),
+            "transcript" => transcript_sample(app),
             "recording" => app.recording = Some(crate::audio::Recorder::rehearsal()),
             // Shows the native image preview over the demo chat.
             "preview" => {

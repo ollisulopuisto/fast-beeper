@@ -160,6 +160,14 @@ impl Worker {
         let _ = self.tx.send(Command::Clear);
     }
 
+    /// A worker with no thread behind it, for demos and tests: the given
+    /// statuses are what the view sees; queued work goes nowhere.
+    pub fn stub(pairs: impl IntoIterator<Item = (String, Status)>) -> Self {
+        let (tx, _rx) = channel();
+        let status = Arc::new(Mutex::new(pairs.into_iter().collect()));
+        Self { tx, status }
+    }
+
     /// Status for one message, for the bubble to draw.
     pub fn get(&self, message_id: &str) -> Option<Status> {
         self.status
