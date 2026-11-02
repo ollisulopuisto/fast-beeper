@@ -172,6 +172,7 @@ jobs:
           # The combined sidebar beside the list, and where it must fall
           # back to the compact rail.
           shot chat-1180x780 1180x780 chat
+          shot chat-menu-1180x780 1180x780 chat,chat-menu
           shot chat-960x780 960x780 chat
           shot chat-700x600 700x600 chat
           shot chat-640x780 640x780 chat
