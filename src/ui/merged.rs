@@ -152,34 +152,81 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     // Contact info panel, so the timeline keeps its room.
     let searching =
         state.search_open || !state.search.trim().is_empty() || state.source_filter.is_some();
-    ui.horizontal_wrapped(|ui| {
+    // Right-aligned beside the identity while both fit; on their own row
+    // below when they would collide, as in the squeezed info layout. The
+    // right_to_left block cannot wrap, so measure instead of hoping.
+    let tail = format!("{} linked chats · local only", valid.len());
+    let actions_width = ["Load older", "Search"]
+        .iter()
+        .map(|label| {
+            ui.fonts(|fonts| {
+                fonts
+                    .layout_no_wrap(
+                        (*label).to_owned(),
+                        egui::TextStyle::Button.resolve(ui.style()),
+                        egui::Color32::WHITE,
+                    )
+                    .size()
+                    .x
+            }) + 2.0 * ui.spacing().button_padding.x
+        })
+        .sum::<f32>()
+        + ui.spacing().item_spacing.x;
+    let identity_width = ui.fonts(|fonts| {
+        fonts
+            .layout_no_wrap(
+                person.name.clone(),
+                egui::TextStyle::Heading.resolve(ui.style()),
+                egui::Color32::WHITE,
+            )
+            .size()
+            .x
+            + fonts
+                .layout_no_wrap(
+                    tail.clone(),
+                    egui::TextStyle::Body.resolve(ui.style()),
+                    egui::Color32::WHITE,
+                )
+                .size()
+                .x
+    }) + 2.0 * ui.spacing().item_spacing.x;
+    let actions_inline = identity_width + actions_width <= ui.available_width();
+    let mut actions = |ui: &mut egui::Ui, app: &mut App, state: &mut State| {
+        if ui
+            .button("Load older")
+            .on_hover_text(format!(
+                "Load older from each chat. {message_count} loaded messages · Each member pages independently; this is not the full remote history."
+            ))
+            .clicked()
+        {
+            for member in &valid {
+                app.load_older(&member.chat, true);
+            }
+        }
+        if ui
+            .selectable_label(searching, "Search")
+            .on_hover_text("Search the loaded messages and narrow by source")
+            .clicked()
+        {
+            state.search_open = !searching;
+            if !state.search_open {
+                state.search.clear();
+                state.source_filter = None;
+            }
+        }
+    };
+    ui.horizontal(|ui| {
         ui.heading(&person.name);
-        ui.label(format!("{} linked chats · local only", valid.len()));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .button("Load older")
-                .on_hover_text(format!(
-                    "Load older from each chat. {message_count} loaded messages · Each member pages independently; this is not the full remote history."
-                ))
-                .clicked()
-            {
-                for member in &valid {
-                    app.load_older(&member.chat, true);
-                }
-            }
-            if ui
-                .selectable_label(searching, "Search")
-                .on_hover_text("Search the loaded messages and narrow by source")
-                .clicked()
-            {
-                state.search_open = !searching;
-                if !state.search_open {
-                    state.search.clear();
-                    state.source_filter = None;
-                }
-            }
-        });
+        ui.label(&tail);
+        if actions_inline {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                actions(ui, app, state);
+            });
+        }
     });
+    if !actions_inline {
+        ui.horizontal(|ui| actions(ui, app, state));
+    }
     if let Some(error) = routing_error {
         ui.colored_label(egui::Color32::YELLOW, error);
     }
@@ -316,14 +363,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     }),
             )
             .show(ui, |ui| {
-                ui.add_enabled_ui(false, |ui| {
-                    let mut draft = String::new();
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft)
-                            .hint_text("Choose a destination or reply to a message to write")
-                            .desired_width(f32::INFINITY),
-                    );
-                });
+                // An inert frame shaped like the input: no disabled fade,
+                // no cursor, muted theme-aware text that stays legible in
+                // both themes while reading as inactive.
+                let palette = app.conversation_palette();
+                egui::Frame::new()
+                    .fill(palette.bubble_in)
+                    .stroke(egui::Stroke::NONE)
+                    .corner_radius(egui::CornerRadius::same(24))
+                    .inner_margin(egui::Margin {
+                        left: 16,
+                        right: 16,
+                        top: 8,
+                        bottom: 8,
+                    })
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(
+                                "Choose a destination or reply to a message to write",
+                            )
+                            .color(palette.secondary),
+                        );
+                    });
                 ui.small("Nothing is routed automatically.");
             });
     }
