@@ -18284,7 +18284,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_wrap_within_sidebar_and_locked_is_only_shown_when_needed() {
+    fn filters_stay_one_row_within_sidebar_and_locked_is_only_shown_when_needed() {
         use crate::ui::rail::{Destination, destination_id};
         let mut app = app();
         for chat in &mut app.chats {
@@ -18332,10 +18332,15 @@ mod tests {
                 "filter must fit the sidebar: {rect:?}"
             );
         }
-        assert!(
-            chips.last().unwrap().top() > chips[0].top(),
-            "narrow sidebar wraps filters"
-        );
+        // Compact icon row: the filters share one line even at the narrow
+        // default sidebar, matching filter_chips' one-line contract.
+        for rect in &chips {
+            assert!(
+                (rect.top() - chips[0].top()).abs() < 0.5,
+                "filters share one row: {rect:?} against {:?}",
+                chips[0]
+            );
+        }
     }
 
     #[test]
