@@ -2116,6 +2116,57 @@ fn networks_sample(app: &mut App) {
     app.beeper_network_filter = Some("WhatsApp".into());
 }
 
+fn voice_sample(app: &mut App) {
+    // Use a valid clip for playback tests.
+    let tone: Vec<f32> = (0..crate::voice::RATE * 6)
+        .map(|i| {
+            let t = i as f32 / crate::voice::RATE as f32;
+            (t * 220.0 * std::f32::consts::TAU).sin() * 0.4 * (t * 1.3).sin().abs()
+        })
+        .collect();
+    let path = app.dirs.media_cache_dir().join("demo-voice.ogg");
+    if let Ok(bytes) = crate::voice::encode(&tone) {
+        let _ = std::fs::create_dir_all(path.parent().expect("a directory"));
+        let _ = std::fs::write(&path, bytes);
+    }
+    let waveform = crate::voice::waveform(&tone);
+    let open = app.open_chat.clone().unwrap_or_default();
+    for id in ["ada-voice", "you-voice"] {
+        if let Some(message) = app
+            .conversations
+            .get_mut(&open)
+            .and_then(|conversation| conversation.message_mut(id))
+            && let crate::model::Content::Audio {
+                media,
+                waveform: bars,
+                seconds,
+                ..
+            } = &mut message.content
+        {
+            media.path = Some(path.clone());
+            *bars = waveform.clone();
+            *seconds = Some(6);
+        }
+    }
+}
+
+/// A finished local transcription fixture: the transcript renders under
+/// the voice note's player. The service address is set so the worker
+/// exists; the stubbed status means no service is contacted.
+fn transcript_sample(app: &mut App) {
+    voice_sample(app);
+    app.settings.transcription_wyoming = "127.0.0.1:10300".into();
+    let chat = app.open_chat.clone().unwrap_or_default();
+    let account = app.account().id.0.clone();
+    app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+        (account, chat, "ada-voice".to_string()),
+        crate::transcribe_worker::Status::Ready(
+            "Every word of this fixture transcript stayed on this machine; the local service did the work."
+                .to_string(),
+        ),
+    )]));
+}
+
 pub fn apply_flags(app: &mut App, page: Option<&str>) {
     let Some(page) = page else {
         return;
@@ -3590,39 +3641,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     }
                 }
             }
-            "voice" => {
-                // Use a valid clip for playback tests.
-                let tone: Vec<f32> = (0..crate::voice::RATE * 6)
-                    .map(|i| {
-                        let t = i as f32 / crate::voice::RATE as f32;
-                        (t * 220.0 * std::f32::consts::TAU).sin() * 0.4 * (t * 1.3).sin().abs()
-                    })
-                    .collect();
-                let path = app.dirs.media_cache_dir().join("demo-voice.ogg");
-                if let Ok(bytes) = crate::voice::encode(&tone) {
-                    let _ = std::fs::create_dir_all(path.parent().expect("a directory"));
-                    let _ = std::fs::write(&path, bytes);
-                }
-                let waveform = crate::voice::waveform(&tone);
-                let open = app.open_chat.clone().unwrap_or_default();
-                for id in ["ada-voice", "you-voice"] {
-                    if let Some(message) = app
-                        .conversations
-                        .get_mut(&open)
-                        .and_then(|conversation| conversation.message_mut(id))
-                        && let crate::model::Content::Audio {
-                            media,
-                            waveform: bars,
-                            seconds,
-                            ..
-                        } = &mut message.content
-                    {
-                        media.path = Some(path.clone());
-                        *bars = waveform.clone();
-                        *seconds = Some(6);
-                    }
-                }
-            }
+            "voice" => voice_sample(app),
+            "transcript" => transcript_sample(app),
             "recording" => app.recording = Some(crate::audio::Recorder::rehearsal()),
             // Shows the native image preview over the demo chat.
             "preview" => {
@@ -5921,6 +5941,210 @@ mod tests {
                 .any(|m| matches!(m.content, Content::Revoked))
         );
         assert!(ada.messages.iter().any(|m| m.quoted.is_some()));
+    }
+
+    /// Transcription: with no service configured the voice note shows no
+    /// Transcribe button; with a service the button queues the local job.
+    #[test]
+    fn the_transcribe_button_needs_and_uses_the_configured_service() {
+        fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+                egui::Shape::Vec(shapes) => {
+                    shapes.iter().for_each(|shape| texts(shape, out));
+                }
+                _ => {}
+            }
+        }
+        fn drawn(ctx: &egui::Context) -> Vec<String> {
+            let mut out = Vec::new();
+            for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
+                ctx.graphics(|graphics| {
+                    if let Some(list) = graphics.get(layer) {
+                        for clipped in list.all_entries() {
+                            texts(&clipped.shape, &mut out);
+                        }
+                    }
+                });
+            }
+            out
+        }
+        let click = |pos: egui::Pos2| {
+            let mut events = vec![egui::Event::PointerMoved(pos)];
+            events.extend([true, false].map(|pressed| egui::Event::PointerButton {
+                pos,
+                pressed,
+                button: egui::PointerButton::Primary,
+                modifiers: egui::Modifiers::NONE,
+            }));
+            events
+        };
+        let settle = |app: &mut App,
+                      ctx: &egui::Context,
+                      found: &mut Option<egui::Pos2>,
+                      drawn_out: &mut Vec<String>,
+                      needle: &str| {
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 2400.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let ctx = ui.ctx().clone();
+                        app.background_frame(&ctx);
+                        app.frame_ui(ui);
+                        *found = painted_label_center(&ctx, needle);
+                        *drawn_out = drawn(&ctx);
+                    },
+                );
+                output.textures_delta.clear();
+            }
+        };
+        let mut app = app();
+        apply_flags(&mut app, Some("voice"));
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut at = None;
+        let mut drawn_now = Vec::new();
+        settle(&mut app, &ctx, &mut at, &mut drawn_now, "Transcribe");
+        assert!(
+            at.is_none() && !drawn_now.iter().any(|text| text == "Transcribe"),
+            "no configured service, no transcription offer"
+        );
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([]));
+        settle(&mut app, &ctx, &mut at, &mut drawn_now, "Transcribe");
+        let at = at.expect("the configured service offers Transcribe");
+        frame_with(&mut app, &ctx, click(at));
+        frame_with(&mut app, &ctx, vec![]);
+        assert!(
+            app.actions.iter().any(|action| matches!(
+                action,
+                crate::model::Action::TranscribeVoice { message, path, .. }
+                    if (message == "ada-voice" || message == "you-voice")
+                        && path.ends_with("demo-voice.ogg")
+            )),
+            "the click queues the local job for the voice note"
+        );
+    }
+
+    /// The worker's states render: progress while it runs, the finished
+    /// text under the player, and the error with a retry that requeues.
+    #[test]
+    fn the_transcript_states_render_and_retry_requeues() {
+        let settle = |app: &mut App, ctx: &egui::Context, needle: &str| {
+            let mut found = None;
+            let mut texts = Vec::new();
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 2400.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let ctx = ui.ctx().clone();
+                        app.background_frame(&ctx);
+                        app.frame_ui(ui);
+                        found = painted_label_center(&ctx, needle);
+                        let mut collected = Vec::new();
+                        for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
+                            ctx.graphics(|graphics| {
+                                if let Some(list) = graphics.get(layer) {
+                                    for clipped in list.all_entries() {
+                                        if let egui::Shape::Text(text) = &clipped.shape {
+                                            collected.push(text.galley.text().to_owned());
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        texts = collected;
+                    },
+                );
+                output.textures_delta.clear();
+            }
+            (found, texts)
+        };
+        let click = |pos: egui::Pos2| {
+            let mut events = vec![egui::Event::PointerMoved(pos)];
+            events.extend([true, false].map(|pressed| egui::Event::PointerButton {
+                pos,
+                pressed,
+                button: egui::PointerButton::Primary,
+                modifiers: egui::Modifiers::NONE,
+            }));
+            events
+        };
+
+        let mut app = app();
+        apply_flags(&mut app, Some("voice"));
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+
+        let voice_chat = app.open_chat.clone().unwrap_or_default();
+        let voice_account = app.account().id.0.clone();
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+            (
+                voice_account.clone(),
+                voice_chat.clone(),
+                "ada-voice".to_string(),
+            ),
+            crate::transcribe_worker::Status::Running,
+        )]));
+        let (_, texts) = settle(&mut app, &ctx, "Transcribing\u{2026}");
+        assert!(
+            texts.iter().any(|text| text.contains("Transcribing")),
+            "the running state shows progress: {texts:?}"
+        );
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+            (
+                voice_account.clone(),
+                voice_chat.clone(),
+                "ada-voice".to_string(),
+            ),
+            crate::transcribe_worker::Status::Ready(
+                "Every word stayed on this machine.".to_string(),
+            ),
+        )]));
+        let (_, texts) = settle(&mut app, &ctx, "unused-needle");
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("stayed on this machine")),
+            "the finished transcript renders: {texts:?}"
+        );
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+            (
+                voice_account.clone(),
+                voice_chat.clone(),
+                "ada-voice".to_string(),
+            ),
+            crate::transcribe_worker::Status::Failed("the service is unreachable".into()),
+        )]));
+        let (retry, texts) = settle(&mut app, &ctx, "Retry transcription");
+        assert!(
+            texts.iter().any(|text| text.contains("unreachable")),
+            "the failure says what happened: {texts:?}"
+        );
+        let retry = retry.expect("a failed transcription offers a retry");
+        frame_with(&mut app, &ctx, click(retry));
+        frame_with(&mut app, &ctx, vec![]);
+        assert!(
+            app.actions.iter().any(|action| matches!(
+                action,
+                crate::model::Action::TranscribeVoice { message, .. } if message == "ada-voice"
+            )),
+            "the retry requeues the same note"
+        );
     }
 
     #[test]

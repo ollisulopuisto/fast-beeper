@@ -3628,3 +3628,19 @@ msgstr ""
 #: src/a11y.rs:355
 msgid "not sent"
 msgstr ""
+
+#: src/app.rs:8706
+msgid "Set the transcription service in Settings first"
+msgstr ""
+
+#: src/ui/conversation.rs:10380
+msgid "Transcribing…"
+msgstr ""
+
+#: src/ui/conversation.rs:10391
+msgid "Retry transcription"
+msgstr ""
+
+#: src/ui/conversation.rs:10403
+msgid "Transcribe"
+msgstr ""

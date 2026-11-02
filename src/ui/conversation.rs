@@ -2396,6 +2396,10 @@ struct View<'a> {
     reaction_menu: bool,
     reaction_emoji: &'a [(String, u32)],
     keyboard_navigation: &'a std::cell::Cell<bool>,
+    /// Local voice-note transcription status, when the service is set,
+    /// and the account those statuses are keyed by.
+    transcriber: Option<&'a crate::transcribe_worker::Worker>,
+    transcription_account: &'a str,
     /// Resolves a name with the message's stored name as fallback.
     names_or: &'a dyn Fn(&str, Option<&str>) -> String,
     /// Resolves mention names without replacing our name with "You".
@@ -2748,6 +2752,8 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
+        transcriber: app.transcriber.as_ref(),
+        transcription_account: &app.account().id.0,
         auto_download: app.account().settings.auto_download,
         connected: app.link.is_connected(),
         account_receipts_off: app.account_receipts_off,
@@ -6267,6 +6273,8 @@ pub(crate) fn list_menu(
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
+        transcriber: app.transcriber.as_ref(),
+        transcription_account: &app.account().id.0,
         auto_download: app.settings.auto_download,
         connected: app.link.is_connected(),
         poll_voting: &app.poll_voting,
@@ -6320,6 +6328,8 @@ pub(crate) fn linked_bubble(
         locale: app.locale,
         chat,
         me: app.me.as_deref(),
+        transcriber: app.transcriber.as_ref(),
+        transcription_account: &app.account().id.0,
         auto_download: app.account().settings.auto_download,
         connected: app.link.is_connected(),
         poll_voting: &app.poll_voting,
@@ -10327,6 +10337,10 @@ fn voice_player(
             message: message.id.clone(),
         });
     }
+    // The transcript sits under the player, inside the bubble.
+    if voice_note && let Some(path) = &media.path {
+        voice_transcript(ui, view, message, path, actions);
+    }
     // The time and ticks share the duration's line, as on the phone. A long
     // error leaves them no room, so they keep a line of their own.
     let right = row.response.rect.right();
@@ -10338,6 +10352,68 @@ fn voice_player(
                 pos2(right, duration.center().y + 7.5),
             )
         })
+}
+
+/// The transcript line under a voice note: a Transcribe button until the
+/// local worker reports, then the wrapped text, a spinner while it runs,
+/// or the error with a retry. Audio and text never leave the machine.
+fn voice_transcript(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    message: &Message,
+    path: &std::path::Path,
+    actions: &mut Vec<Action>,
+) {
+    let Some(worker) = view.transcriber else {
+        return;
+    };
+    let palette = view.palette;
+    let action = || Action::TranscribeVoice {
+        chat: view.chat.id.clone(),
+        message: message.id.clone(),
+        path: path.to_path_buf(),
+    };
+    match worker.get(view.transcription_account, &view.chat.id, &message.id) {
+        Some(crate::transcribe_worker::Status::Ready(text)) => {
+            theme::paragraph(ui, text, theme::regular(12.0), palette.secondary);
+        }
+        Some(crate::transcribe_worker::Status::Running) => {
+            ui.horizontal(|ui| {
+                theme::spinner(ui, 12.0, palette.accent);
+                theme::text(
+                    ui,
+                    crate::i18n::gettext(view.locale, "Transcribing…"),
+                    theme::regular(12.0),
+                    palette.secondary,
+                );
+            });
+        }
+        Some(crate::transcribe_worker::Status::Failed(error)) => {
+            theme::paragraph(ui, error, theme::regular(11.5), palette.danger);
+            if theme::pill_button(
+                ui,
+                &palette,
+                &crate::i18n::gettext(view.locale, "Retry transcription"),
+                false,
+            )
+            .clicked()
+            {
+                actions.push(action());
+            }
+        }
+        None => {
+            if theme::pill_button(
+                ui,
+                &palette,
+                &crate::i18n::gettext(view.locale, "Transcribe"),
+                false,
+            )
+            .clicked()
+            {
+                actions.push(action());
+            }
+        }
+    }
 }
 
 /// Voice-recording controls and live waveform.
@@ -11409,6 +11485,8 @@ mod tests {
         let avatars = HashMap::new();
         let keyboard_navigation = std::cell::Cell::new(false);
         let view = View {
+            transcriber: None,
+            transcription_account: "test",
             palette: Palette::dark(),
             locale: app.locale,
             chat: &chat,

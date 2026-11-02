@@ -587,6 +587,12 @@ fn decode_file(path: &Path) -> Result<Vec<f32>, String> {
     Ok(voice::mono_at_rate(&interleaved, channels, rate))
 }
 
+/// Decodes a voice note for transcription: mono 48 kHz samples, the same
+/// decode playback uses. Runs on the caller's thread.
+pub fn decode_for_transcription(path: &Path) -> Result<Vec<f32>, String> {
+    decode_file(path)
+}
+
 type Outcome = Arc<Mutex<Option<Result<Vec<f32>, String>>>>;
 
 /// Records until told to stop, pushing a level per 50 ms and calling the

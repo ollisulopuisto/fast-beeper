@@ -8,6 +8,8 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// One voice note waiting for (or finishing) transcription.
 #[derive(Clone, Debug, PartialEq)]
@@ -119,10 +121,13 @@ pub fn resolve_language(per_message: Option<&str>, global: Option<&str>) -> Opti
 /// On-disk transcripts: one text file per message under a per-chat dir,
 /// bounded in total size with oldest-first eviction. The directory is
 /// created 0700 and files 0600 - transcripts are message content.
+#[derive(Clone)]
 pub struct Store {
     root: PathBuf,
     /// Total bytes the store may hold before evicting oldest.
     max_bytes: u64,
+    /// Bumped on every mutation so cached searches invalidate.
+    version: Arc<AtomicU64>,
 }
 
 impl Store {
@@ -133,25 +138,27 @@ impl Store {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))?;
         }
-        Ok(Self { root, max_bytes })
+        Ok(Self {
+            root,
+            max_bytes,
+            version: Arc::new(AtomicU64::new(0)),
+        })
+    }
+
+    /// Mutation counter: search results are cached against it.
+    pub fn version(&self) -> u64 {
+        self.version.load(Ordering::Relaxed)
+    }
+
+    fn bump(&self) {
+        self.version.fetch_add(1, Ordering::Relaxed);
     }
 
     fn file_for(&self, account_id: &str, chat_id: &str, message_id: &str) -> PathBuf {
-        let safe = |s: &str| {
-            s.chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect::<String>()
-        };
         self.root
-            .join(safe(account_id))
-            .join(safe(chat_id))
-            .join(format!("{}.txt", safe(message_id)))
+            .join(encode(account_id))
+            .join(encode(chat_id))
+            .join(format!("{}.txt", encode(message_id)))
     }
 
     pub fn get(&self, account_id: &str, chat_id: &str, message_id: &str) -> Option<String> {
@@ -164,7 +171,9 @@ impl Store {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
-        }
+        }?;
+        self.bump();
+        Ok(())
     }
 
     /// Privacy control: removes every transcript of one chat.
@@ -175,7 +184,9 @@ impl Store {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
-        }
+        }?;
+        self.bump();
+        Ok(())
     }
 
     /// Privacy control: removes every transcript of every chat.
@@ -186,6 +197,7 @@ impl Store {
                 std::fs::remove_dir_all(&path)?;
             }
         }
+        self.bump();
         Ok(())
     }
 
@@ -212,7 +224,9 @@ impl Store {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))?;
         }
-        self.evict()
+        self.evict()?;
+        self.bump();
+        Ok(())
     }
 
     /// Evicts oldest-modified transcript files until under the cap.
@@ -254,6 +268,128 @@ impl Store {
             total = total.saturating_sub(len);
         }
         Ok(())
+    }
+}
+
+/// Reversible filename encoding for store paths: ASCII alphanumerics and
+/// `-_.` stay, every other UTF-8 byte percent-encodes, so walking the store
+/// recovers the real account/chat/message ids a search hit navigates to.
+fn encode(id: &str) -> String {
+    let mut out = String::with_capacity(id.len());
+    for &byte in id.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
+                out.push(char::from(byte));
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// The inverse of [`encode`]; `None` for names it never produced.
+fn decode(name: &str) -> Option<String> {
+    let bytes = name.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'%' {
+            let hex = bytes.get(at + 1..at + 3)?;
+            let text = std::str::from_utf8(hex).ok()?;
+            out.push(u8::from_str_radix(text, 16).ok()?);
+            at += 3;
+        } else {
+            out.push(bytes[at]);
+            at += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Subdirectory names directly under `dir`, skipping unreadable entries.
+fn subdirs(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect()
+}
+
+/// One local transcript search hit, with the real ids needed to navigate
+/// to the source message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hit {
+    pub account_id: String,
+    pub chat_id: String,
+    pub message_id: String,
+    /// The full transcript; the caller picks the matching line to show.
+    pub text: String,
+    /// File modification time in unix seconds, for newest-first ordering.
+    pub modified: i64,
+}
+
+impl Store {
+    /// Local transcript search: transcripts whose normalized text contains
+    /// the normalized query, newest first, capped at `limit` hits. Text
+    /// never leaves the machine; matching uses the same normalization as
+    /// chat search, and hits carry the real account/chat/message ids.
+    pub fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
+        let needle = crate::util::search_key(query.trim());
+        let mut hits = Vec::new();
+        if !needle.is_empty() {
+            for account in subdirs(&self.root) {
+                let Some(account_id) = decode(&account) else {
+                    continue;
+                };
+                for chat in subdirs(&self.root.join(&account)) {
+                    let Some(chat_id) = decode(&chat) else {
+                        continue;
+                    };
+                    let dir = self.root.join(&account).join(&chat);
+                    let Ok(entries) = std::fs::read_dir(&dir) else {
+                        continue;
+                    };
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let Some(name) = name.to_str() else {
+                            continue;
+                        };
+                        let Some(stem) = name.strip_suffix(".txt") else {
+                            continue;
+                        };
+                        let Some(message_id) = decode(stem) else {
+                            continue;
+                        };
+                        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                            continue;
+                        };
+                        if !crate::util::search_key(&text).contains(&needle) {
+                            continue;
+                        }
+                        let modified = entry
+                            .metadata()
+                            .ok()
+                            .and_then(|meta| meta.modified().ok())
+                            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|duration| duration.as_secs() as i64)
+                            .unwrap_or(0);
+                        hits.push(Hit {
+                            account_id: account_id.clone(),
+                            chat_id: chat_id.clone(),
+                            message_id,
+                            text,
+                            modified,
+                        });
+                    }
+                }
+            }
+        }
+        hits.sort_by_key(|hit| std::cmp::Reverse(hit.modified));
+        hits.truncate(limit);
+        hits
     }
 }
 
@@ -375,6 +511,80 @@ mod tests {
         assert_eq!(store.get("acc-1", "c", "m").as_deref(), Some("one"));
         assert_eq!(store.get("acc-2", "c", "m").as_deref(), Some("two"));
         assert_eq!(store.get("acc-1", "d", "m").as_deref(), Some("three"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn encode_decode_roundtrips_real_ids() {
+        for id in [
+            "plain-1",
+            "358401234567-987654321@g.us",
+            "chat 9/4",
+            "m!1",
+            "100%.txt",
+            "v\u{E4}\u{E4}r\u{E4}\u{E4} sn\u{F6}\u{F6}",
+        ] {
+            assert_eq!(decode(&encode(id)).as_deref(), Some(id), "id {id:?}");
+        }
+        assert_eq!(decode("not%a%real"), None);
+        assert_eq!(decode("trailing%4"), None);
+    }
+
+    #[test]
+    fn search_finds_and_isolates_transcripts() {
+        let dir = std::env::temp_dir().join(format!("tr-search-{}", std::process::id()));
+        let store = Store::new(dir.clone(), 1 << 20).unwrap();
+        store
+            .put(
+                "acc-1",
+                "358401-987@g.us",
+                "m!1",
+                "Hei maailma\nsecond line",
+            )
+            .unwrap();
+        store
+            .put("acc-1", "other@s.whatsapp.net", "m2", "unrelated")
+            .unwrap();
+        store
+            .put("acc-2", "358401-987@g.us", "m!1", "MAAILMA again")
+            .unwrap();
+
+        let hits = store.search("maailma", 50);
+        assert_eq!(hits.len(), 2);
+        // Real, decoded ids come back for navigation, per account and chat.
+        assert!(hits.iter().any(|hit| {
+            hit.account_id == "acc-1"
+                && hit.chat_id == "358401-987@g.us"
+                && hit.message_id == "m!1"
+                && hit.text.contains("Hei maailma")
+        }));
+        assert!(hits.iter().any(|hit| hit.account_id == "acc-2"));
+
+        // No match, blank query, and the cap all behave.
+        assert!(store.search("absent", 50).is_empty());
+        assert!(store.search("   ", 50).is_empty());
+        assert_eq!(store.search("maailma", 1).len(), 1);
+
+        // Deletion takes a transcript out of search.
+        store.remove_chat("acc-1", "358401-987@g.us").unwrap();
+        let hits = store.search("maailma", 50);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].account_id, "acc-2");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn version_counts_mutations() {
+        let dir = std::env::temp_dir().join(format!("tr-ver-{}", std::process::id()));
+        let store = Store::new(dir.clone(), 1 << 20).unwrap();
+        let start = store.version();
+        store.put("a", "c", "m", "x").unwrap();
+        assert!(store.version() > start);
+        let after_put = store.version();
+        store.get("a", "c", "m");
+        assert_eq!(store.version(), after_put, "reads do not mutate");
+        store.remove("a", "c", "m").unwrap();
+        assert!(store.version() > after_put);
         std::fs::remove_dir_all(&dir).ok();
     }
 

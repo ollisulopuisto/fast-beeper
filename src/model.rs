@@ -2714,6 +2714,14 @@ pub enum Action {
         path: PathBuf,
         fraction: f32,
     },
+    /// Transcribes a downloaded voice note with the local service; the
+    /// transcript shows under its player. Carries the chat, since a chat
+    /// the app refuses to open must not transcribe into another one.
+    TranscribeVoice {
+        chat: ChatId,
+        message: String,
+        path: PathBuf,
+    },
     /// Sets the voice playback speed to one of the supported speeds.
     SetVoiceSpeed(f32),
     /// Plays or pauses a downloaded video inside its message.

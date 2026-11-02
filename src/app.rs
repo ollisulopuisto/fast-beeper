@@ -591,6 +591,12 @@ pub struct App {
     pub composer_tools_open: bool,
     /// In-chat audio player.
     pub player: Player,
+    /// Local voice-note transcription worker; `None` until a Wyoming
+    /// service address is set. Audio and transcripts stay on the machine.
+    pub transcriber: Option<crate::transcribe_worker::Worker>,
+    /// The address the current worker was built with; a settings change
+    /// respawns the worker only when this differs.
+    transcriber_address: String,
     /// In-chat video player.
     pub video: crate::video::Player,
     /// Chat of the loaded video; leaving it stops the video.
@@ -1172,6 +1178,42 @@ fn tray_action(event: fastframe_tray::Event, window_hidden: bool) -> Option<Acti
     })
 }
 
+/// Builds the transcription worker when a local Wyoming service is
+/// configured. The address is explicit config: unset disables
+/// transcription, unreachable fails each job with a clear error - there
+/// is no silent fallback and no cloud path.
+fn transcriber_worker(
+    waker: &Waker,
+    dirs: &crate::paths::AppDirs,
+    settings: &Settings,
+) -> Option<crate::transcribe_worker::Worker> {
+    let address = settings.transcription_wyoming.trim();
+    if address.is_empty() {
+        return None;
+    }
+    let store = match crate::transcriber::Store::new(dirs.state.join("transcripts"), 32 << 20) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("zapfast: transcript store unavailable: {error}");
+            return None;
+        }
+    };
+    let mut engine = crate::transcriber_engine::Wyoming::new(address);
+    engine.decode = Some(Box::new(|path: &std::path::Path| {
+        crate::audio::decode_for_transcription(path)
+            .map(|samples| crate::transcriber::wyoming_pcm_from_mono(&samples, crate::voice::RATE))
+    }));
+    let wake = {
+        let waker = waker.clone();
+        move || waker.wake()
+    };
+    Some(crate::transcribe_worker::Worker::spawn(
+        Box::new(engine),
+        store,
+        wake,
+    ))
+}
+
 /// The tray item: ZapFast's icon, and a menu to show or hide the window,
 /// to lock it while an app lock password is set, and to quit. The title and
 /// the menu never name a chat, so they are safe while locked.
@@ -1313,6 +1355,9 @@ impl App {
         }
         let login_waker = waker.clone();
         app.login_item.read(move || login_waker.wake());
+        // Voice-note transcription only with a configured local service.
+        app.transcriber = transcriber_worker(waker, &app.dirs, &app.settings);
+        app.transcriber_address = app.settings.transcription_wyoming.trim().to_string();
         let _ = app.roster.save_to(&app.files, &app.dirs.accounts_file());
         Ok(app)
     }
@@ -1518,6 +1563,8 @@ impl App {
             next_pending_id: 0,
             composer_tools_open: false,
             player: Player::new(waker.clone()),
+            transcriber: None,
+            transcriber_address: String::new(),
             video: crate::video::Player::new(waker.clone()),
             video_chat: None,
             video_wanted: None,
@@ -3281,7 +3328,8 @@ impl App {
         self.beeper_network_filter.is_some() || self.beeper_account_filter.is_some()
     }
     pub fn scoped_search_hits(&self) -> Vec<Message> {
-        self.search_hits
+        let mut hits: Vec<Message> = self
+            .search_hits
             .iter()
             .filter(|message| {
                 !self.beeper_scope_is_active()
@@ -3290,6 +3338,82 @@ impl App {
                         .is_some_and(|c| self.beeper_scope_matches(c))
             })
             .cloned()
+            .collect();
+        // Local voice-note transcripts join the same results. Locked chats
+        // stay out like the backend's hits, the secret-code prompt is not a
+        // query, and a hit the backend already returned is not duplicated.
+        if let Some(worker) = &self.transcriber
+            && !self.locked_folder_open()
+            && !self.secret_code_matched()
+        {
+            for hit in self.transcript_hit_messages(worker.search(self.search.trim())) {
+                if self.chat(&hit.chat).is_some_and(|chat| chat.locked) {
+                    continue;
+                }
+                if self.beeper_scope_is_active()
+                    && !self
+                        .chat(&hit.chat)
+                        .is_some_and(|c| self.beeper_scope_matches(c))
+                {
+                    continue;
+                }
+                if hits
+                    .iter()
+                    .any(|message| message.chat == hit.chat && message.id == hit.id)
+                {
+                    continue;
+                }
+                hits.push(hit);
+            }
+        }
+        hits
+    }
+
+    /// Transcript search hits as message rows: the archived message where
+    /// it is loaded, a synthetic one otherwise; the preview shows the
+    /// transcript line that matched, not the voice-note label. Both kinds
+    /// navigate to the source by chat + message id.
+    fn transcript_hit_messages(&self, hits: Vec<crate::transcriber::Hit>) -> Vec<Message> {
+        let query = self.search.trim().to_owned();
+        let account = self.account().id.0.clone();
+        hits.into_iter()
+            // The store is shared; only the active account's transcripts
+            // may surface in its search.
+            .filter(|hit| hit.account_id == account)
+            .map(|hit| {
+                let mut message = self
+                    .conversations
+                    .get(&hit.chat_id)
+                    .and_then(|conversation| conversation.message(&hit.message_id))
+                    .cloned()
+                    .unwrap_or_else(|| Message {
+                        id: hit.message_id.clone(),
+                        chat: hit.chat_id.clone(),
+                        sender: hit.chat_id.clone(),
+                        sender_name: None,
+                        from_me: false,
+                        // No known message time; 0 tells the row to paint
+                        // no stamp rather than show the file's mtime as if
+                        // it were the message's time.
+                        timestamp: 0,
+                        content: Content::text(""),
+                        status: Delivery::None,
+                        delivered_at: None,
+                        read_at: None,
+                        quoted: None,
+                        reactions: Vec::new(),
+                        history_order: None,
+                        edited: false,
+                        mentions: Vec::new(),
+                        forwarded: false,
+                        thumbnail: None,
+                    });
+                let preview = Content::text(hit.text.clone())
+                    .text_matching(&query)
+                    .unwrap_or_else(|| hit.text.lines().next().unwrap_or("").trim().to_owned());
+                message.content = Content::text(preview);
+                message
+            })
             .collect()
     }
 
@@ -4508,9 +4632,15 @@ impl App {
             Event::ChatRemoved { chat } => {
                 self.forget_chat(&chat);
                 self.stars.remove(&chat);
+                if let Some(worker) = &self.transcriber {
+                    worker.remove_chat(self.account().id.0.clone(), chat.clone());
+                }
                 self.reload_lists();
             }
             Event::ChatCleared { chat, through } => {
+                if let Some(worker) = &self.transcriber {
+                    worker.remove_chat(self.account().id.0.clone(), chat.clone());
+                }
                 self.handle_chat_cleared(&chat, through, live);
                 self.stars.remove(&chat);
                 // Clearing the chat clears its pins in the archive too.
@@ -8646,6 +8776,34 @@ impl App {
                     self.toast_error(error);
                 }
             }
+            Action::TranscribeVoice {
+                chat,
+                message,
+                path,
+            } => {
+                if let Some(worker) = &self.transcriber {
+                    let language = {
+                        let pinned = self.settings.transcription_language.trim().to_string();
+                        (!pinned.is_empty()).then_some(pinned)
+                    };
+                    worker.transcribe(
+                        crate::transcriber::Job {
+                            message_id: message,
+                            chat_id: chat,
+                            audio: path,
+                            duration_secs: None,
+                            language: None,
+                        },
+                        self.account().id.0.clone(),
+                        language,
+                    );
+                } else {
+                    self.toast(crate::i18n::gettext(
+                        self.locale,
+                        "Set the transcription service in Settings first",
+                    ));
+                }
+            }
             Action::SetVoiceSpeed(speed) => {
                 self.settings.voice_speed = crate::audio::supported_speed(speed);
                 self.sync_voice_speed();
@@ -9762,7 +9920,18 @@ impl App {
                 self.search_hits.clear();
                 self.mark_settings_dirty();
             }
-            Action::SettingsChanged => self.mark_settings_dirty(),
+            Action::SettingsChanged => {
+                self.mark_settings_dirty();
+                let address = self.settings.transcription_wyoming.trim().to_string();
+                if address != self.transcriber_address {
+                    // A new address means a new worker: the old one's hot
+                    // status belongs to a service that may no longer be the
+                    // one configured. Its thread ends with the dropped
+                    // channel; the store keeps the transcripts on disk.
+                    self.transcriber = transcriber_worker(&self.waker, &self.dirs, &self.settings);
+                    self.transcriber_address = address;
+                }
+            }
             Action::SetAccountPrivacy { kind, choice } => {
                 // The value lives on the phone: nothing is written without a
                 // connection and a snapshot to write against.
@@ -21747,6 +21916,79 @@ mod tests {
     }
 
     #[test]
+    fn transcript_hits_join_search_results_with_navigation() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
+        let chat = "peer@s.whatsapp.net";
+        let other = "friend@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Peer".into()));
+        app.chats.push(Chat::new(other.into(), "Friend".into()));
+        app.conversations
+            .entry(chat.into())
+            .or_default()
+            .merge(vec![message(chat, "m1", 100)], false);
+        // One transcript for the archived message, one for a message that
+        // is not loaded, one in another chat the query does not reach.
+        let store_dir = std::env::temp_dir().join(format!("app-tr-hits-{}", std::process::id()));
+        let store = crate::transcriber::Store::new(store_dir.clone(), 1 << 20).unwrap();
+        // The store is shared across accounts; the active one is "1".
+        store.put("1", chat, "m1", "hei maailma").unwrap();
+        store
+            .put(
+                "1",
+                chat,
+                "m2",
+                "maailma from an unloaded note\nsecond line",
+            )
+            .unwrap();
+        store.put("1", other, "m3", "unrelated").unwrap();
+        // Another account's matching transcript never surfaces here.
+        store
+            .put("2", chat, "m9", "maailma from another account")
+            .unwrap();
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
+        app.search = "maailma".into();
+        // The backend already returned the loaded message: no duplicate.
+        app.search_hits.push(message(chat, "m1", 100));
+
+        let hits = app.scoped_search_hits();
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        // The archived hit keeps its real timestamp and sender; its preview
+        // is the matched transcript line, not the voice-note label.
+        let loaded: Vec<_> = hits.iter().filter(|hit| hit.id == "m1").collect();
+        assert_eq!(loaded.len(), 1, "backend hit not duplicated");
+        assert_eq!(loaded[0].timestamp, 100);
+        assert!(loaded[0].summary().contains("hei maailma"));
+        // The unloaded hit still navigates by chat + message id.
+        let unloaded = hits.iter().find(|hit| hit.id == "m2").unwrap();
+        assert_eq!(unloaded.chat, chat);
+        assert!(unloaded.summary().contains("maailma from an unloaded note"));
+        // An empty query finds nothing.
+        app.search = "   ".into();
+        assert!(app.scoped_search_hits().is_empty());
+        std::fs::remove_dir_all(&store_dir).ok();
+    }
+
+    #[test]
+    fn locked_chats_transcripts_stay_out_of_plain_search() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
+        let chat = "secret@s.whatsapp.net";
+        let mut locked = Chat::new(chat.into(), "Secret".into());
+        locked.locked = true;
+        app.chats.push(locked);
+        let store_dir = std::env::temp_dir().join(format!("app-tr-lock-{}", std::process::id()));
+        let store = crate::transcriber::Store::new(store_dir.clone(), 1 << 20).unwrap();
+        store.put("1", chat, "m1", "hei maailma").unwrap();
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
+        app.search = "maailma".into();
+        assert!(app.scoped_search_hits().is_empty());
+        std::fs::remove_dir_all(&store_dir).ok();
+    }
+
+    #[test]
     fn quotes_and_search_hits_flash_their_message_until_the_chat_changes() {
         let mut app = app();
         let ctx = egui::Context::default();
@@ -25527,6 +25769,138 @@ mod person_tests {
             app.beeper_display_chats().len(),
             2,
             "no local link, no merge"
+        );
+    }
+}
+
+/// Local voice-note transcription wiring: the service address gates the
+/// feature, jobs carry the pinned language, and a removed or cleared chat
+/// loses its transcripts. The worker is a recording stub; no audio and no
+/// text leave the machine.
+#[cfg(test)]
+mod transcription_tests {
+    use super::*;
+
+    fn app() -> App {
+        let root = std::env::temp_dir().join(format!("zapfast-transcribe-{}", std::process::id()));
+        App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    fn until_recorded(worker: &crate::transcribe_worker::Worker, needle: &str) -> Vec<String> {
+        let started = std::time::Instant::now();
+        loop {
+            let recorded = worker.recorded();
+            if recorded.iter().any(|line| line.contains(needle)) {
+                return recorded;
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "the stub was told about {needle}: {recorded:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn transcribing_without_a_configured_service_says_where_to_set_it() {
+        let mut app = app();
+        assert!(app.transcriber.is_none());
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("Set the transcription service")),
+            "the toast points at Settings: {:?}",
+            app.toasts
+                .iter()
+                .map(|toast| &toast.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_transcribe_job_carries_the_chat_and_the_pinned_language() {
+        let mut app = app();
+        app.settings.transcription_language = "fi".into();
+        let worker = crate::transcribe_worker::Worker::stub([]);
+        app.transcriber = Some(worker);
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        let recorded = until_recorded(
+            app.transcriber.as_ref().unwrap(),
+            "transcribe m1 in ada@s.whatsapp.net",
+        );
+        assert!(
+            recorded.iter().any(|line| line.contains("(Some(\"fi\"))")),
+            "the pinned language rides along: {recorded:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_language_setting_leaves_detection_to_the_service() {
+        let mut app = app();
+        let worker = crate::transcribe_worker::Worker::stub([]);
+        app.transcriber = Some(worker);
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        let recorded = until_recorded(app.transcriber.as_ref().unwrap(), "transcribe m1");
+        assert!(
+            recorded.iter().any(|line| line.contains("(None)")),
+            "no pinned language, none sent: {recorded:?}"
+        );
+    }
+
+    #[test]
+    fn removing_or_clearing_a_chat_removes_its_transcripts() {
+        let mut app = app();
+        app.chats
+            .push(Chat::new("ada@s.whatsapp.net".into(), "Ada".into()));
+        let worker = crate::transcribe_worker::Worker::stub([]);
+        app.transcriber = Some(worker);
+        app.apply_backend_event(
+            Event::ChatRemoved {
+                chat: "ada@s.whatsapp.net".into(),
+            },
+            false,
+        );
+        until_recorded(
+            app.transcriber.as_ref().unwrap(),
+            "remove-chat ada@s.whatsapp.net",
+        );
+        app.chats
+            .push(Chat::new("berta@s.whatsapp.net".into(), "Berta".into()));
+        app.apply_backend_event(
+            Event::ChatCleared {
+                chat: "berta@s.whatsapp.net".into(),
+                through: 0,
+            },
+            false,
+        );
+        until_recorded(
+            app.transcriber.as_ref().unwrap(),
+            "remove-chat berta@s.whatsapp.net",
         );
     }
 }

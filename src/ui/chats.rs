@@ -1769,23 +1769,34 @@ fn hit_row(app: &mut App, ui: &mut egui::Ui, hit: &Message) {
         );
         let left = rect.left() + 76.0;
         let right = rect.right() - 14.0;
-        let stamp_galley = ui.painter().layout_no_wrap(
-            crate::util::chat_stamp(app.locale, hit.timestamp),
-            theme::regular(11.5),
-            palette.dim,
-        );
+        // A hit without a real message time (a transcript hit whose
+        // message is not loaded) paints no stamp.
         let name_top = rect.top()
             + if app.settings.beeper.compact_list {
                 7.0
             } else {
                 14.0
             };
-        ui.painter().galley(
-            pos2(right - stamp_galley.size().x, name_top + 1.0),
-            stamp_galley.clone(),
-            palette.dim,
-        );
-        let name_width = (right - stamp_galley.size().x - 8.0 - left).max(0.0);
+        // A hit without a real message time (a transcript hit whose
+        // message is not loaded) paints no stamp: the file's mtime is not
+        // the message's time.
+        let stamp_width = if hit.timestamp > 0 {
+            let stamp_galley = ui.painter().layout_no_wrap(
+                crate::util::chat_stamp(app.locale, hit.timestamp),
+                theme::regular(11.5),
+                palette.dim,
+            );
+            let width = stamp_galley.size().x;
+            ui.painter().galley(
+                pos2(right - width, name_top + 1.0),
+                stamp_galley,
+                palette.dim,
+            );
+            width
+        } else {
+            0.0
+        };
+        let name_width = (right - stamp_width - 8.0 - left).max(0.0);
         let name = widgets::line(ui, &title, theme::medium(14.5), palette.text, name_width, 1);
         name.paint(ui, pos2(left, name_top), palette.text);
         // Show the sender for group messages.

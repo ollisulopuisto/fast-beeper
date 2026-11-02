@@ -2,12 +2,21 @@
 //! the store, fed voice-note jobs over a channel, reporting per-message
 //! status the conversation view reads each frame. Audio never leaves the
 //! machine: the engine is a local service or binary behind `Engine`.
+//!
+//! Deletion semantics are immediate and generation-checked, not queued:
+//! remove_chat/clear bump a shared generation, purge statuses, and delete
+//! the files on the calling thread. Every job carries the generation it
+//! was queued under; when its engine finishes, the result stores and
+//! renders only if the generation is still current - a delete, a clear,
+//! a re-transcribe after re-adding, or the worker's own drop (a settings
+//! respawn) invalidates the late result for good.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use crate::transcriber::{Engine, Job, JobQueue, Store, resolve_language};
+use crate::transcriber::{Engine, Hit, Job, JobQueue, Store, resolve_language};
 
 /// What the bubble shows for one message's transcript.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,13 +27,46 @@ pub enum Status {
     Failed(String),
 }
 
-/// Privacy commands ride the same channel so they order behind queued
-/// transcription work for the affected chat.
+/// Status map key: (account_id, chat_id, message_id). Message ids are
+/// unique within a chat, chat ids within an account; the account half
+/// keeps same-shaped ids of two accounts from colliding in memory.
+type Key = (String, String, String);
+
+/// Deletion state shared between the calling thread and the worker
+/// thread. A job's captured generation goes stale the moment its chat is
+/// removed or everything is cleared, so only the freshest job for a chat
+/// may store or render - deleting and re-adding a chat revives nothing
+/// old.
+#[derive(Default)]
+pub struct Generations {
+    /// (account, chat) -> how many times it was deleted.
+    chats: HashMap<(String, String), u64>,
+    /// How many times everything was deleted.
+    clears: u64,
+}
+
+impl Generations {
+    /// The (clear, chat) generation a new job for this chat captures.
+    fn current(&self, account: &str, chat: &str) -> (u64, u64) {
+        (
+            self.clears,
+            self.chats
+                .get(&(account.to_owned(), chat.to_owned()))
+                .copied()
+                .unwrap_or(0),
+        )
+    }
+}
+
+/// Privacy commands ride the same channel so the worker thread can wake
+/// the view; their effects already landed on the calling thread.
 pub enum Command {
     Transcribe {
         job: Job,
         account_id: String,
         global_language: Option<String>,
+        /// (clear, chat) generation at queue time.
+        generation: (u64, u64),
     },
     RemoveChat {
         account_id: String,
@@ -34,21 +76,54 @@ pub enum Command {
     Shutdown,
 }
 
-pub struct Worker {
-    tx: Sender<Command>,
-    /// message_id -> status, read by the view every frame.
-    pub status: Arc<Mutex<HashMap<String, Status>>>,
+/// State the worker thread shares with its handle: statuses, deletion
+/// generations, the store-mutation lock, and the alive flag.
+pub struct Shared {
+    /// (account_id, chat_id, message_id) -> status, read by the view.
+    pub status: Arc<Mutex<HashMap<Key, Status>>>,
+    /// Deletion generations, checked when in-flight work finishes.
+    generations: Arc<Mutex<Generations>>,
+    /// Serializes store mutations against completions: a removal and a
+    /// finishing job's check + put + status can never interleave.
+    store_io: Arc<Mutex<()>>,
+    /// False once the worker is dropped (respawn on a settings change):
+    /// the old thread's late result is dropped instead of stored.
+    alive: Arc<AtomicBool>,
 }
 
-/// The loop, factored out for tests: drain commands until Shutdown or the
-/// channel closes. `wake` repaints the view after each status change.
-pub fn run(
+pub struct Worker {
+    tx: Sender<Command>,
+    shared: Arc<Shared>,
+    /// The store search runs against; `None` on stub workers.
+    store: Option<Store>,
+    /// Search memo: (store version, query, hits).
+    search_cache: SearchCache,
+    /// What a stub was told, for tests; always empty on a live worker.
+    recorded: Arc<Mutex<Vec<String>>>,
+}
+
+/// Search memo: (store version, query, hits).
+type SearchCache = Arc<Mutex<Option<(u64, String, Vec<Hit>)>>>;
+
+/// The loop: drain commands until Shutdown or the channel closes. `wake`
+/// repaints the view after each status change.
+fn run(
     rx: Receiver<Command>,
     mut engine: Box<dyn Engine + Send>,
     store: Store,
-    status: Arc<Mutex<HashMap<String, Status>>>,
+    shared: Arc<Shared>,
     wake: impl Fn(),
 ) {
+    let Shared {
+        status,
+        generations,
+        store_io,
+        alive,
+    } = &*shared;
+    let status = Arc::clone(status);
+    let generations = Arc::clone(generations);
+    let store_io = Arc::clone(store_io);
+    let alive = Arc::clone(alive);
     let mut queue = JobQueue::new(64);
     while let Ok(command) = rx.recv() {
         match command {
@@ -56,6 +131,7 @@ pub fn run(
                 job,
                 account_id,
                 global_language,
+                generation,
             } => {
                 if !queue.push(job) {
                     continue;
@@ -63,42 +139,64 @@ pub fn run(
                 // One at a time: engines are local models; parallel runs
                 // would thrash the machine for no latency win.
                 while let Some(job) = queue.claim() {
+                    let key = (
+                        account_id.clone(),
+                        job.chat_id.clone(),
+                        job.message_id.clone(),
+                    );
+                    let current = |generations: &Arc<Mutex<Generations>>| {
+                        generations
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .current(&account_id, &job.chat_id)
+                    };
+                    if current(&generations) != generation {
+                        // Its chat was deleted before the job even started.
+                        queue.finish(true);
+                        continue;
+                    }
                     let language =
                         resolve_language(job.language.as_deref(), global_language.as_deref());
-                    set(&status, &job.message_id, Status::Running);
+                    set(&status, &key, Status::Running);
                     wake();
-                    let result = engine
-                        .transcribe(&job.audio, language.as_deref().unwrap_or(""))
-                        .and_then(|text| {
-                            store
-                                .put(&account_id, &job.chat_id, &job.message_id, &text)
-                                .map_err(|e| format!("transcript store: {e}"))?;
-                            Ok(text)
-                        });
-                    let state = match result {
-                        Ok(text) => Status::Ready(text),
-                        Err(error) => Status::Failed(error),
+                    let result = engine.transcribe(&job.audio, language.as_deref().unwrap_or(""));
+                    // The decisive section, under store_io: a delete/clear
+                    // either already landed (generation mismatch: drop) or
+                    // lands right after us (it purges what we set and
+                    // wrote). The two orders are both final-correct.
+                    let done = {
+                        let _io = store_io.lock().unwrap_or_else(|p| p.into_inner());
+                        if !alive.load(Ordering::Relaxed) || current(&generations) != generation {
+                            None
+                        } else {
+                            let result = result.and_then(|text| {
+                                store
+                                    .put(&account_id, &job.chat_id, &job.message_id, &text)
+                                    .map_err(|e| format!("transcript store: {e}"))?;
+                                Ok(text)
+                            });
+                            let state = match result {
+                                Ok(text) => Status::Ready(text),
+                                Err(error) => Status::Failed(error),
+                            };
+                            let done = matches!(state, Status::Ready(_));
+                            set(&status, &key, state);
+                            Some(done)
+                        }
                     };
-                    let done = matches!(state, Status::Ready(_));
-                    set(&status, &job.message_id, state);
-                    queue.finish(done);
+                    match done {
+                        Some(done) => queue.finish(done),
+                        None => {
+                            drop_status(&status, &key);
+                            queue.finish(true);
+                        }
+                    }
                     wake();
                 }
             }
-            Command::RemoveChat {
-                account_id,
-                chat_id,
-            } => {
-                let _ = store.remove_chat(&account_id, &chat_id);
-                status
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .retain(|_, _| true); // statuses are per-message; stale ones fall out with the view
-                wake();
-            }
-            Command::Clear => {
-                let _ = store.clear();
-                status.lock().unwrap_or_else(|p| p.into_inner()).clear();
+            Command::RemoveChat { .. } | Command::Clear => {
+                // The effects landed on the calling thread; this is only
+                // the view's repaint.
                 wake();
             }
             Command::Shutdown => return,
@@ -106,11 +204,15 @@ pub fn run(
     }
 }
 
-fn set(status: &Arc<Mutex<HashMap<String, Status>>>, message_id: &str, state: Status) {
+fn set(status: &Arc<Mutex<HashMap<Key, Status>>>, key: &Key, state: Status) {
     status
         .lock()
         .unwrap_or_else(|p| p.into_inner())
-        .insert(message_id.to_string(), state);
+        .insert(key.clone(), state);
+}
+
+fn drop_status(status: &Arc<Mutex<HashMap<Key, Status>>>, key: &Key) {
+    status.lock().unwrap_or_else(|p| p.into_inner()).remove(key);
 }
 
 impl Worker {
@@ -121,23 +223,48 @@ impl Worker {
         wake: impl Fn() + Send + 'static,
     ) -> Self {
         let (tx, rx) = channel();
-        let status = Arc::new(Mutex::new(HashMap::new()));
-        let thread_status = Arc::clone(&status);
+        let shared = Arc::new(Shared {
+            status: Arc::new(Mutex::new(HashMap::new())),
+            generations: Arc::new(Mutex::new(Generations::default())),
+            store_io: Arc::new(Mutex::new(())),
+            alive: Arc::new(AtomicBool::new(true)),
+        });
+        let thread_shared = Arc::clone(&shared);
+        let thread_store = store.clone();
         std::thread::Builder::new()
             .name("transcribe".to_string())
-            .spawn(move || run(rx, engine, store, thread_status, wake))
+            .spawn(move || run(rx, engine, thread_store, thread_shared, wake))
             .expect("transcribe worker thread");
-        Self { tx, status }
+        Self {
+            tx,
+            shared,
+            store: Some(store),
+            search_cache: Arc::new(Mutex::new(None)),
+            recorded: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
-    /// Queues one voice note. Duplicate message ids are dropped in the
-    /// queue; a Ready status short-circuits before a job is even sent.
+    /// Queues one voice note, capturing the chat's deletion generation:
+    /// only if nothing is deleted before the result lands does it store
+    /// or render. Duplicate message ids are dropped in the queue; a Ready
+    /// status short-circuits before a job is even sent.
     pub fn transcribe(&self, job: Job, account_id: String, global_language: Option<String>) {
+        let generation = self
+            .shared
+            .generations
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .current(&account_id, &job.chat_id);
         let known = self
+            .shared
             .status
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get(&job.message_id)
+            .get(&(
+                account_id.clone(),
+                job.chat_id.clone(),
+                job.message_id.clone(),
+            ))
             .cloned();
         if matches!(known, Some(Status::Ready(_)) | Some(Status::Running)) {
             return;
@@ -146,27 +273,176 @@ impl Worker {
             job,
             account_id,
             global_language,
+            generation,
         });
     }
 
+    /// Deletes one chat's transcripts, effective on return: the
+    /// generation bumps, the statuses purge, and the files go - before
+    /// any in-flight engine for the chat can finish, and out of search.
     pub fn remove_chat(&self, account_id: String, chat_id: String) {
+        let _io = self
+            .shared
+            .store_io
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        self.shared
+            .generations
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .chats
+            .entry((account_id.clone(), chat_id.clone()))
+            .and_modify(|n| *n += 1)
+            .or_insert(1);
+        self.shared
+            .status
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(account, chat, _), _| !(account == &account_id && chat == &chat_id));
+        if let Some(store) = &self.store {
+            let _ = store.remove_chat(&account_id, &chat_id);
+        }
+        drop(_io);
         let _ = self.tx.send(Command::RemoveChat {
             account_id,
             chat_id,
         });
     }
 
+    /// Deletes every transcript, effective on return: same immediate
+    /// semantics as remove_chat, for all accounts and chats.
     pub fn clear(&self) {
+        let _io = self
+            .shared
+            .store_io
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        self.shared
+            .generations
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clears += 1;
+        self.shared
+            .status
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        if let Some(store) = &self.store {
+            let _ = store.clear();
+        }
+        drop(_io);
         let _ = self.tx.send(Command::Clear);
     }
 
-    /// Status for one message, for the bubble to draw.
-    pub fn get(&self, message_id: &str) -> Option<Status> {
-        self.status
+    /// Local transcript search over the store, newest first. Cached on the
+    /// store version so repaints don't rescan disk; a deletion bumps the
+    /// version on the calling thread, so deleted transcripts leave the
+    /// results immediately. Callers scope the hits to their account.
+    pub fn search(&self, query: &str) -> Vec<Hit> {
+        let Some(store) = &self.store else {
+            return Vec::new();
+        };
+        let key = query.trim().to_owned();
+        if key.is_empty() {
+            return Vec::new();
+        }
+        let version = store.version();
+        {
+            let cache = self.search_cache.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some((cached_version, cached_key, hits)) = &*cache
+                && *cached_version == version
+                && *cached_key == key
+            {
+                return hits.clone();
+            }
+        }
+        let hits = store.search(&key, 50);
+        *self.search_cache.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some((version, key, hits.clone()));
+        hits
+    }
+
+    /// A worker with no engine behind it, for demos and tests: the given
+    /// statuses are what the view sees; queued work is only recorded.
+    pub fn stub(pairs: impl IntoIterator<Item = (Key, Status)>) -> Self {
+        let (tx, rx) = channel();
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&recorded);
+        std::thread::spawn(move || {
+            while let Ok(command) = rx.recv() {
+                let line = match &command {
+                    Command::Transcribe {
+                        job,
+                        account_id,
+                        global_language,
+                        ..
+                    } => format!(
+                        "transcribe {} in {} as {account_id} ({global_language:?})",
+                        job.message_id, job.chat_id
+                    ),
+                    Command::RemoveChat {
+                        account_id,
+                        chat_id,
+                    } => format!("remove-chat {chat_id} of {account_id}"),
+                    Command::Clear => "clear".to_owned(),
+                    Command::Shutdown => "shutdown".to_owned(),
+                };
+                log.lock().unwrap_or_else(|p| p.into_inner()).push(line);
+            }
+        });
+        Self {
+            tx,
+            shared: Arc::new(Shared {
+                status: Arc::new(Mutex::new(pairs.into_iter().collect())),
+                generations: Arc::new(Mutex::new(Generations::default())),
+                store_io: Arc::new(Mutex::new(())),
+                alive: Arc::new(AtomicBool::new(true)),
+            }),
+            store: None,
+            search_cache: Arc::new(Mutex::new(None)),
+            recorded,
+        }
+    }
+
+    /// A stub whose store is real, for search tests: no engine behind it,
+    /// but the given transcripts are searchable.
+    #[cfg(test)]
+    pub fn stub_with_store(store: Store) -> Self {
+        let mut worker = Self::stub([]);
+        worker.store = Some(store);
+        worker
+    }
+
+    /// What a stub was told, for tests. The draining thread parks on the
+    /// channel; callers poll until the expectation holds. Available in
+    /// every build so the field is used outside test targets too.
+    pub fn recorded(&self) -> Vec<String> {
+        self.recorded
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get(message_id)
+            .clone()
+    }
+
+    /// Status for one message in one chat of one account, for the bubble.
+    pub fn get(&self, account_id: &str, chat_id: &str, message_id: &str) -> Option<Status> {
+        self.shared
+            .status
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&(
+                account_id.to_owned(),
+                chat_id.to_owned(),
+                message_id.to_owned(),
+            ))
             .cloned()
+    }
+}
+
+impl Drop for Worker {
+    /// A respawned worker (the service address changed) stops meaning
+    /// anything: its in-flight engine's result is dropped, not stored.
+    fn drop(&mut self) {
+        self.shared.alive.store(false, Ordering::Relaxed);
     }
 }
 
@@ -174,6 +450,7 @@ impl Worker {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
     use std::time::{Duration, Instant};
 
     struct EchoEngine;
@@ -198,6 +475,44 @@ mod tests {
         }
     }
 
+    /// An engine whose runs are gated on test barriers: each transcribe
+    /// announces it started and blocks until the test releases it, so the
+    /// test controls exactly when the late result lands - no sleeps. The
+    /// run number distinguishes an old job's result from a fresh one's.
+    struct GatedEngine {
+        runs: usize,
+        entered: Sender<()>,
+        release: Receiver<()>,
+    }
+
+    impl Engine for GatedEngine {
+        fn transcribe(
+            &mut self,
+            audio: &std::path::Path,
+            _language: &str,
+        ) -> Result<String, String> {
+            self.runs += 1;
+            let run = self.runs;
+            let _ = self.entered.send(());
+            let _ = self.release.recv();
+            Ok(format!("run-{run}:{}", audio.display()))
+        }
+    }
+
+    fn gated() -> (GatedEngine, Receiver<()>, Sender<()>) {
+        let (entered_tx, entered_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        (
+            GatedEngine {
+                runs: 0,
+                entered: entered_tx,
+                release: release_rx,
+            },
+            entered_rx,
+            release_tx,
+        )
+    }
+
     fn job(id: &str) -> Job {
         Job {
             message_id: id.into(),
@@ -209,37 +524,55 @@ mod tests {
     }
 
     fn store() -> (Store, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("tw-store-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "tw-store-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         (Store::new(dir.clone(), 1 << 20).unwrap(), dir)
     }
 
-    fn wait_for(worker: &Worker, id: &str) -> Status {
+    fn wait_for(worker: &Worker, account: &str, chat: &str, id: &str) -> Status {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            match worker.get(id) {
+            match worker.get(account, chat, id) {
                 Some(s @ (Status::Ready(_) | Status::Failed(_))) => return s,
                 _ if Instant::now() > deadline => panic!("no final status for {id}"),
-                _ => std::thread::sleep(Duration::from_millis(10)),
+                _ => std::thread::sleep(Duration::from_millis(5)),
             }
+        }
+    }
+
+    /// Every status change and every completion, dropped or not, wakes.
+    /// Waiting for the count is the deterministic half of "the worker
+    /// reached this point".
+    fn wait_wakes(wakes: &Arc<AtomicUsize>, count: usize) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while wakes.load(Ordering::Relaxed) < count {
+            assert!(Instant::now() <= deadline, "worker never woke {count}x");
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
     #[test]
     fn transcribe_ready_and_stored() {
         let (s, dir) = store();
-        let worker = Worker::spawn(Box::new(EchoEngine), s, || {});
+        let worker = Worker::spawn(Box::new(EchoEngine), s.clone(), || {});
         worker.transcribe(job("m1"), "acc-1".into(), Some("fi".into()));
         assert_eq!(
-            wait_for(&worker, "m1"),
+            wait_for(&worker, "acc-1", "c1", "m1"),
             Status::Ready("fi:/tmp/note.ogg".into())
         );
         // The durable copy landed under account/chat/message isolation.
-        // (Store path checked in transcriber::tests; here via get.)
+        assert_eq!(
+            s.get("acc-1", "c1", "m1").as_deref(),
+            Some("fi:/tmp/note.ogg")
+        );
         worker.clear();
         let deadline = Instant::now() + Duration::from_secs(5);
-        while worker.get("m1").is_some() {
+        while worker.get("acc-1", "c1", "m1").is_some() {
             assert!(Instant::now() <= deadline, "clear never landed");
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(5));
         }
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -250,7 +583,7 @@ mod tests {
         let worker = Worker::spawn(Box::new(FailEngine), s, || {});
         worker.transcribe(job("m2"), "acc-1".into(), None);
         assert_eq!(
-            wait_for(&worker, "m2"),
+            wait_for(&worker, "acc-1", "c1", "m2"),
             Status::Failed("engine down".into())
         );
         std::fs::remove_dir_all(&dir).ok();
@@ -261,9 +594,9 @@ mod tests {
         let (s, dir) = store();
         let worker = Worker::spawn(Box::new(EchoEngine), s, || {});
         worker.transcribe(job("m3"), "acc-1".into(), None);
-        let first = wait_for(&worker, "m3");
+        let first = wait_for(&worker, "acc-1", "c1", "m3");
         worker.transcribe(job("m3"), "acc-1".into(), None); // Ready short-circuits
-        assert_eq!(worker.get("m3"), Some(first));
+        assert_eq!(worker.get("acc-1", "c1", "m3"), Some(first));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -273,9 +606,175 @@ mod tests {
         let worker = Worker::spawn(Box::new(EchoEngine), s, || {});
         worker.transcribe(job("m4"), "acc-1".into(), Some("en".into()));
         assert_eq!(
-            wait_for(&worker, "m4"),
+            wait_for(&worker, "acc-1", "c1", "m4"),
             Status::Ready("en:/tmp/note.ogg".into())
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn accounts_sharing_ids_stay_separate() {
+        let (s, dir) = store();
+        let worker = Worker::spawn(Box::new(EchoEngine), s.clone(), || {});
+        // Same chat id, same message id, two accounts: no collision in
+        // memory, statuses, or the store.
+        worker.transcribe(job("m5"), "acc-1".into(), Some("fi".into()));
+        worker.transcribe(job("m5"), "acc-2".into(), Some("en".into()));
+        assert_eq!(
+            wait_for(&worker, "acc-1", "c1", "m5"),
+            Status::Ready("fi:/tmp/note.ogg".into())
+        );
+        assert_eq!(
+            wait_for(&worker, "acc-2", "c1", "m5"),
+            Status::Ready("en:/tmp/note.ogg".into())
+        );
+        assert_eq!(
+            s.get("acc-1", "c1", "m5").as_deref(),
+            Some("fi:/tmp/note.ogg")
+        );
+        assert_eq!(
+            s.get("acc-2", "c1", "m5").as_deref(),
+            Some("en:/tmp/note.ogg")
+        );
+        // Deleting the chat in one account leaves the other's intact.
+        worker.remove_chat("acc-1".into(), "c1".into());
+        assert_eq!(worker.get("acc-1", "c1", "m5"), None);
+        assert_eq!(s.get("acc-1", "c1", "m5"), None);
+        assert!(matches!(
+            worker.get("acc-2", "c1", "m5"),
+            Some(Status::Ready(_))
+        ));
+        assert!(s.get("acc-2", "c1", "m5").is_some());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn remove_chat_is_immediate_and_drops_the_late_result() {
+        let (s, dir) = store();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let (engine, entered, release) = gated();
+        let counter = Arc::clone(&wakes);
+        let worker = Worker::spawn(Box::new(engine), s.clone(), move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        worker.transcribe(job("m6"), "acc-1".into(), None);
+        // The engine has the job; the delete lands while it works.
+        entered.recv().unwrap();
+        worker.remove_chat("acc-1".into(), "c1".into());
+        // Immediate: status and files go on the calling thread, while the
+        // engine is still blocked.
+        assert_eq!(worker.get("acc-1", "c1", "m6"), None);
+        // The late result lands now; it must be dropped.
+        release.send(()).unwrap();
+        wait_wakes(&wakes, 2);
+        assert_eq!(worker.get("acc-1", "c1", "m6"), None, "late status landed");
+        assert_eq!(s.get("acc-1", "c1", "m6"), None, "late result stored");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn clear_during_in_flight_drops_the_late_result() {
+        let (s, dir) = store();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let (engine, entered, release) = gated();
+        let counter = Arc::clone(&wakes);
+        let worker = Worker::spawn(Box::new(engine), s.clone(), move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        worker.transcribe(job("m7"), "acc-1".into(), None);
+        entered.recv().unwrap();
+        worker.clear();
+        assert_eq!(worker.get("acc-1", "c1", "m7"), None);
+        release.send(()).unwrap();
+        wait_wakes(&wakes, 2);
+        assert_eq!(worker.get("acc-1", "c1", "m7"), None, "late status landed");
+        assert_eq!(s.get("acc-1", "c1", "m7"), None, "late result stored");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn delete_then_readd_lets_only_the_fresh_job_store() {
+        let (s, dir) = store();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let (engine, entered, release) = gated();
+        let counter = Arc::clone(&wakes);
+        let worker = Worker::spawn(Box::new(engine), s.clone(), move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        // The old job starts; the chat is deleted and re-added; a fresh
+        // transcription is requested before the old engine finishes.
+        worker.transcribe(job("m8"), "acc-1".into(), None);
+        entered.recv().unwrap();
+        worker.remove_chat("acc-1".into(), "c1".into());
+        worker.transcribe(job("m8"), "acc-1".into(), None);
+        // The old job's late result: dropped at its generation check.
+        release.send(()).unwrap();
+        wait_wakes(&wakes, 2);
+        assert_eq!(s.get("acc-1", "c1", "m8"), None, "the old job stored");
+        // The fresh job runs (the engine's second gate) and is the one
+        // that stores and renders.
+        entered.recv().unwrap();
+        release.send(()).unwrap();
+        assert_eq!(
+            wait_for(&worker, "acc-1", "c1", "m8"),
+            Status::Ready("run-2:/tmp/note.ogg".into())
+        );
+        assert_eq!(
+            s.get("acc-1", "c1", "m8").as_deref(),
+            Some("run-2:/tmp/note.ogg"),
+            "only the fresh job's transcript is stored"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dropped_workers_late_result_never_lands() {
+        let (s, dir) = store();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let (engine, entered, release) = gated();
+        let counter = Arc::clone(&wakes);
+        let worker = Worker::spawn(Box::new(engine), s.clone(), move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        worker.transcribe(job("m9"), "acc-1".into(), None);
+        entered.recv().unwrap();
+        // The settings respawn drops the worker mid-engine.
+        drop(worker);
+        release.send(()).unwrap();
+        wait_wakes(&wakes, 2);
+        assert_eq!(
+            s.get("acc-1", "c1", "m9"),
+            None,
+            "a dropped worker's result was stored"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn removed_chat_leaves_search_immediately() {
+        let (s, dir) = store();
+        s.put("acc-1", "c1", "m10", "hei maailma").unwrap();
+        let worker = Worker::stub_with_store(s);
+        assert_eq!(worker.search("maailma").len(), 1);
+        // No engine anywhere: the removal itself takes it out of search.
+        worker.remove_chat("acc-1".into(), "c1".into());
+        assert!(worker.search("maailma").is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn search_uses_the_store_and_caches() {
+        let (s, dir) = store();
+        s.put("acc-1", "c1", "m11", "hei maailma").unwrap();
+        let worker = Worker::stub_with_store(s.clone());
+        let hits = worker.search("maailma");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].message_id, "m11");
+        // A new transcript invalidates the cache through the version bump.
+        s.put("acc-1", "c1", "m12", "maailma again").unwrap();
+        assert_eq!(worker.search("maailma").len(), 2);
+        // A plain stub has no store and finds nothing.
+        assert!(Worker::stub([]).search("maailma").is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
