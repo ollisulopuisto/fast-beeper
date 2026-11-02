@@ -923,20 +923,7 @@ impl Api {
             return known.clone();
         }
         let page = self.list_messages(chat, None, None).ok()?;
-        let found = page
-            .items
-            .into_iter()
-            .filter(|m| {
-                m.is_sender.is_some()
-                    && !m.is_hidden
-                    && !m.is_deleted
-                    && !is_empty_preview(m)
-                    && !matches!(
-                        m.message_type.as_deref(),
-                        Some("SYSTEM" | "NOTICE" | "EVENT")
-                    )
-            })
-            .max_by_key(|m| unix(&Some(m.timestamp.clone())));
+        let found = newest_content_message(page.items);
         if let Ok(mut cache) = self.preview_fallbacks.lock() {
             if cache.len() > 512 {
                 cache.clear();
@@ -1716,6 +1703,24 @@ fn is_empty_preview(m: &BeeperMessage) -> bool {
             m.message_type.as_deref(),
             None | Some("" | "REACTION" | "TEXT")
         )
+}
+
+/// The newest message that has something to show: not hidden or deleted, not
+/// a content-free event, and not a system notice.
+fn newest_content_message(items: Vec<BeeperMessage>) -> Option<BeeperMessage> {
+    items
+        .into_iter()
+        .filter(|m| {
+            m.is_sender.is_some()
+                && !m.is_hidden
+                && !m.is_deleted
+                && !is_empty_preview(m)
+                && !matches!(
+                    m.message_type.as_deref(),
+                    Some("SYSTEM" | "NOTICE" | "EVENT")
+                )
+        })
+        .max_by_key(|m| unix(&Some(m.timestamp.clone())))
 }
 
 fn body_of(m: &BeeperMessage) -> (String, bool) {
@@ -6062,6 +6067,21 @@ mod tests {
                 .summary,
             "no panic"
         );
+    }
+
+    #[test]
+    fn newest_content_message_skips_empty_hidden_and_system_events() {
+        let items: Vec<BeeperMessage> = serde_json::from_value(serde_json::json!([
+            {"id":"old","senderID":"s","timestamp":"2026-11-02T19:00:00Z","isSender":false,"text":"older","type":"TEXT"},
+            {"id":"real","senderID":"s","timestamp":"2026-11-02T19:27:00Z","isSender":true,"text":"no panic","type":"TEXT"},
+            {"id":"react","senderID":"s","timestamp":"2026-11-02T19:28:00Z","isSender":false,"type":"REACTION"},
+            {"id":"blank","senderID":"s","timestamp":"2026-11-02T19:29:00Z","isSender":false},
+            {"id":"sys","senderID":"s","timestamp":"2026-11-02T19:30:00Z","isSender":false,"text":"joined","type":"SYSTEM"},
+            {"id":"hidden","senderID":"s","timestamp":"2026-11-02T19:31:00Z","isSender":false,"text":"x","type":"TEXT","isHidden":true}
+        ]))
+        .unwrap();
+        assert_eq!(newest_content_message(items).unwrap().id, "real");
+        assert!(newest_content_message(Vec::new()).is_none());
     }
 
     #[test]
