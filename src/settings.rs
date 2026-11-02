@@ -415,6 +415,13 @@ pub struct Settings {
     /// value stays a loopback URL.
     #[serde(default = "default_scheduler_url")]
     pub scheduler_url: String,
+    /// Wyoming Whisper address (host:port) for voice-note transcription;
+    /// empty disables transcription. Local services only, never cloud.
+    #[serde(default)]
+    pub transcription_wyoming: String,
+    /// Global transcription language ("fi", "en", ...); empty = auto-detect.
+    #[serde(default)]
+    pub transcription_language: String,
     pub theme: ThemeChoice,
     /// Whether a `"system"` theme is really Messages. The file says
     /// `"system"` for Messages, which releases before it read as Follow
@@ -570,6 +577,8 @@ impl Default for Settings {
         Self {
             version: SETTINGS_VERSION,
             scheduler_url: default_scheduler_url(),
+            transcription_wyoming: String::new(),
+            transcription_language: String::new(),
             theme: ThemeChoice::System,
             messages_theme: false,
             font: FontChoice::System,

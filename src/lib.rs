@@ -57,6 +57,7 @@ pub mod sticker_search;
 pub mod target;
 pub mod theme;
 pub mod timestretch;
+pub mod transcribe_worker;
 pub mod transcriber;
 pub mod transcriber_engine;
 pub mod transcript;
