@@ -2396,8 +2396,10 @@ struct View<'a> {
     reaction_menu: bool,
     reaction_emoji: &'a [(String, u32)],
     keyboard_navigation: &'a std::cell::Cell<bool>,
-    /// Local voice-note transcription status, when the service is set.
+    /// Local voice-note transcription status, when the service is set,
+    /// and the account those statuses are keyed by.
     transcriber: Option<&'a crate::transcribe_worker::Worker>,
+    transcription_account: &'a str,
     /// Resolves a name with the message's stored name as fallback.
     names_or: &'a dyn Fn(&str, Option<&str>) -> String,
     /// Resolves mention names without replacing our name with "You".
@@ -2751,6 +2753,7 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
         chat,
         me: app.me.as_deref(),
         transcriber: app.transcriber.as_ref(),
+        transcription_account: &app.account().id.0,
         auto_download: app.account().settings.auto_download,
         connected: app.link.is_connected(),
         account_receipts_off: app.account_receipts_off,
@@ -6271,6 +6274,7 @@ pub(crate) fn list_menu(
         chat,
         me: app.me.as_deref(),
         transcriber: app.transcriber.as_ref(),
+        transcription_account: &app.account().id.0,
         auto_download: app.settings.auto_download,
         connected: app.link.is_connected(),
         poll_voting: &app.poll_voting,
@@ -6325,6 +6329,7 @@ pub(crate) fn linked_bubble(
         chat,
         me: app.me.as_deref(),
         transcriber: app.transcriber.as_ref(),
+        transcription_account: &app.account().id.0,
         auto_download: app.account().settings.auto_download,
         connected: app.link.is_connected(),
         poll_voting: &app.poll_voting,
@@ -10368,7 +10373,7 @@ fn voice_transcript(
         message: message.id.clone(),
         path: path.to_path_buf(),
     };
-    match worker.get(&view.chat.id, &message.id) {
+    match worker.get(view.transcription_account, &view.chat.id, &message.id) {
         Some(crate::transcribe_worker::Status::Ready(text)) => {
             theme::paragraph(ui, text, theme::regular(12.0), palette.secondary);
         }
@@ -11481,6 +11486,7 @@ mod tests {
         let keyboard_navigation = std::cell::Cell::new(false);
         let view = View {
             transcriber: None,
+            transcription_account: "test",
             palette: Palette::dark(),
             locale: app.locale,
             chat: &chat,

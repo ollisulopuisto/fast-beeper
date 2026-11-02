@@ -2157,8 +2157,9 @@ fn transcript_sample(app: &mut App) {
     voice_sample(app);
     app.settings.transcription_wyoming = "127.0.0.1:10300".into();
     let chat = app.open_chat.clone().unwrap_or_default();
+    let account = app.account().id.0.clone();
     app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-        (chat, "ada-voice".to_string()),
+        (account, chat, "ada-voice".to_string()),
         crate::transcribe_worker::Status::Ready(
             "Every word of this fixture transcript stayed on this machine; the local service did the work."
                 .to_string(),
@@ -6088,8 +6089,13 @@ mod tests {
         app.attach(&ctx);
 
         let voice_chat = app.open_chat.clone().unwrap_or_default();
+        let voice_account = app.account().id.0.clone();
         app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-            (voice_chat.clone(), "ada-voice".to_string()),
+            (
+                voice_account.clone(),
+                voice_chat.clone(),
+                "ada-voice".to_string(),
+            ),
             crate::transcribe_worker::Status::Running,
         )]));
         let (_, texts) = settle(&mut app, &ctx, "Transcribing\u{2026}");
@@ -6099,7 +6105,11 @@ mod tests {
         );
 
         app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-            (voice_chat.clone(), "ada-voice".to_string()),
+            (
+                voice_account.clone(),
+                voice_chat.clone(),
+                "ada-voice".to_string(),
+            ),
             crate::transcribe_worker::Status::Ready(
                 "Every word stayed on this machine.".to_string(),
             ),
@@ -6113,7 +6123,11 @@ mod tests {
         );
 
         app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
-            (voice_chat.clone(), "ada-voice".to_string()),
+            (
+                voice_account.clone(),
+                voice_chat.clone(),
+                "ada-voice".to_string(),
+            ),
             crate::transcribe_worker::Status::Failed("the service is unreachable".into()),
         )]));
         let (retry, texts) = settle(&mut app, &ctx, "Retry transcription");

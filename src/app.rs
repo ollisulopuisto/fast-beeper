@@ -3375,7 +3375,11 @@ impl App {
     /// navigate to the source by chat + message id.
     fn transcript_hit_messages(&self, hits: Vec<crate::transcriber::Hit>) -> Vec<Message> {
         let query = self.search.trim().to_owned();
+        let account = self.account().id.0.clone();
         hits.into_iter()
+            // The store is shared; only the active account's transcripts
+            // may surface in its search.
+            .filter(|hit| hit.account_id == account)
             .map(|hit| {
                 let mut message = self
                     .conversations
@@ -3388,7 +3392,10 @@ impl App {
                         sender: hit.chat_id.clone(),
                         sender_name: None,
                         from_me: false,
-                        timestamp: hit.modified,
+                        // No known message time; 0 tells the row to paint
+                        // no stamp rather than show the file's mtime as if
+                        // it were the message's time.
+                        timestamp: 0,
                         content: Content::text(""),
                         status: Delivery::None,
                         delivered_at: None,
@@ -21925,16 +21932,21 @@ mod tests {
         // is not loaded, one in another chat the query does not reach.
         let store_dir = std::env::temp_dir().join(format!("app-tr-hits-{}", std::process::id()));
         let store = crate::transcriber::Store::new(store_dir.clone(), 1 << 20).unwrap();
-        store.put("acc", chat, "m1", "hei maailma").unwrap();
+        // The store is shared across accounts; the active one is "1".
+        store.put("1", chat, "m1", "hei maailma").unwrap();
         store
             .put(
-                "acc",
+                "1",
                 chat,
                 "m2",
                 "maailma from an unloaded note\nsecond line",
             )
             .unwrap();
-        store.put("acc", other, "m3", "unrelated").unwrap();
+        store.put("1", other, "m3", "unrelated").unwrap();
+        // Another account's matching transcript never surfaces here.
+        store
+            .put("2", chat, "m9", "maailma from another account")
+            .unwrap();
         app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
         app.search = "maailma".into();
         // The backend already returned the loaded message: no duplicate.
@@ -21969,7 +21981,7 @@ mod tests {
         app.chats.push(locked);
         let store_dir = std::env::temp_dir().join(format!("app-tr-lock-{}", std::process::id()));
         let store = crate::transcriber::Store::new(store_dir.clone(), 1 << 20).unwrap();
-        store.put("acc", chat, "m1", "hei maailma").unwrap();
+        store.put("1", chat, "m1", "hei maailma").unwrap();
         app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
         app.search = "maailma".into();
         assert!(app.scoped_search_hits().is_empty());
