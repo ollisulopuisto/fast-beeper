@@ -220,6 +220,9 @@ fn encode_segment(segment: &str) -> String {
 /// The daemon's control protocol, without the socket: one request in,
 /// (HTTP status, response body, queue changed) out. The daemon persists
 /// when `changed` is true. Testable without a listener.
+// Flat on purpose: this is the daemon's protocol seam, exercised directly
+// by the tests; bundling the closures would obscure it.
+#[allow(clippy::too_many_arguments)]
 pub fn control(
     queue: &mut crate::scheduler::Queue,
     method: &str,

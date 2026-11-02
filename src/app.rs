@@ -25700,7 +25700,7 @@ mod conversation_palette_tests {
         // Undo takes Unarchive and Unmute; then the sync rules again.
         app.apply(Action::SetArchived("chat-1".into(), false), &ctx);
         app.apply(Action::SetMuted("chat-1".into(), None), &ctx);
-        assert!(app.settings.silenced.get("chat-1").is_none());
+        assert!(!app.settings.silenced.contains_key("chat-1"));
         app.apply_backend_event(Event::Chats(vec![beeper_chat("chat-1")]), false);
         let chat = app.chat("chat-1").unwrap();
         assert!(!chat.archived);
@@ -25719,7 +25719,7 @@ mod conversation_palette_tests {
             &ctx,
         );
         app.apply_backend_event(Event::Chats(vec![beeper_chat("chat-1")]), false);
-        assert!(app.settings.silenced.get("chat-1").is_none());
+        assert!(!app.settings.silenced.contains_key("chat-1"));
         assert!(!app.chat("chat-1").unwrap().muted(crate::util::now()));
     }
 
@@ -25753,6 +25753,6 @@ mod conversation_palette_tests {
         app.chats = vec![Chat::new("chat-1".to_owned(), "Chat".to_owned())];
         app.apply(Action::SetMuted("chat-1".into(), Some(0)), &ctx);
         app.apply(Action::SetArchived("chat-1".into(), true), &ctx);
-        assert!(app.settings.silenced.get("chat-1").is_none());
+        assert!(!app.settings.silenced.contains_key("chat-1"));
     }
 }
