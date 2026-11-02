@@ -497,6 +497,20 @@ fn sections(app: &App) -> Vec<Section> {
             if ui.button("Copy translation").clicked() { ui.ctx().copy_text(app.local_ai.output.clone()); }
         }
     });
+    beeper.block(vec!["Transcription".into(), "Voice notes".into(), "Wyoming".into(), "Whisper".into()], |ui, app| {
+        ui.heading("Voice-note transcription");
+        ui.label("A Wyoming Whisper service you already run, on this computer or your own network. The audio and the transcripts never leave for a cloud service; an unreachable address fails with a visible error, never a silent fallback. Empty disables transcription.");
+        let before = (app.settings.transcription_wyoming.clone(), app.settings.transcription_language.clone());
+        ui.label("Service address (host:port, no credentials in this field)");
+        ui.text_edit_singleline(&mut app.settings.transcription_wyoming);
+        ui.label("Language (\"fi\", \"en\", ...; empty = detect automatically)");
+        ui.text_edit_singleline(&mut app.settings.transcription_language);
+        if before != (app.settings.transcription_wyoming.clone(), app.settings.transcription_language.clone()) { app.actions.push(Action::SettingsChanged); }
+        ui.label("Transcripts are stored on this computer, per account and chat, and follow a chat you delete or clear.");
+        if ui.add_enabled(app.transcriber.is_some(), egui::Button::new("Delete all transcripts on this computer")).clicked() {
+            if let Some(worker) = &app.transcriber { worker.clear(); }
+        }
+    });
     let mut appearance = Section::new(translated(locale, "Appearance"));
     let status = app
         .custom_themes

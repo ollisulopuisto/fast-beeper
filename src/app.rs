@@ -594,6 +594,9 @@ pub struct App {
     /// Local voice-note transcription worker; `None` until a Wyoming
     /// service address is set. Audio and transcripts stay on the machine.
     pub transcriber: Option<crate::transcribe_worker::Worker>,
+    /// The address the current worker was built with; a settings change
+    /// respawns the worker only when this differs.
+    transcriber_address: String,
     /// In-chat video player.
     pub video: crate::video::Player,
     /// Chat of the loaded video; leaving it stops the video.
@@ -1354,6 +1357,7 @@ impl App {
         app.login_item.read(move || login_waker.wake());
         // Voice-note transcription only with a configured local service.
         app.transcriber = transcriber_worker(waker, &app.dirs, &app.settings);
+        app.transcriber_address = app.settings.transcription_wyoming.trim().to_string();
         let _ = app.roster.save_to(&app.files, &app.dirs.accounts_file());
         Ok(app)
     }
@@ -1560,6 +1564,7 @@ impl App {
             composer_tools_open: false,
             player: Player::new(waker.clone()),
             transcriber: None,
+            transcriber_address: String::new(),
             video: crate::video::Player::new(waker.clone()),
             video_chat: None,
             video_wanted: None,
@@ -4550,9 +4555,15 @@ impl App {
             Event::ChatRemoved { chat } => {
                 self.forget_chat(&chat);
                 self.stars.remove(&chat);
+                if let Some(worker) = &self.transcriber {
+                    worker.remove_chat(self.account().id.0.clone(), chat.clone());
+                }
                 self.reload_lists();
             }
             Event::ChatCleared { chat, through } => {
+                if let Some(worker) = &self.transcriber {
+                    worker.remove_chat(self.account().id.0.clone(), chat.clone());
+                }
                 self.handle_chat_cleared(&chat, through, live);
                 self.stars.remove(&chat);
                 // Clearing the chat clears its pins in the archive too.
@@ -9832,7 +9843,18 @@ impl App {
                 self.search_hits.clear();
                 self.mark_settings_dirty();
             }
-            Action::SettingsChanged => self.mark_settings_dirty(),
+            Action::SettingsChanged => {
+                self.mark_settings_dirty();
+                let address = self.settings.transcription_wyoming.trim().to_string();
+                if address != self.transcriber_address {
+                    // A new address means a new worker: the old one's hot
+                    // status belongs to a service that may no longer be the
+                    // one configured. Its thread ends with the dropped
+                    // channel; the store keeps the transcripts on disk.
+                    self.transcriber = transcriber_worker(&self.waker, &self.dirs, &self.settings);
+                    self.transcriber_address = address;
+                }
+            }
             Action::SetAccountPrivacy { kind, choice } => {
                 // The value lives on the phone: nothing is written without a
                 // connection and a snapshot to write against.
