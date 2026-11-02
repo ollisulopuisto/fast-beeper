@@ -244,7 +244,15 @@ mod tests {
     /// is tested for process plumbing, timeouts, and error mapping
     /// without a model.
     fn fake_whisper(body: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("fake-whisper-{}", std::process::id()));
+        // One path per fake: the lib tests run in one process, and sharing
+        // a path raced concurrent writes, executions and removals (a script
+        // read mid-write exits 2; another test's script exits 3).
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "fake-whisper-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         std::fs::write(&path, body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
