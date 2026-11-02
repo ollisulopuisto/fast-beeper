@@ -102,6 +102,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         None => {
             let mut state = State::default();
             // Demo captures seed a reply through a real route.
+            #[cfg(feature = "demo")]
             if crate::demo::linked_reply() {
                 let mut latest: Option<(Member, String, i64)> = None;
                 for member in &valid {
@@ -867,13 +868,15 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         .ctx()
         .data_mut(|d| d.get_temp::<Picker>(key))
         .unwrap_or_else(|| {
-            crate::demo::link_picker_seed()
-                .map(|(search, selected)| Picker {
+            #[cfg(feature = "demo")]
+            if let Some((search, selected)) = crate::demo::link_picker_seed() {
+                return Picker {
                     open: true,
                     search,
                     selected,
-                })
-                .unwrap_or_default()
+                };
+            }
+            Picker::default()
         });
     if let Some(person) = &person {
         bounded_note(
