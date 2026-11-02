@@ -2395,8 +2395,11 @@ mod tests {
         app.settings_search = "Accounts".into();
         let ctx = egui::Context::default();
         app.attach(&ctx);
-        ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
-        let painted = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        // Note: no everything_is_visible here - it reports every popup as
+        // open, which stacks all four account combos on top of each other
+        // and poisons their open/close tracking. The account card is
+        // opened with a real header click instead.
+        let painted = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, egui::Rect)>::new()));
         let collect = std::rc::Rc::clone(&painted);
         let frame = |app: &mut App, events: Vec<egui::Event>| {
             let collect = std::rc::Rc::clone(&collect);
@@ -2420,7 +2423,10 @@ mod tests {
                             if let Some(list) = graphics.get(layer) {
                                 for clipped in list.all_entries() {
                                     if let egui::Shape::Text(text) = &clipped.shape {
-                                        collect.borrow_mut().push(text.galley.text().to_owned());
+                                        collect.borrow_mut().push((
+                                            text.galley.text().to_owned(),
+                                            egui::Rect::from_min_size(text.pos, text.galley.size()),
+                                        ));
                                     }
                                 }
                             }
@@ -2447,6 +2453,20 @@ mod tests {
                 ))
             })
         };
+        frame(&mut app, vec![]);
+        // Open the account card the way a reader does: click its header.
+        let header = painted
+            .borrow()
+            .iter()
+            .find(|(text, _)| text == "WhatsApp \u{b7} Personal [wa-personal]")
+            .map(|(_, rect)| *rect)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the account header is painted; painted: {:?}",
+                    painted.borrow()
+                )
+            });
+        frame(&mut app, click(header.center()));
         frame(&mut app, vec![]);
         let combo = rect_of("Conversation theme").unwrap_or_else(|| {
             panic!(
