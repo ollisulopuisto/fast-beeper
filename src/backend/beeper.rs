@@ -335,6 +335,10 @@ struct Api {
     read_only: bool,
     cache_lock: std::sync::Arc<std::sync::Mutex<()>>,
     own_ids: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
+    /// Real last message for chats whose Beeper preview carries no content
+    /// (a reaction event, say), keyed by chat and the placeholder preview id.
+    #[allow(clippy::type_complexity)]
+    preview_fallbacks: std::sync::Arc<std::sync::Mutex<HashMap<(String, String), Option<BeeperMessage>>>>,
     avatar_sources: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 
@@ -665,6 +669,7 @@ impl Api {
             http,
             cache_lock: Default::default(),
             own_ids: Default::default(),
+            preview_fallbacks: Default::default(),
             avatar_sources: Default::default(),
             read_only: std::env::var("BEEPER_READONLY")
                 .is_ok_and(|v| matches!(v.as_str(), "1" | "true" | "yes")),
@@ -895,7 +900,48 @@ impl Api {
         }
         let mut chat = map_chat(wire, label);
         chat.backend_origin = Some(self.base_url.clone());
+        if chat.last.is_none()
+            && let Some(preview) = wire.preview.as_ref().filter(|p| is_empty_preview(p))
+            && let Some(real) = self.real_last_message(&wire.id, &preview.id)
+        {
+            let (body, labelled) = body_of(&real);
+            chat.last = Some(Chat::last_preview(&real, body, labelled));
+        }
         chat
+    }
+
+    /// Beeper's chat preview can be a content-free event (a reaction shows
+    /// up this way). Show the newest message that has content instead, found
+    /// once per placeholder and remembered so refreshes stay cheap.
+    fn real_last_message(&self, chat: &str, preview_id: &str) -> Option<BeeperMessage> {
+        let key = (chat.to_string(), preview_id.to_string());
+        if let Ok(cache) = self.preview_fallbacks.lock()
+            && let Some(known) = cache.get(&key)
+        {
+            return known.clone();
+        }
+        let page = self.list_messages(chat, None, None).ok()?;
+        let found = page
+            .items
+            .into_iter()
+            .filter(|m| {
+                m.is_sender.is_some()
+                    && !m.is_hidden
+                    && !m.is_deleted
+                    && !is_empty_preview(m)
+                    && !matches!(
+                        m.message_type.as_deref(),
+                        Some("SYSTEM" | "NOTICE" | "EVENT")
+                    )
+            })
+            .max_by_key(|m| unix(&Some(m.timestamp.clone())));
+        if let Ok(mut cache) = self.preview_fallbacks.lock() {
+            if cache.len() > 512 {
+                cache.clear();
+            }
+            cache.insert(key, found.clone());
+        }
+        found
     }
 
     fn map_message(&self, wire: &BeeperMessage, chat: &str) -> Message {
@@ -1659,6 +1705,17 @@ fn plain_rich_text(raw: &str) -> String {
     decode_entities(&out).trim().to_owned()
 }
 
+/// A message with nothing to show: no text, no attachment, and a type that
+/// carries no content of its own. Reactions reach the chat list this way.
+fn is_empty_preview(m: &BeeperMessage) -> bool {
+    m.text.as_deref().is_none_or(str::is_empty)
+        && m.attachments.is_empty()
+        && matches!(
+            m.message_type.as_deref(),
+            None | Some("" | "REACTION" | "TEXT")
+        )
+}
+
 fn body_of(m: &BeeperMessage) -> (String, bool) {
     if let Some(t) = &m.text
         && !t.is_empty()
@@ -1873,6 +1930,7 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
             p.is_sender.is_some()
                 && !p.is_hidden
                 && !p.is_deleted
+                && !is_empty_preview(p)
                 && !matches!(
                     p.message_type.as_deref(),
                     Some("SYSTEM" | "NOTICE" | "EVENT")
@@ -5979,6 +6037,26 @@ mod tests {
         cmd_tx.send(Command::Shutdown).unwrap();
         worker.join().unwrap();
         stop.store(true, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn content_free_preview_is_not_shown_as_a_message_placeholder() {
+        let chat: BeeperChat = serde_json::from_value(serde_json::json!({
+            "id":"c1", "accountID":"a1", "network":"WhatsApp",
+            "preview":{"id":"r1","senderID":"s","sortKey":"1","timestamp":"2026-11-02T19:28:00Z","isSender":false}
+        }))
+        .unwrap();
+        let mapped = map_chat(&chat, &|c| c.network.clone());
+        assert!(mapped.last.is_none(), "no \"[message]\" placeholder");
+        let real: BeeperChat = serde_json::from_value(serde_json::json!({
+            "id":"c1", "accountID":"a1", "network":"WhatsApp",
+            "preview":{"id":"m1","senderID":"s","sortKey":"1","timestamp":"2026-11-02T19:28:00Z","isSender":false,"text":"no panic","type":"TEXT"}
+        }))
+        .unwrap();
+        assert_eq!(
+            map_chat(&real, &|c| c.network.clone()).last.unwrap().summary,
+            "no panic"
+        );
     }
 
     #[test]
