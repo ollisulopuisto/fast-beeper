@@ -13,6 +13,25 @@ pub fn rail_bottom() -> bool {
     SHOT_RAIL_BOTTOM.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Set by the `linked-reply` shot page: the linked view opens with a reply
+/// routed through a real loaded message, so its composer shows the quote.
+static SHOT_LINK_REPLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether demo captures open the linked view with a reply route.
+pub fn linked_reply() -> bool {
+    SHOT_LINK_REPLY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Set by the `linked-picker` shot page: the Contact info link picker opens
+/// mid-search, with these chat ids checked.
+static SHOT_LINK_PICKER: std::sync::Mutex<Option<(String, Vec<String>)>> =
+    std::sync::Mutex::new(None);
+
+/// Demo capture seed for the link picker: search text and checked chat ids.
+pub fn link_picker_seed() -> Option<(String, Vec<String>)> {
+    SHOT_LINK_PICKER.lock().ok()?.clone()
+}
+
 /// The rail content's last laid-out height, as f32 bits, for the
 /// rail-bottom seed's convergence check.
 static RAIL_CONTENT_HEIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -2080,6 +2099,68 @@ fn starred_sample(app: &mut App, menu: Option<&str>) {
 /// Audio fixtures vary voice-note and forwarding metadata independently without playback.
 /// Tags the sample chats with Beeper-style backend networks and accounts,
 /// so the sidebar's Networks and Queues sections render in demo shots.
+fn linked_sample(app: &mut App) {
+    networks_sample(app);
+    let wa = app.chats[0].clone();
+    let mut sg = wa.clone();
+    sg.id = "393331234567@signal".into();
+    sg.backend_network = Some("Signal".into());
+    sg.backend_account = Some("signal".into());
+    sg.last = None;
+    // The tail of the timeline mixes sources: one Signal message from Ada,
+    // then one from you, both newer than every WhatsApp message.
+    let source = app
+        .conversations
+        .get(&wa.id)
+        .expect("the demo populates Ada's chat");
+    let incoming = source
+        .messages
+        .iter()
+        .find(|m| !m.from_me)
+        .cloned()
+        .expect("Ada writes in the demo");
+    let outgoing = source
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.from_me)
+        .cloned()
+        .expect("you write in the demo");
+    let latest = source
+        .messages
+        .iter()
+        .map(|m| m.timestamp)
+        .max()
+        .unwrap_or_default();
+    let mut history = crate::app::Conversation::default();
+    for (index, (template, text)) in [
+        (incoming, "on Signal instead"),
+        (outgoing, "same person, other network"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut message = template;
+        message.chat = sg.id.clone();
+        message.id = format!("sg-{index}");
+        message.timestamp = latest + 60 * (index as i64 + 1);
+        message.content = crate::model::Content::text(text);
+        message.quoted = None;
+        message.reactions = Default::default();
+        history.messages.push(message);
+    }
+    app.conversations.insert(sg.id.clone(), history);
+    let person = crate::merged::Person {
+        name: wa.name.clone(),
+        members: vec![
+            crate::merged::Member::of(&wa).unwrap(),
+            crate::merged::Member::of(&sg).unwrap(),
+        ],
+        primary: None,
+    };
+    app.settings.beeper.people.push(person);
+    app.chats.push(sg);
+}
 fn networks_sample(app: &mut App) {
     const ORIGIN: &str = "http://127.0.0.1:23374";
     // Each chat belongs to an account the inventory knows, so the account
@@ -3831,6 +3912,24 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // and the active network's accounts render, which also reveals
             // the Queues section.
             "networks" => networks_sample(app),
+            // Ada's WhatsApp chat linked with her Signal one: one person
+            // row in the list, one mixed-source timeline in the chat.
+            "linked" => linked_sample(app),
+            // The linked person with a chosen primary: the composer is live.
+            "linked-primary" => {
+                if let Some(person) = app.settings.beeper.people.last_mut() {
+                    person.primary = person.members.get(1).cloned();
+                }
+            }
+            // The linked view with a reply routed through a real message.
+            "linked-reply" => {
+                SHOT_LINK_REPLY.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            // Contact info's link picker mid-search, one candidate checked.
+            "linked-picker" => {
+                *SHOT_LINK_PICKER.lock().unwrap() =
+                    Some(("ham".into(), vec!["14155550199@s.whatsapp.net".into()]));
+            }
             "rail-full" => rail_full_sample(app),
             // Deterministic per-account appearance overrides for rendered
             // proof: the open chat's account (wa-personal) draws its

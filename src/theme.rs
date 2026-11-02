@@ -1067,8 +1067,12 @@ pub fn network_tint(network: &str) -> Option<Color32> {
 
 /// Blend a network hue into a background at a fixed subtle strength.
 pub(crate) fn tinted(base: Color32, tint: Color32) -> Color32 {
-    const AMOUNT: f32 = 0.10;
-    let mix = |a: u8, b: u8| (a as f32 * (1.0 - AMOUNT) + b as f32 * AMOUNT).round() as u8;
+    tinted_strength(base, tint, 0.10)
+}
+
+/// Blend `tint` into `base` at the given strength.
+pub(crate) fn tinted_strength(base: Color32, tint: Color32, amount: f32) -> Color32 {
+    let mix = |a: u8, b: u8| (a as f32 * (1.0 - amount) + b as f32 * amount).round() as u8;
     Color32::from_rgb(
         mix(base.r(), tint.r()),
         mix(base.g(), tint.g()),

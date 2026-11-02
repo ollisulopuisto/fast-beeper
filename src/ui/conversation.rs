@@ -6333,12 +6333,26 @@ pub(crate) fn linked_bubble(
     message: &Message,
     actions: &mut Vec<Action>,
 ) {
+    // The message's own source network hues its bubbles; the day/source
+    // header above carries the same network as text. Text colours stay the
+    // palette's, so both themes keep their contrast.
+    let mut palette = app.conversation_palette();
+    if let Some(tint) = chat
+        .backend_network
+        .as_deref()
+        .and_then(crate::theme::network_tint)
+    {
+        palette.bubble_in = crate::theme::tinted_strength(palette.bubble_in, tint, 0.16);
+        // The outgoing bubble reads as its network at a glance, not a
+        // halfway hue; the stronger tint keeps the in/out bases distinct.
+        palette.bubble_out = crate::theme::tinted_strength(palette.bubble_out, tint, 0.45);
+    }
     let names_or = |id: &str, hint: Option<&str>| app.display_name_or(id, hint);
     let mention_names = |id: &str| app.mention_name(id);
     let avatars = HashMap::new();
     let keyboard_navigation = std::cell::Cell::new(false);
     let view = View {
-        palette: app.conversation_palette(),
+        palette,
         locale: app.locale,
         chat,
         me: app.me.as_deref(),

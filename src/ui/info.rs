@@ -536,6 +536,10 @@ fn identity(app: &mut App, ui: &mut egui::Ui, shown: &Shown, overlay: bool) {
     }
     ui.add_space(4.0);
     actions(app, ui, shown, mine, editable);
+    // Person linking lives here, out of the conversation's way.
+    if let Some(chat) = app.chat(id).cloned() {
+        super::merged::sidebar(app, ui, &chat);
+    }
     if let Some(description) = shown.description.as_deref() {
         ui.add_space(8.0);
         theme::text(
