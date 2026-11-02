@@ -1030,6 +1030,14 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
     ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
     (
+        "Ctrl+Alt+Shift+1..9",
+        "Open a pinned chat by its place in the sidebar",
+    ),
+    (
+        "Ctrl+Alt+1..0",
+        "Filter to a network by its place in the sidebar",
+    ),
+    (
         "Alt+1..6",
         "Pick a chat filter by its place in the sidebar (outside text fields)",
     ),
