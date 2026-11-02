@@ -6056,7 +6056,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            map_chat(&real, &|c| c.network.clone()).last.unwrap().summary,
+            map_chat(&real, &|c| c.network.clone())
+                .last
+                .unwrap()
+                .summary,
             "no panic"
         );
     }
