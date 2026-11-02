@@ -1094,8 +1094,7 @@ fn sections(app: &App) -> Vec<Section> {
     // The launch flag picks the section; a loaded account inventory does
     // too, so demo and interaction-test setups without the flag still get
     // the per-account settings their inventory makes meaningful.
-    if crate::backend::beeper::BeeperConfig::from_env().is_some()
-        || !app.beeper_accounts.is_empty()
+    if crate::backend::beeper::BeeperConfig::from_env().is_some() || !app.beeper_accounts.is_empty()
     {
         sections.insert(0, beeper);
     }
