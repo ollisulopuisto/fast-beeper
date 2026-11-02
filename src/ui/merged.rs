@@ -100,30 +100,39 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let mut state = match ui.ctx().data_mut(|d| d.get_temp::<State>(key)) {
         Some(state) => state,
         None => {
-            let mut state = State::default();
             // Demo captures seed a reply through a real route.
             #[cfg(feature = "demo")]
-            if crate::demo::linked_reply() {
-                let mut latest: Option<(Member, String, i64)> = None;
-                for member in &valid {
-                    if let Some(conversation) = app.conversations.get(&member.chat) {
-                        for message in &conversation.messages {
-                            if latest
-                                .as_ref()
-                                .is_none_or(|(_, _, ts)| message.timestamp > *ts)
-                            {
-                                latest =
-                                    Some((member.clone(), message.id.clone(), message.timestamp));
+            {
+                let mut state = State::default();
+                if crate::demo::linked_reply() {
+                    let mut latest: Option<(Member, String, i64)> = None;
+                    for member in &valid {
+                        if let Some(conversation) = app.conversations.get(&member.chat) {
+                            for message in &conversation.messages {
+                                if latest
+                                    .as_ref()
+                                    .is_none_or(|(_, _, ts)| message.timestamp > *ts)
+                                {
+                                    latest = Some((
+                                        member.clone(),
+                                        message.id.clone(),
+                                        message.timestamp,
+                                    ));
+                                }
                             }
                         }
                     }
+                    if let Some((member, id, _)) = latest {
+                        state.reply = Some((member.clone(), id));
+                        state.destination = Some(member);
+                    }
                 }
-                if let Some((member, id, _)) = latest {
-                    state.reply = Some((member.clone(), id));
-                    state.destination = Some(member);
-                }
+                state
             }
-            state
+            #[cfg(not(feature = "demo"))]
+            {
+                State::default()
+            }
         }
     };
     if state
