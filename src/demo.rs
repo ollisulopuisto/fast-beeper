@@ -2292,6 +2292,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "phone-menu" => phone_menu_sample(app),
             "short-chat" => short_chat_sample(app),
             "chat-menu" => app.open_chat_menu = Some(app.chats[0].id.clone()),
+            // A Beeper-account chat that is not yet a favorite: its menu
+            // must offer "Add to favorites".
+            "chat-menu-beeper" => {
+                app.chats[0].backend_account = Some("wa-personal".into());
+                app.chats[0].favorite = false;
+                app.open_chat_menu = Some(app.chats[0].id.clone());
+            }
             "chat-header-menu" => app.open_header_menu = app.open_chat.clone(),
             "interactive-actions" => interactive_actions_sample(app),
             "interactive-list" => interactive_list_sample(app),
