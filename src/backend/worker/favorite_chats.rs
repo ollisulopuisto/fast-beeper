@@ -326,7 +326,10 @@ mod tests {
     async fn a_beeper_chat_marks_locally_but_never_leaves_for_the_phone() {
         let (mut worker, _events, _inbox, _wa) = worker();
         worker.archive.ensure_chat(PEER, "Ada").unwrap();
-        worker.archive.ensure_chat("!room:beeper.local", "Bridge").unwrap();
+        worker
+            .archive
+            .ensure_chat("!room:beeper.local", "Bridge")
+            .unwrap();
         worker.set_favorite_chat(PEER, true);
         worker.set_favorite_chat("!room:beeper.local", true);
         phone_list(&mut worker, &[GROUP], 1_000);
@@ -340,7 +343,8 @@ mod tests {
             "a chat the phone cannot name never joins its list"
         );
         assert!(
-            list.iter().all(|favorite| favorite.jid.parse::<Jid>().is_ok()),
+            list.iter()
+                .all(|favorite| favorite.jid.parse::<Jid>().is_ok()),
             "every entry bound for the phone is one of its own"
         );
     }
