@@ -3838,6 +3838,26 @@ msgstr "Idioma de transcripción"
 msgid "Transcribe this voice note in another language, for example \"fi\" or \"en\". Leave empty to use the global transcription language."
 msgstr "Transcribe esta nota de voz en otro idioma, por ejemplo \"fi\" o \"en\". Déjalo vacío para usar el idioma de transcripción global."
 
+#: src/ui/conversation.rs
+msgid "Playback speed 1x"
+msgstr "Velocidad de reproducción 1x"
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1.25x"
+msgstr "Velocidad de reproducción 1.25x"
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1.5x"
+msgstr "Velocidad de reproducción 1.5x"
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1.75x"
+msgstr "Velocidad de reproducción 1.75x"
+
+#: src/ui/conversation.rs
+msgid "Playback speed 2x"
+msgstr "Velocidad de reproducción 2x"
+
 #~ msgid "Back to the chats"
 #~ msgstr "Volver a los chats"
 
