@@ -129,15 +129,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     {
         state = State::default();
     }
-    // A reply whose source left the link is dropped, never re-routed.
+    // A reply whose source left the link is dropped, never re-routed, and
+    // the note below says so.
+    let mut reply_cleared = false;
     if state
         .reply
         .as_ref()
         .is_some_and(|(source, _)| !valid.contains(source))
     {
         state.reply = None;
+        reply_cleared = true;
     }
-    let mut routing_error = None;
+    let mut routing_error = reply_cleared.then_some(
+        "The chat you were replying in is no longer linked, so that reply was cleared. Pick a destination or reply again.",
+    );
     if state.destination.is_none() && state.reply.is_none() {
         match person.default_destination(&valid) {
             Ok(primary) => state.destination = primary.cloned(),
@@ -403,6 +408,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             .color(palette.secondary),
                         );
                     });
+                let mut picked = None;
+                egui::ComboBox::from_id_salt("person-destination")
+                    .selected_text("Choose destination")
+                    .show_ui(ui, |ui| {
+                        for member in &valid {
+                            let Some(c) = app.chat(&member.chat) else {
+                                continue;
+                            };
+                            if ui
+                                .selectable_label(
+                                    false,
+                                    format!("{} · {}", c.name, source_label(app, &valid, member)),
+                                )
+                                .clicked()
+                            {
+                                picked = Some(member.clone());
+                            }
+                        }
+                    });
+                if let Some(member) = picked {
+                    state.explicit = true;
+                    state.destination = Some(member);
+                }
                 ui.small("Nothing is routed automatically.");
             });
     }
@@ -704,12 +732,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     ui.ctx().data_mut(|data| data.insert_temp(rows_key, cache));
     if let Some((member, id)) = selected_reply {
         state.reply = Some((member.clone(), id.clone()));
-        // A reply routes home by default: the source's own network and
-        // account. An explicit destination choice stands instead, and the
-        // cross-over warning says the reply reference does not travel.
-        if !state.explicit {
-            state.destination = Some(member.clone());
-        }
+        // Each reply routes home by default: the source's own network and
+        // account. Picking another destination afterwards is the explicit
+        // cross-over, and the warning says the reply reference does not travel.
+        state.explicit = false;
+        state.destination = Some(member.clone());
         app.reply_to = state
             .destination
             .as_ref()
