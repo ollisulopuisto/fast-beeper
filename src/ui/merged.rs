@@ -327,7 +327,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     if let Some(destination) = &destination {
         let had_quote = app.reply_to.is_some();
         let before = app.actions.len();
-        super::conversation::composer_with_capabilities(app, ui, destination, false);
+        let chosen = network_label(destination).to_owned();
+        let mut picker = |app: &mut App, ui: &mut egui::Ui| {
+            destination_menu(
+                app,
+                ui,
+                &mut state,
+                &valid,
+                &chosen,
+                super::conversation::ROUTE_PICKER_WIDTH - 30.0,
+            );
+        };
+        super::conversation::composer_with_capabilities(
+            app,
+            ui,
+            destination,
+            false,
+            Some(&mut picker),
+        );
         if had_quote && app.reply_to.is_none() {
             state.reply = None;
             if !state.explicit {
@@ -397,30 +414,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         )
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                let chosen = destination
-                    .as_ref()
-                    .map(network_label)
-                    .unwrap_or("Choose destination");
-                egui::ComboBox::from_id_salt("person-destination")
-                    .selected_text(chosen)
-                    .show_ui(ui, |ui| {
-                        for member in &valid {
-                            let c = app.chat(&member.chat).unwrap();
-                            if ui
-                                .selectable_label(
-                                    state.destination.as_ref() == Some(member),
-                                    format!("{} · {}", c.name, source_label(app, &valid, member)),
-                                )
-                                .clicked()
-                            {
-                                state.explicit = true;
-                                state.destination = Some(member.clone());
-                                app.reply_to = state.reply.as_ref().and_then(|(source, id)| {
-                                    crate::merged::reply_route(source, member, id)
-                                });
-                            }
-                        }
-                    });
                 if let Some(destination) = &destination {
                     let via = network_label(destination);
                     let label = account_name(app, destination);
@@ -431,6 +424,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             "Cross-over: plain new message on selected destination. No reply reference.",
                         );
                     }
+                } else {
+                    destination_menu(app, ui, &mut state, &valid, "Choose destination", 150.0);
                 }
             });
         });
@@ -680,6 +675,39 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     app.actions.extend(actions);
     ui.ctx().data_mut(|d| d.insert_temp(key, state));
     true
+}
+
+/// The destination dropdown: every exact member of the linked person. Picking
+/// one is an explicit choice; a reply to another member becomes a cross-over.
+fn destination_menu(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    state: &mut State,
+    valid: &[Member],
+    selected: &str,
+    width: f32,
+) {
+    egui::ComboBox::from_id_salt("person-destination")
+        .selected_text(selected)
+        .width(width)
+        .show_ui(ui, |ui| {
+            for member in valid {
+                let c = app.chat(&member.chat).unwrap();
+                if ui
+                    .selectable_label(
+                        state.destination.as_ref() == Some(member),
+                        format!("{} · {}", c.name, source_label(app, valid, member)),
+                    )
+                    .clicked()
+                {
+                    state.explicit = true;
+                    state.destination = Some(member.clone());
+                    app.reply_to = state.reply.as_ref().and_then(|(source, id)| {
+                        crate::merged::reply_route(source, member, id)
+                    });
+                }
+            }
+        });
 }
 
 /// The account's own name from the Beeper inventory, for "Sending via":

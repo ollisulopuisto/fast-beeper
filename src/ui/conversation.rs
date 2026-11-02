@@ -1374,14 +1374,18 @@ fn mention_picker(app: &mut App, ui: &mut egui::Ui, chat: &Chat, field: egui::Id
 }
 
 /// Draws the composer and queues sends with the originating account and selected mentions.
+/// Room the linked-chat destination picker takes inside the composer.
+pub(crate) const ROUTE_PICKER_WIDTH: f32 = 118.0;
+
 pub(crate) fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
-    composer_with_capabilities(app, ui, chat, true);
+    composer_with_capabilities(app, ui, chat, true, None);
 }
 pub(crate) fn composer_with_capabilities(
     app: &mut App,
     ui: &mut egui::Ui,
     chat: &Chat,
     attachments: bool,
+    mut route_picker: Option<&mut dyn FnMut(&mut App, &mut egui::Ui)>,
 ) {
     let palette = app.conversation_palette();
     let shown = egui::Panel::bottom("composer")
@@ -1603,6 +1607,8 @@ pub(crate) fn composer_with_capabilities(
             // Send Later sits beside Send, visible rather than hidden behind a
             // right-click; its room is reserved so the field does not jump.
             let later_width = if app.editing.is_none() { button_width + ui.spacing().item_spacing.x } else { 0.0 };
+            // A linked chat's destination picker joins the same group.
+            let picker_width = if route_picker.is_some() { ROUTE_PICKER_WIDTH + ui.spacing().item_spacing.x } else { 0.0 };
             let field_margin = ((line - line_height) / 2.0).round().max(0.0);
             // Measure this frame's draft at the text column's width, so the
             // field and the panel holding it grow on the keystroke that wraps
@@ -1675,7 +1681,7 @@ pub(crate) fn composer_with_capabilities(
                 }
                 // The send button closes the row, flush with the field's end.
                 let field_width =
-                    (ui.available_width() - button_width - view_once_width - later_width - ui.spacing().item_spacing.x).max(0.0);
+                    (ui.available_width() - button_width - view_once_width - later_width - picker_width - ui.spacing().item_spacing.x).max(0.0);
                 // The ink is centred on the controls, not the line box: the
                 // span from a capital's top to a descender's bottom sits as far
                 // from the field's top as from its bottom. Inter's box leaves
@@ -1890,6 +1896,9 @@ pub(crate) fn composer_with_capabilities(
                 } else {
                     (palette.surface, palette.surface_hover, palette.dim)
                 };
+                if let Some(picker) = route_picker.as_mut() {
+                    last_line(ui, line, |ui| picker(app, ui));
+                }
                 if app.editing.is_none() {
                     let can_schedule =
                         !app.composer.trim().is_empty() || !app.pending.is_empty();
