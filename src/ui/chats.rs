@@ -2598,8 +2598,9 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
         app.actions
             .push(Action::SetPinned(chat.id.clone(), !chat.pinned));
     }
-    // Channels cannot be favorites, as on the phone.
-    if !chat.is_channel() && chat.backend_account.is_none() {
+    // Channels cannot be favorites, as on the phone. A Beeper chat's mark
+    // lives here only: no phone knows its network's chats to sync it to.
+    if !chat.is_channel() {
         // Bound before the call so the translated text outlives the borrow.
         let favorite_label = if chat.favorite {
             crate::i18n::gettext(locale, "Remove from favorites")

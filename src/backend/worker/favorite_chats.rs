@@ -136,7 +136,17 @@ impl Worker {
     pub(super) fn favorites_to_send(&self) -> Option<(i64, Vec<Favorite>)> {
         self.archive.favorites_synced_at().ok().flatten()?;
         let through = self.archive.pending_favorites().ok().flatten()?;
-        Some((through, self.archive.favorites().ok()?))
+        // Chats no WhatsApp phone can name - a Beeper network's - keep
+        // their mark on this computer. Their changes stay queued so a
+        // phone list replays them, but they never join a list sent to it.
+        let list = self
+            .archive
+            .favorites()
+            .ok()?
+            .into_iter()
+            .filter(|favorite| favorite.jid.parse::<Jid>().is_ok())
+            .collect();
+        Some((through, list))
     }
 
     /// Learns the phone's list once, then sends queued changes.
@@ -310,6 +320,29 @@ mod tests {
         assert_eq!(chats(&worker), ["167650256810092@lid"]);
         worker.learn_lid("167650256810092", "4917663430455");
         assert_eq!(chats(&worker), [PEER]);
+    }
+
+    #[tokio::test]
+    async fn a_beeper_chat_marks_locally_but_never_leaves_for_the_phone() {
+        let (mut worker, _events, _inbox, _wa) = worker();
+        worker.archive.ensure_chat(PEER, "Ada").unwrap();
+        worker.archive.ensure_chat("!room:beeper.local", "Bridge").unwrap();
+        worker.set_favorite_chat(PEER, true);
+        worker.set_favorite_chat("!room:beeper.local", true);
+        phone_list(&mut worker, &[GROUP], 1_000);
+        // The phone's list applied and the queued marks replayed on top,
+        // the bridge chat's included.
+        assert_eq!(chats(&worker), [GROUP, PEER, "!room:beeper.local"]);
+        let (_through, list) = worker.favorites_to_send().expect("the merged list");
+        assert!(
+            list.iter()
+                .all(|favorite| favorite.chat != "!room:beeper.local"),
+            "a chat the phone cannot name never joins its list"
+        );
+        assert!(
+            list.iter().all(|favorite| favorite.jid.parse::<Jid>().is_ok()),
+            "every entry bound for the phone is one of its own"
+        );
     }
 
     #[tokio::test]
