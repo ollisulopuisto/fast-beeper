@@ -3548,7 +3548,7 @@ mod tests {
             },
             |ui| {
                 super::super::keys::handle(app, ui.ctx());
-                super::super::rail::show(app, ui, true, true);
+                super::super::rail::show(app, ui, true);
             },
         );
         output.textures_delta.clear();
@@ -3721,7 +3721,7 @@ mod tests {
                 },
                 |ui| {
                     if collapsed {
-                        super::super::rail::show(app, ui, true, true);
+                        super::super::rail::show(app, ui, true);
                     } else {
                         show(app, ui);
                     }

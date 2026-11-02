@@ -5574,13 +5574,13 @@ mod tests {
 
     #[test]
     fn carousel_cards_scroll_without_widening_the_chat_and_copy_locally() {
-        // The combined sidebar takes 164 points beside the list: at 1180
-        // even two cards overflow into the carousel's arrows, while the
-        // fits cases need a wider window for the same conversation.
+        // The rail and list take 352 points beside the chat: at 900 two
+        // cards overflow into the carousel's arrows, while the fits cases
+        // need a wider window for the same conversation.
         for (width, cards, fits) in [
             (640.0, 3, false),
             (1180.0, 3, false),
-            (1180.0, 2, false),
+            (900.0, 2, false),
             (1344.0, 2, true),
             (1344.0, 1, true),
         ] {
@@ -18641,11 +18641,12 @@ mod tests {
             .read_response(destination_id(Destination::Settings))
             .unwrap()
             .rect;
-        // The bottom group shares one row: Locked sits left of Settings.
+        // The compact rail stacks the bottom group one plate per row:
+        // Locked joins the centered column directly above Settings.
         assert!(
-            (locked.center().y - settings.center().y).abs() < 0.5
-                && locked.right() <= settings.left(),
-            "Locked shares the bottom row left of Settings: {locked:?} {settings:?}"
+            (locked.center().x - settings.center().x).abs() < 0.5
+                && (settings.top() - locked.bottom() - 4.0).abs() < 0.5,
+            "Locked stacks directly above Settings: {locked:?} {settings:?}"
         );
         let chips: Vec<_> = crate::model::ChatFilter::EVERY
             .into_iter()
@@ -18664,13 +18665,13 @@ mod tests {
                 "filter must fit the sidebar: {rect:?}"
             );
         }
-        // Compact icon row: the filters share one line even at the narrow
-        // default sidebar, matching filter_chips' one-line contract.
-        for rect in &chips {
+        // Compact icon column: one filter per row down the rail's single
+        // centered column, matching filter_chips' stacked contract.
+        for pair in chips.windows(2) {
             assert!(
-                (rect.top() - chips[0].top()).abs() < 0.5,
-                "filters share one row: {rect:?} against {:?}",
-                chips[0]
+                (pair[0].center().x - pair[1].center().x).abs() < 0.5
+                    && pair[1].top() >= pair[0].bottom(),
+                "filters form one centered column, one per row: {pair:?}"
             );
         }
     }
@@ -20892,8 +20893,8 @@ mod long_chat_tests {
             .expect("the message list has drawn")
             .0
         };
-        // Over the list, which starts right of the 216-point sidebar.
-        let over_list = egui::pos2(360.0, 400.0);
+        // Over the list, which starts right of the 52-point rail.
+        let over_list = egui::pos2(200.0, 400.0);
         let over_messages = egui::pos2(700.0, 400.0);
         let settle = |app: &mut App| {
             for _ in 0..90 {
@@ -22244,8 +22245,9 @@ mod rail_tests {
                 assert!(rail.contains_rect(*rect), "{macos}: {rect:?} in {rail:?}");
             }
             assert!(top[0].bottom() <= top[1].top());
-            // The bottom group shares one centered row of plates in
-            // Starred, Archived, Locked, Settings order, 4 points apart.
+            // The compact rail stacks the bottom group one plate per row
+            // in Starred, Archived, Locked, Settings order, 4 points
+            // apart, centered in the rail.
             let bottom: Vec<egui::Rect> = [
                 Destination::Starred,
                 Destination::Archived,
@@ -22257,16 +22259,16 @@ mod rail_tests {
             .map(|destination| destination_rect(&ctx, destination))
             .collect();
             for pair in bottom.windows(2) {
-                let (left, right) = (pair[0], pair[1]);
+                let (above, below) = (pair[0], pair[1]);
                 assert!(
-                    (left.center().y - right.center().y).abs() < 0.5
-                        && (right.left() - left.right() - 4.0).abs() < 0.5,
-                    "{macos}: the bottom row shares a line 4 points apart: {left:?} {right:?}"
+                    (above.center().x - below.center().x).abs() < 0.5
+                        && (below.top() - above.bottom() - 4.0).abs() < 0.5,
+                    "{macos}: the bottom group stacks one plate per row 4 points apart: {above:?} {below:?}"
                 );
             }
             assert!(
-                (rail.width() - bottom.last().unwrap().right() - bottom[0].left()).abs() < 1.0,
-                "{macos}: the bottom row is centered: {bottom:?} in {rail:?}"
+                ((rail.left() + rail.right()) / 2.0 - bottom[0].center().x).abs() < 1.0,
+                "{macos}: the bottom stack is centered: {bottom:?} in {rail:?}"
             );
             assert!(
                 starred.top() > top[1].bottom() + 100.0,
@@ -22591,11 +22593,12 @@ mod rail_tests {
         let settings = destination_rect(&ctx, Destination::Settings);
         let rail = rail_rect(&ctx).unwrap();
         assert!(rail.contains_rect(archived));
-        // The bottom group shares one row: Archived sits left of Settings.
+        // The compact rail stacks the bottom group one plate per row:
+        // Archived shares Settings' centered column above it.
         assert!(
-            (archived.center().y - settings.center().y).abs() < 0.5
-                && archived.right() <= settings.left(),
-            "Archived shares the bottom row left of Settings: {archived:?} {settings:?}"
+            (archived.center().x - settings.center().x).abs() < 0.5
+                && archived.bottom() <= settings.top(),
+            "Archived stacks above Settings in the bottom group: {archived:?} {settings:?}"
         );
         assert!(
             ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("archived-chip")))
