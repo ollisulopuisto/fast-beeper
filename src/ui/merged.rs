@@ -97,44 +97,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let ids: Vec<_> = valid.iter().map(|m| m.chat.clone()).collect();
     app.ensure_person_loaded(&ids);
     let key = egui::Id::new(("linked-person-state", &person.members));
-    let mut state = match ui.ctx().data_mut(|d| d.get_temp::<State>(key)) {
-        Some(state) => state,
-        None => {
-            // Demo captures seed a reply through a real route.
-            #[cfg(feature = "demo")]
-            {
-                let mut state = State::default();
-                if crate::demo::linked_reply() {
-                    let mut latest: Option<(Member, String, i64)> = None;
-                    for member in &valid {
-                        if let Some(conversation) = app.conversations.get(&member.chat) {
-                            for message in &conversation.messages {
-                                if latest
-                                    .as_ref()
-                                    .is_none_or(|(_, _, ts)| message.timestamp > *ts)
-                                {
-                                    latest = Some((
-                                        member.clone(),
-                                        message.id.clone(),
-                                        message.timestamp,
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    if let Some((member, id, _)) = latest {
-                        state.reply = Some((member.clone(), id));
-                        state.destination = Some(member);
+    let mut state = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<State>(key))
+        .unwrap_or_default();
+    // Demo captures seed a reply through a real route.
+    #[cfg(feature = "demo")]
+    if crate::demo::linked_reply() {
+        let mut latest: Option<(Member, String, i64)> = None;
+        for member in &valid {
+            if let Some(conversation) = app.conversations.get(&member.chat) {
+                for message in &conversation.messages {
+                    if latest
+                        .as_ref()
+                        .is_none_or(|(_, _, ts)| message.timestamp > *ts)
+                    {
+                        latest = Some((member.clone(), message.id.clone(), message.timestamp));
                     }
                 }
-                state
-            }
-            #[cfg(not(feature = "demo"))]
-            {
-                State::default()
             }
         }
-    };
+        if let Some((member, id, _)) = latest {
+            state.reply = Some((member.clone(), id));
+            state.destination = Some(member);
+        }
+    }
     if state
         .destination
         .as_ref()
@@ -199,7 +186,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             .x
         + 2.0 * ui.spacing().item_spacing.x;
     let actions_inline = identity_width + actions_width <= ui.available_width();
-    let mut actions = |ui: &mut egui::Ui, app: &mut App, state: &mut State| {
+    let actions = |ui: &mut egui::Ui, app: &mut App, state: &mut State| {
         if ui
             .button("Load older")
             .on_hover_text(format!(
