@@ -3644,3 +3644,15 @@ msgstr ""
 #: src/ui/conversation.rs:10403
 msgid "Transcribe"
 msgstr ""
+
+#: src/ui/conversation.rs
+msgid "Transcription language…"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Transcription language"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Transcribe this voice note in another language, for example \"fi\" or \"en\". Leave empty to use the global transcription language."
+msgstr ""

@@ -3826,6 +3826,18 @@ msgstr "Reproducido"
 msgid "not sent"
 msgstr "Intro envía"
 
+#: src/ui/conversation.rs
+msgid "Transcription language…"
+msgstr "Idioma de transcripción…"
+
+#: src/ui/dialogs.rs
+msgid "Transcription language"
+msgstr "Idioma de transcripción"
+
+#: src/ui/dialogs.rs
+msgid "Transcribe this voice note in another language, for example \"fi\" or \"en\". Leave empty to use the global transcription language."
+msgstr "Transcribe esta nota de voz en otro idioma, por ejemplo \"fi\" o \"en\". Déjalo vacío para usar el idioma de transcripción global."
+
 #~ msgid "Back to the chats"
 #~ msgstr "Volver a los chats"
 

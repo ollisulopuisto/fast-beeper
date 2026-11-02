@@ -3643,6 +3643,16 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "voice" => voice_sample(app),
             "transcript" => transcript_sample(app),
+            "transcription-language" => {
+                // The per-message language dialog over the fixture voice
+                // note, with an override typed in.
+                let chat = app.open_chat.clone().unwrap_or_default();
+                app.transcription_language_draft = "fi".into();
+                app.dialog = Some(Dialog::TranscriptionLanguage {
+                    chat,
+                    message: "ada-voice".to_string(),
+                });
+            }
             "recording" => app.recording = Some(crate::audio::Recorder::rehearsal()),
             // Shows the native image preview over the demo chat.
             "preview" => {
@@ -6168,6 +6178,48 @@ mod tests {
                     && line.ends_with("demo-voice.ogg")),
             "the retry requeues the same note: {recorded:?}"
         );
+    }
+
+    /// The per-message language dialog: typing a language and pressing
+    /// Enter saves the override the note's next job will carry.
+    #[test]
+    fn the_language_dialog_saves_a_per_message_override() {
+        let mut app = app();
+        apply_flags(&mut app, Some("voice"));
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let chat = app.open_chat.clone().unwrap_or_default();
+        app.dialog = Some(crate::model::Dialog::TranscriptionLanguage {
+            chat: chat.clone(),
+            message: "ada-voice".into(),
+        });
+        // The empty field takes focus on an early frame; typed text then
+        // lands in it and Enter submits.
+        frame_with(&mut app, &ctx, vec![]);
+        frame_with(&mut app, &ctx, vec![]);
+        frame_with(&mut app, &ctx, vec![egui::Event::Text("sv".into())]);
+        frame_with(&mut app, &ctx, vec![]);
+        frame_with(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        frame_with(&mut app, &ctx, vec![]);
+        let account = app.account().id.0.clone();
+        assert_eq!(
+            app.settings.transcription_language_overrides.get(
+                &crate::settings::transcription_language_key(&account, &chat, "ada-voice",)
+            ),
+            Some(&"sv".to_owned()),
+            "Enter in the dialog saves the note's own language"
+        );
+        assert!(app.dialog.is_none(), "saving closes the dialog");
     }
 
     #[test]

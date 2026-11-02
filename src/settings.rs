@@ -435,6 +435,10 @@ pub struct Settings {
     /// Global transcription language ("fi", "en", ...); empty = auto-detect.
     #[serde(default)]
     pub transcription_language: String,
+    /// Per-message transcription language overrides, keyed by
+    /// [transcription_language_key]; a missing key uses the global language.
+    #[serde(default)]
+    pub transcription_language_overrides: std::collections::BTreeMap<String, String>,
     pub theme: ThemeChoice,
     /// Whether a `"system"` theme is really Messages. The file says
     /// `"system"` for Messages, which releases before it read as Follow
@@ -588,6 +592,12 @@ pub struct Settings {
     pub window_maximized: bool,
 }
 
+/// The per-message override key: account, chat, and message, tab-joined so
+/// no id can smuggle a boundary between them.
+pub fn transcription_language_key(account: &str, chat: &str, message: &str) -> String {
+    format!("{account}\t{chat}\t{message}")
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -595,6 +605,7 @@ impl Default for Settings {
             scheduler_url: default_scheduler_url(),
             transcription_wyoming: String::new(),
             transcription_language: String::new(),
+            transcription_language_overrides: std::collections::BTreeMap::new(),
             theme: ThemeChoice::System,
             messages_theme: false,
             font: FontChoice::System,

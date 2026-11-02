@@ -6211,6 +6211,7 @@ fn message_menu_labels(locale: crate::i18n::Locale) -> Vec<String> {
         gettext(locale, "Unpin message"),
         gettext(locale, "Forward"),
         gettext(locale, "Open in the viewer"),
+        gettext(locale, "Transcription language…"),
         gettext(locale, "Select"),
         gettext(locale, "Copy text"),
         gettext(locale, "Edit"),
@@ -6670,6 +6671,25 @@ fn context_menu(
             message: message.id.clone(),
             card: None,
         });
+    }
+    // A voice note can be transcribed in a language of its own instead of
+    // the global transcription language.
+    if matches!(
+        message.content,
+        Content::Audio {
+            voice_note: true,
+            ..
+        }
+    ) && widgets::menu_item(
+        ui,
+        &palette,
+        Some(Icon::Mic),
+        &crate::i18n::gettext(view.locale, "Transcription language…"),
+    ) {
+        actions.push(Action::ShowDialog(Dialog::TranscriptionLanguage {
+            chat: chat.clone(),
+            message: message.id.clone(),
+        }));
     }
     if crate::app::can_select(&message.content)
         && widgets::menu_item(
@@ -12108,6 +12128,12 @@ mod reaction_tests {
                 seconds: None,
                 gif: false,
                 note: false,
+            }),
+            row(Content::Audio {
+                media: media("audio/ogg", path.clone(), Idle),
+                seconds: Some(3),
+                voice_note: true,
+                waveform: Vec::new(),
             }),
             row(Content::Sticker {
                 media: media("image/webp", path, Idle),

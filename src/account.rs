@@ -91,6 +91,8 @@ pub struct Account {
     /// its group and opens nothing.
     pub(crate) new_group_request: Option<u64>,
     pub pair_phone: String,
+    /// Draft in the per-message transcription language dialog.
+    pub transcription_language_draft: String,
     /// Send Later dialog draft: custom date (YYYY-MM-DD) and time (HH:MM),
     /// plus a validation error to show. Prefilled when the dialog opens.
     pub send_later_date: String,
@@ -224,6 +226,7 @@ impl Account {
             new_group_sequence: 0,
             new_group_request: None,
             pair_phone: String::new(),
+            transcription_language_draft: String::new(),
             send_later_date: String::new(),
             send_later_time: String::new(),
             send_later_error: None,

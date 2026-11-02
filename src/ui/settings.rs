@@ -515,6 +515,9 @@ fn sections(app: &App) -> Vec<Section> {
             && let Some(worker) = &app.transcriber
         {
             worker.clear();
+            // The per-message language overrides belong to the transcripts.
+            app.settings.transcription_language_overrides.clear();
+            app.actions.push(Action::SettingsChanged);
         }
     });
 
