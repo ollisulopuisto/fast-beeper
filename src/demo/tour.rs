@@ -181,6 +181,8 @@ fn show_photos(app: &mut App, photo: super::stock::Photo, caption: &str) {
 enum Target {
     Label(&'static str),
     Widget(&'static str),
+    /// A label chip in the rail: a colored dot without text, by label id.
+    LabelChip(&'static str),
     Bubble(&'static str),
     /// Inside a bubble's lower corner, in its margin, clear of the text and
     /// media that take clicks for themselves.
@@ -524,6 +526,9 @@ impl Tour {
             Target::Widget(id) => ctx
                 .read_response(egui::Id::new(id))
                 .map(|r| r.rect.center()),
+            Target::LabelChip(id) => ctx
+                .data(|d| d.get_temp::<Rect>(crate::ui::labels::chip_id(id)))
+                .map(|rect| rect.center()),
             Target::Bubble(message) => Self::bubble(app, ctx, message).map(|rect| rect.center()),
             Target::BubbleCorner(message) => {
                 let rect = Self::bubble(app, ctx, message)?;
