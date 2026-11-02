@@ -2187,7 +2187,9 @@ mod tests {
         );
         // A focused text field keeps the digit: no filter change.
         app.actions.clear();
-        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("composer-text")));
+        let field = egui::Id::new("composer-text");
+        egui::widgets::text_edit::TextEditState::default().store(&ctx, field);
+        ctx.memory_mut(|memory| memory.request_focus(field));
         assert!(press(&mut app, &ctx, Key::Num2, Modifiers::ALT));
         assert!(app.actions.is_empty(), "{:?}", app.actions);
     }

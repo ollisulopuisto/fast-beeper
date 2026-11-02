@@ -2392,7 +2392,10 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let painted = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let collect = std::rc::Rc::clone(&painted);
         let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let collect = std::rc::Rc::clone(&collect);
             let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
@@ -2402,7 +2405,24 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ui| show(app, ui),
+                |ui| {
+                    show(app, ui);
+                    // Read the shapes inside the pass: the context drains
+                    // them when run_ui returns.
+                    collect.borrow_mut().clear();
+                    let ctx = ui.ctx();
+                    for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
+                        ctx.graphics(|graphics| {
+                            if let Some(list) = graphics.get(layer) {
+                                for clipped in list.all_entries() {
+                                    if let egui::Shape::Text(text) = &clipped.shape {
+                                        collect.borrow_mut().push(text.galley.text().to_owned());
+                                    }
+                                }
+                            }
+                        });
+                    }
+                },
             );
             output.textures_delta.clear();
         };
@@ -2425,20 +2445,10 @@ mod tests {
         };
         frame(&mut app, vec![]);
         let combo = rect_of("Conversation theme").unwrap_or_else(|| {
-            // The rect is missing: say what the page painted instead.
-            let mut texts = Vec::new();
-            for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
-                ctx.graphics(|graphics| {
-                    if let Some(list) = graphics.get(layer) {
-                        for clipped in list.all_entries() {
-                            if let egui::Shape::Text(text) = &clipped.shape {
-                                texts.push(text.galley.text().to_owned());
-                            }
-                        }
-                    }
-                });
-            }
-            panic!("the theme combo registers its rect; painted: {texts:?}");
+            panic!(
+                "the theme combo registers its rect; painted: {:?}",
+                painted.borrow()
+            )
         });
         frame(&mut app, click(combo.center()));
         frame(&mut app, vec![]);

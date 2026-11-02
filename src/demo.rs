@@ -6605,7 +6605,18 @@ mod tests {
         ctx.enable_accesskit();
         let root = egui::accesskit_root_id().accesskit_id();
         let first = app.open_chat.clone().unwrap();
-        let second = app.visible_chats()[1].id.clone();
+        // Command+2 opens the favorites bar's second chat; pinned chats
+        // (the open one) never reach the bar, so favorite the first two
+        // eligible chats.
+        let bar: Vec<String> = app
+            .visible_chats()
+            .iter()
+            .filter(|chat| !chat.is_channel() && !chat.locked && !chat.archived && !chat.pinned)
+            .take(2)
+            .map(|chat| chat.id.clone())
+            .collect();
+        favorite_first(&mut app, &bar);
+        let second = bar[1].clone();
         let mut lists_seen = 0;
         // From the first frame, whose passes lay the list out hidden once,
         // then on to another chat.
@@ -17927,24 +17938,26 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
-        let original = app.open_chat.clone().unwrap();
-        assert_eq!(app.visible_chats()[0].id, original);
+        // Command+digit jumps by the favorites bar's order, which skips
+        // pinned chats (the open one is pinned): favorite the first two
+        // eligible chats and open the first.
+        let bar: Vec<String> = app
+            .visible_chats()
+            .iter()
+            .filter(|chat| !chat.is_channel() && !chat.locked && !chat.archived && !chat.pinned)
+            .take(2)
+            .map(|chat| chat.id.clone())
+            .collect();
+        favorite_first(&mut app, &bar);
+        let original = bar[0].clone();
+        app.actions.push(Action::OpenChat(original.clone()));
+        render(&mut app, &ctx);
         frame_with(
             &mut app,
             &ctx,
             vec![egui::Event::Text("unsent draft".into())],
         );
-        // Command+digit jumps by the favorites bar's order; favorite the
-        // list's first two chats so Command+1 and Command+2 keep meaning
-        // them.
-        let first_two: Vec<String> = app
-            .visible_chats()
-            .iter()
-            .take(2)
-            .map(|chat| chat.id.clone())
-            .collect();
-        favorite_first(&mut app, &first_two);
-        let target = first_two[1].clone();
+        let target = bar[1].clone();
         assert_ne!(target, original);
         frame_with(
             &mut app,
@@ -18296,7 +18309,12 @@ mod tests {
             .read_response(destination_id(Destination::Settings))
             .unwrap()
             .rect;
-        assert!(locked.bottom() <= settings.top());
+        // The bottom group shares one row: Locked sits left of Settings.
+        assert!(
+            (locked.center().y - settings.center().y).abs() < 0.5
+                && locked.right() <= settings.left(),
+            "Locked shares the bottom row left of Settings: {locked:?} {settings:?}"
+        );
         let chips: Vec<_> = crate::model::ChatFilter::EVERY
             .into_iter()
             .map(|filter| {
@@ -21883,9 +21901,7 @@ mod rail_tests {
             let top = [Destination::Chats, Destination::Calls]
                 .map(|destination| destination_rect(&ctx, destination));
             let starred = destination_rect(&ctx, Destination::Starred);
-            let shown_starred = starred;
             let settings = destination_rect(&ctx, Destination::Settings);
-            let shown_settings = settings;
             let me = stop_rect(&ctx, Stop::Profile).expect("our avatar is drawn");
             for rect in top.iter().chain([&starred, &settings, &me]) {
                 assert!(rail.contains_rect(*rect), "{macos}: {rect:?} in {rail:?}");
@@ -21958,11 +21974,16 @@ mod rail_tests {
             let calls = destination_rect(&ctx, Destination::Calls);
             let show = stop_rect(&ctx, Stop::Sidebar).expect("Show the chat list");
             assert!(rail.contains_rect(show) && show.top() >= calls.bottom());
-            // Nothing the list's toggle leaves in place moves.
+            // The top group is anchored; the bottom row recenters in the
+            // narrower rail, one centered plate per row.
             assert_eq!(chats, top[0], "{macos}: Chats stays put");
             assert_eq!(calls, top[1], "{macos}: Calls stays put");
-            assert_eq!(starred, shown_starred, "{macos}: Starred stays put");
-            assert_eq!(settings, shown_settings, "{macos}: Settings stays put");
+            for rect in [starred, settings] {
+                assert!(
+                    (rail.width() - rect.right() - rect.left()).abs() < 1.0,
+                    "{macos}: the bottom plates center in the rail: {rect:?} in {rail:?}"
+                );
+            }
             let first = app.visible_chats()[0].id.clone();
             let avatar = recorded(&ctx, crate::ui::chats::compact_chat_id(&first))
                 .expect("the chats' avatars fill the rail");
