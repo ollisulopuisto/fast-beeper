@@ -2089,7 +2089,7 @@ fn linked_sample(app: &mut App) {
     sg.backend_account = Some("signal".into());
     sg.last = None;
     // Two Signal-side messages so the timeline visibly mixes sources.
-    let mut history = crate::model::Conversation::default();
+    let mut history = crate::app::Conversation::default();
     for (index, text) in ["on Signal instead", "same person, other network"]
         .into_iter()
         .enumerate()
