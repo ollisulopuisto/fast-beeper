@@ -157,6 +157,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// Breathing room at a linked timeline's sides, in every window state:
+/// bubbles and day labels never touch the window or the chat list's edge.
+/// Ordinary conversations keep their own side margins.
+pub(crate) const TIMELINE_SIDE: f32 = 16.0;
+
 /// Height of the pinned-message line under the header. It is one line
 /// whatever the number of pins, as on WhatsApp: it shows one pin at a time.
 const PIN_ROW_HEIGHT: f32 = 44.0;
@@ -1375,13 +1380,23 @@ fn mention_picker(app: &mut App, ui: &mut egui::Ui, chat: &Chat, field: egui::Id
 
 /// Draws the composer and queues sends with the originating account and selected mentions.
 pub(crate) fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
-    composer_with_capabilities(app, ui, chat, true);
+    composer_with_capabilities(app, ui, chat, true, None);
 }
+
+/// Extra controls at the composer's right end, before Send: the linked
+/// view's destination and scheduling, measured ahead so the text field
+/// yields exactly their width.
+pub(crate) struct ComposerExtras<'a> {
+    pub width: f32,
+    pub render: &'a mut dyn FnMut(&mut App, &mut egui::Ui),
+}
+
 pub(crate) fn composer_with_capabilities(
     app: &mut App,
     ui: &mut egui::Ui,
     chat: &Chat,
     attachments: bool,
+    mut send_extras: Option<ComposerExtras>,
 ) {
     let palette = app.conversation_palette();
     let shown = egui::Panel::bottom("composer")
@@ -1600,6 +1615,10 @@ pub(crate) fn composer_with_capabilities(
             let view_once = app.editing.is_none()
                 && (app.pending_supports_view_once() || app.pending_view_once);
             let view_once_width = if view_once { COMPOSER_CONTROL + ui.spacing().item_spacing.x } else { 0.0 };
+            let extras_width = send_extras
+                .as_ref()
+                .map(|extras| extras.width + ui.spacing().item_spacing.x)
+                .unwrap_or(0.0);
             let field_margin = ((line - line_height) / 2.0).round().max(0.0);
             // Measure this frame's draft at the text column's width, so the
             // field and the panel holding it grow on the keystroke that wraps
@@ -1672,7 +1691,7 @@ pub(crate) fn composer_with_capabilities(
                 }
                 // The send button closes the row, flush with the field's end.
                 let field_width =
-                    (ui.available_width() - button_width - view_once_width - ui.spacing().item_spacing.x).max(0.0);
+                    (ui.available_width() - button_width - view_once_width - extras_width - ui.spacing().item_spacing.x).max(0.0);
                 // The ink is centred on the controls, not the line box: the
                 // span from a capital's top to a descender's bottom sits as far
                 // from the field's top as from its bottom. Inter's box leaves
@@ -1872,6 +1891,9 @@ pub(crate) fn composer_with_capabilities(
                         ui.add_space(bottom);
                         });
                     });
+                if let Some(extras) = send_extras.as_mut() {
+                    last_line(ui, line, |ui| (extras.render)(app, ui));
+                }
                 if view_once
                     && last_line(ui, line, |ui| view_once_button(app, ui))
                         .tab_stop(Stop::ViewOnce)
@@ -6323,7 +6345,9 @@ pub(crate) fn list_menu(
 
 /// Same initial height heuristic used by the ordinary transcript, plus linked source/reply rows.
 pub(crate) fn linked_estimated_height(message: &Message, width: f32) -> f32 {
-    estimated_height(message, width, false, 0) + 22.0
+    // The network icon rides the bubble's row; only the rare day header
+    // adds a line, and the height cache absorbs it.
+    estimated_height(message, width, false, 0) + 8.0
 }
 /// Linked timelines use the very same bubble/media renderer as ordinary chats.
 pub(crate) fn linked_bubble(

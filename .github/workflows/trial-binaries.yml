@@ -190,6 +190,9 @@ jobs:
           shot chat-linked-dark-1180x780 1180x780 chat,linked,theme=Catppuccin.json
           # A chosen primary: the composer is live, "Sending via" shows.
           shot chat-linked-primary-1180x780 1180x780 chat,linked,linked-primary
+          shot chat-linked-primary-info-1180x780 1180x780 chat,linked,linked-primary,info
+          shot chat-linked-primary-dark-1180x780 1180x780 chat,linked,linked-primary,theme=Catppuccin.json
+          shot chat-linked-reply-dark-1180x780 1180x780 chat,linked,linked-reply,theme=Catppuccin.json
           # A reply routed through a real message: the quote above the composer.
           shot chat-linked-reply-1180x780 1180x780 chat,linked,linked-reply
           # Contact info's link picker mid-search with a checked candidate.
