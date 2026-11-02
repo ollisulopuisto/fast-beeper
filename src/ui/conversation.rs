@@ -4812,13 +4812,21 @@ fn speed_pill(
 ) -> egui::Response {
     let palette = view.palette;
     let label = crate::audio::speed_label(speed);
+    // A literal msgid per speed: the menu tests match exact pot entries.
+    let a11y = match label.as_str() {
+        "1x" => crate::i18n::gettext(view.locale, "Playback speed 1x"),
+        "1.25x" => crate::i18n::gettext(view.locale, "Playback speed 1.25x"),
+        "1.5x" => crate::i18n::gettext(view.locale, "Playback speed 1.5x"),
+        "1.75x" => crate::i18n::gettext(view.locale, "Playback speed 1.75x"),
+        _ => crate::i18n::gettext(view.locale, "Playback speed 2x"),
+    };
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::Button,
             ui.is_enabled(),
             active,
-            format!("Playback speed {label}"),
+            a11y.to_string(),
         )
     });
     theme::reveal_focus(&response);
@@ -6212,6 +6220,11 @@ fn message_menu_labels(locale: crate::i18n::Locale) -> Vec<String> {
         gettext(locale, "Forward"),
         gettext(locale, "Open in the viewer"),
         gettext(locale, "Transcription language…"),
+        gettext(locale, "Playback speed 1x"),
+        gettext(locale, "Playback speed 1.25x"),
+        gettext(locale, "Playback speed 1.5x"),
+        gettext(locale, "Playback speed 1.75x"),
+        gettext(locale, "Playback speed 2x"),
         gettext(locale, "Select"),
         gettext(locale, "Copy text"),
         gettext(locale, "Edit"),
@@ -12129,6 +12142,12 @@ mod reaction_tests {
                 gif: false,
                 note: false,
             }),
+            row(Content::Audio {
+                media: media("audio/ogg", path.clone(), Idle),
+                seconds: Some(3),
+                voice_note: true,
+                waveform: Vec::new(),
+            }),
             row(Content::Sticker {
                 media: media("image/webp", path, Idle),
                 animated: false,
@@ -12192,7 +12211,7 @@ mod reaction_tests {
             .map(String::as_str)
             .filter(|label| !labels.iter().any(|drawn| drawn == label))
             .collect();
-        assert_eq!(undrawn, ["Reply privately", "Transcription language…"]);
+        assert_eq!(undrawn, ["Reply privately"]);
         // Hover texts are not in the accessibility tree.
         labels.extend(["React with any emoji".into(), "Remove your reaction".into()]);
         labels.sort();

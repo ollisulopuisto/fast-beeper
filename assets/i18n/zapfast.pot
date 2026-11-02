@@ -3656,3 +3656,23 @@ msgstr ""
 #: src/ui/dialogs.rs
 msgid "Transcribe this voice note in another language, for example \"fi\" or \"en\". Leave empty to use the global transcription language."
 msgstr ""
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1x"
+msgstr ""
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1.25x"
+msgstr ""
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1.5x"
+msgstr ""
+
+#: src/ui/conversation.rs
+msgid "Playback speed 1.75x"
+msgstr ""
+
+#: src/ui/conversation.rs
+msgid "Playback speed 2x"
+msgstr ""
