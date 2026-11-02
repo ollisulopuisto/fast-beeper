@@ -2283,10 +2283,38 @@ impl Worker {
         });
     }
 
+    /// The file of this name in the media cache, if the attachment has one.
+    fn cached_copy(&self, path: &Path) -> Option<PathBuf> {
+        let name = path.file_name()?;
+        Some(self.dirs.media_cache_dir().join(name)).filter(|copy| copy.exists())
+    }
+
+    /// Mends one attachment the reader failed to open, as `relocate_media`
+    /// does for all of them at startup. Only the file the archive still names
+    /// counts, and only if it is really gone: a newer download stays.
+    fn attachment_missing(&mut self, chat: &str, id: &str, card: Option<usize>, path: &Path) {
+        if !self.privacy_ready
+            || !matches!(path.try_exists(), Ok(false))
+            || !matches!(
+                self.archive.message(chat, id),
+                Ok(Some(row)) if row.content.place_of_file(path) == Some(card)
+            )
+        {
+            return;
+        }
+        let copy = self.cached_copy(path);
+        if matches!(
+            self.archive
+                .put_media_path_at(chat, id, card, copy.as_deref()),
+            Ok(Some(_))
+        ) {
+            self.emit_message(chat, id);
+        }
+    }
+
     /// Re-derives archived rows from raw protobufs after parser changes. Also
     /// repairs moved attachment paths or clears missing files for redownload.
     fn relocate_media(&mut self) {
-        let dir = self.dirs.media_cache_dir();
         let rows = match self.archive.media_paths().and_then(|rows| {
             let mut all: Vec<_> = rows
                 .into_iter()
@@ -2317,8 +2345,7 @@ impl Worker {
             if path.exists() {
                 continue;
             }
-            let candidate = path.file_name().map(|name| dir.join(name));
-            match candidate.filter(|candidate| candidate.exists()) {
+            match self.cached_copy(&path) {
                 Some(candidate) => {
                     if self
                         .archive
@@ -2342,7 +2369,7 @@ impl Worker {
         if moved + forgotten > 0 {
             log::info!(
                 "attachments: {moved} re-pointed to {}, {forgotten} to fetch again",
-                dir.display()
+                self.dirs.media_cache_dir().display()
             );
         }
     }
@@ -7136,6 +7163,12 @@ impl Worker {
                     waker.wake();
                 });
             }
+            Command::AttachmentMissing {
+                chat,
+                message,
+                card,
+                path,
+            } => self.attachment_missing(&chat, &message, card, &path),
             Command::OpenLog(path) => {
                 let events = self.events.clone();
                 let waker = self.waker.clone();
@@ -23441,6 +23474,84 @@ mod chat_removal_tests {
             })
             .await;
         assert!(worker.archive.pinned_ids(CHAT, 200).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod missing_attachment_tests {
+    use super::*;
+
+    fn stored(worker: &Worker, path: &Path) -> Message {
+        let mut row = receipt_tests::own_message("file", 100);
+        row.edited = true;
+        let mut attachment = media(None, None, None, None);
+        attachment.path = Some(path.to_owned());
+        row.content = Content::Image {
+            motion: None,
+            caption: None,
+            media: attachment,
+        };
+        worker.archive.insert_message(&row, Some(b"keys")).unwrap();
+        row
+    }
+
+    fn path_of(worker: &Worker, row: &Message) -> Option<PathBuf> {
+        let row = worker.archive.message(&row.chat, &row.id).unwrap().unwrap();
+        row.content.media().unwrap().path.clone()
+    }
+
+    #[test]
+    fn a_failed_open_gives_the_message_its_download_back() {
+        let (mut worker, events, _, _) = receipt_tests::worker();
+        worker.privacy_ready = true;
+        let cache = worker.dirs.media_cache_dir();
+        std::fs::create_dir_all(&cache).unwrap();
+        let gone = cache.join("gone.jpg");
+        let row = stored(&worker, &gone);
+        worker.attachment_missing(&row.chat, &row.id, None, &gone);
+        assert_eq!(path_of(&worker, &row), None);
+        let kept = worker.archive.message(&row.chat, &row.id).unwrap().unwrap();
+        assert!(kept.edited, "the rest of the message stays");
+        assert_eq!(
+            worker.archive.raw(&row.chat, &row.id).unwrap().as_deref(),
+            Some(b"keys".as_slice()),
+            "and the keys to fetch it again"
+        );
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::MessageUpdated(_)))
+        );
+    }
+
+    #[test]
+    fn a_failed_open_repoints_a_moved_file() {
+        let (mut worker, _, _, _) = receipt_tests::worker();
+        worker.privacy_ready = true;
+        let cache = worker.dirs.media_cache_dir();
+        std::fs::create_dir_all(&cache).unwrap();
+        let copy = cache.join("moved.jpg");
+        std::fs::write(&copy, b"jpeg").unwrap();
+        let gone = cache.join("old").join("moved.jpg");
+        let row = stored(&worker, &gone);
+        worker.attachment_missing(&row.chat, &row.id, None, &gone);
+        assert_eq!(path_of(&worker, &row), Some(copy));
+    }
+
+    #[test]
+    fn only_the_file_still_named_and_really_gone_counts() {
+        let (mut worker, _, _, _) = receipt_tests::worker();
+        worker.privacy_ready = true;
+        let cache = worker.dirs.media_cache_dir();
+        std::fs::create_dir_all(&cache).unwrap();
+        let newer = cache.join("newer.jpg");
+        std::fs::write(&newer, b"jpeg").unwrap();
+        let row = stored(&worker, &newer);
+        worker.attachment_missing(&row.chat, &row.id, None, &newer);
+        assert_eq!(path_of(&worker, &row).as_ref(), Some(&newer), "it exists");
+        let other = cache.join("other.jpg");
+        worker.attachment_missing(&row.chat, &row.id, None, &other);
+        assert_eq!(path_of(&worker, &row), Some(newer), "another file");
     }
 }
 

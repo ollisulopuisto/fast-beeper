@@ -708,6 +708,14 @@ pub enum Command {
         source: std::path::PathBuf,
         name: String,
     },
+    /// The reader tried to open this message's attachment and its file is
+    /// gone: finds it again or lets it download again.
+    AttachmentMissing {
+        chat: ChatId,
+        message: String,
+        card: Option<usize>,
+        path: PathBuf,
+    },
     /// Opens the log, or shows it in its folder, off the interface thread;
     /// only a failure reports back.
     OpenLog(PathBuf),
