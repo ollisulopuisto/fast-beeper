@@ -642,10 +642,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             let icon = crate::theme::network_icon(network_label(&source_chat));
                             let network_chip = |ui: &mut egui::Ui| {
                                 let (rect, response) = ui.allocate_exact_size(
-                                    egui::Vec2::splat(16.0),
+                                    egui::Vec2::splat(20.0),
                                     egui::Sense::hover(),
                                 );
-                                crate::theme::paint_icon(ui, icon, rect, 16.0, tint);
+                                crate::theme::paint_icon(ui, icon, rect, 20.0, tint);
                                 response.on_hover_text(&meta);
                             };
                             let before = actions.len();
@@ -657,7 +657,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                 // first, so the full-width bubble cannot
                                 // crowd it past the edge.
                                 let bubble_width = if message.from_me {
-                                    (ui.available_width() - 16.0 - ui.spacing().item_spacing.x)
+                                    (ui.available_width() - 20.0 - ui.spacing().item_spacing.x)
                                         .max(0.0)
                                 } else {
                                     ui.available_width()
