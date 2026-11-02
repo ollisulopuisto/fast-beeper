@@ -165,40 +165,39 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     // below when they would collide, as in the squeezed info layout. The
     // right_to_left block cannot wrap, so measure instead of hoping.
     let tail = format!("{} linked chats · local only", valid.len());
+    let painter = ui.painter();
     let actions_width = ["Load older", "Search"]
         .iter()
         .map(|label| {
-            ui.fonts(|fonts| {
-                fonts
-                    .layout_no_wrap(
-                        (*label).to_owned(),
-                        egui::TextStyle::Button.resolve(ui.style()),
-                        egui::Color32::WHITE,
-                    )
-                    .size()
-                    .x
-            }) + 2.0 * ui.spacing().button_padding.x
-        })
-        .sum::<f32>()
-        + ui.spacing().item_spacing.x;
-    let identity_width = ui.fonts(|fonts| {
-        fonts
-            .layout_no_wrap(
-                person.name.clone(),
-                egui::TextStyle::Heading.resolve(ui.style()),
-                egui::Color32::WHITE,
-            )
-            .size()
-            .x
-            + fonts
+            painter
                 .layout_no_wrap(
-                    tail.clone(),
-                    egui::TextStyle::Body.resolve(ui.style()),
+                    (*label).to_owned(),
+                    egui::TextStyle::Button.resolve(ui.style()),
                     egui::Color32::WHITE,
                 )
                 .size()
                 .x
-    }) + 2.0 * ui.spacing().item_spacing.x;
+                + 2.0 * ui.spacing().button_padding.x
+        })
+        .sum::<f32>()
+        + ui.spacing().item_spacing.x;
+    let identity_width = painter
+        .layout_no_wrap(
+            person.name.clone(),
+            egui::TextStyle::Heading.resolve(ui.style()),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x
+        + painter
+            .layout_no_wrap(
+                tail.clone(),
+                egui::TextStyle::Body.resolve(ui.style()),
+                egui::Color32::WHITE,
+            )
+            .size()
+            .x
+        + 2.0 * ui.spacing().item_spacing.x;
     let actions_inline = identity_width + actions_width <= ui.available_width();
     let mut actions = |ui: &mut egui::Ui, app: &mut App, state: &mut State| {
         if ui
