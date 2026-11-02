@@ -2115,6 +2115,29 @@ impl App {
         if palette.vibrant() {
             color = palette.vibrant_chat(color);
         }
+        // Without an account background override, tint the open chat's
+        // background toward its network so the service reads at a glance.
+        // A linked person's timeline mixes networks, so one network's hue
+        // would mislabel it; unknown networks keep the plain pick.
+        if account_pick.is_none()
+            && let Some(chat) = self.current_chat()
+        {
+            let linked = crate::merged::Member::of(chat).is_some_and(|member| {
+                self.settings
+                    .beeper
+                    .people
+                    .iter()
+                    .any(|person| person.members.contains(&member))
+            });
+            if !linked
+                && let Some(tint) = chat
+                    .backend_network
+                    .as_deref()
+                    .and_then(crate::theme::network_tint)
+            {
+                color = crate::theme::tinted(color, tint);
+            }
+        }
         crate::wallpaper::Look {
             color,
             // Messages draws its conversations on a plain background.
@@ -26136,6 +26159,103 @@ mod account_background_tests {
         assert_eq!(
             app.wallpaper().color,
             WallpaperColor::Cruise.color32(&app.palette)
+        );
+    }
+}
+
+/// Per-network conversation tint: without an account background override,
+/// the open chat's network subtly hues the background; overrides and
+/// linked-person timelines keep the plain pick.
+#[cfg(test)]
+mod network_tint_tests {
+    use super::*;
+    use crate::settings::WallpaperColor;
+
+    fn app() -> App {
+        let root = std::env::temp_dir().join(format!("zapfast-nettint-{}", std::process::id()));
+        App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    fn whatsapp_chat() -> Chat {
+        Chat {
+            backend_account: Some("wa".into()),
+            backend_origin: Some("beeper".into()),
+            backend_network: Some("WhatsApp".into()),
+            ..Chat::new("ada@s.whatsapp.net".into(), "Ada".into())
+        }
+    }
+
+    #[test]
+    fn a_known_network_tints_the_background_at_a_subtle_strength() {
+        let mut app = app();
+        let chat = whatsapp_chat();
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        app.palette.dark = false;
+        app.settings.wallpaper_color = WallpaperColor::Beige;
+        let base = WallpaperColor::Beige.color32(&app.palette);
+        let tinted = crate::theme::tinted(base, crate::theme::network_tint("WhatsApp").unwrap());
+        assert_eq!(app.wallpaper().color, tinted);
+        assert_ne!(app.wallpaper().color, base, "the tint is visible");
+    }
+
+    #[test]
+    fn an_account_background_override_wins_over_the_network_tint() {
+        let mut app = app();
+        let chat = whatsapp_chat();
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        app.palette.dark = false;
+        app.settings
+            .beeper
+            .accounts
+            .entry("wa".into())
+            .or_default()
+            .background = Some(WallpaperColor::Tangaroa);
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Tangaroa.color32(&app.palette),
+            "the account's own background is not tinted"
+        );
+    }
+
+    #[test]
+    fn a_linked_persons_mixed_timeline_is_not_tinted() {
+        let mut app = app();
+        let chat = whatsapp_chat();
+        let member = crate::merged::Member::of(&chat).unwrap();
+        app.settings.beeper.people.push(crate::merged::Person {
+            name: "Ada".into(),
+            members: vec![member],
+            primary: None,
+        });
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        app.palette.dark = false;
+        app.settings.wallpaper_color = WallpaperColor::Beige;
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Beige.color32(&app.palette),
+            "one timeline spans networks, so no single network hues it"
+        );
+    }
+
+    #[test]
+    fn an_unknown_network_keeps_the_plain_pick() {
+        let mut app = app();
+        let chat = Chat {
+            backend_account: Some("irc".into()),
+            backend_origin: Some("beeper".into()),
+            backend_network: Some("IRC".into()),
+            ..Chat::new("ada@s.whatsapp.net".into(), "Ada".into())
+        };
+        app.open_chat = Some(chat.id.clone());
+        app.chats = vec![chat];
+        app.palette.dark = false;
+        app.settings.wallpaper_color = WallpaperColor::Beige;
+        assert_eq!(
+            app.wallpaper().color,
+            WallpaperColor::Beige.color32(&app.palette)
         );
     }
 }
