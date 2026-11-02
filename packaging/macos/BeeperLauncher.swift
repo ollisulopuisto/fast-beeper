@@ -152,14 +152,18 @@ func launch(_ connection: Connection) throws {
 
     // Runs a script on the Server Mac over the existing SSH trust. The
     // script travels as one argument; only file payloads travel on stdin.
-    func remote(_ connection: Connection, _ script: String, stdin: Data? = nil) -> (Int32, Data) {
+    // stderr comes back too: without it a remote failure is a silent "did
+    // not finish" with no way to tell which command the Server Mac refused.
+    func remote(_ connection: Connection, _ script: String, stdin: Data? = nil) -> (Int32, Data, Data) {
         let process = ssh(connection, extra: [])
         process.arguments! += ["set -e\n" + script]
         let out = Pipe()
+        let err = Pipe()
         process.standardOutput = out
+        process.standardError = err
         let input = stdin.map { _ in Pipe() }
         if let input { process.standardInput = input }
-        guard (try? process.run()) != nil else { return (-1, Data()) }
+        guard (try? process.run()) != nil else { return (-1, Data(), Data()) }
         let timeout = DispatchWorkItem { stop(process) }
         DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
         if let input, let stdin {
@@ -167,9 +171,10 @@ func launch(_ connection: Connection) throws {
             try? input.fileHandleForWriting.close()
         }
         let data = out.fileHandleForReading.readDataToEndOfFile()
+        let errData = err.fileHandleForReading.readDataToEndOfFile()
         timeout.cancel()
         process.waitUntilExit()
-        return (process.terminationStatus, data)
+        return (process.terminationStatus, data, errData)
     }
 
     // Mirrors contrib/send-later/install_macos.sh over SSH: bundled daemon,
@@ -215,6 +220,7 @@ func launch(_ connection: Connection) throws {
         let service = remote(connection, """
         APP_SUPPORT="$HOME/Library/Application Support/zapfast"
         PLIST="$HOME/Library/LaunchAgents/com.zapfast.scheduler.plist"
+        mkdir -p "$APP_SUPPORT" "$HOME/Library/LaunchAgents"
         cat > "$PLIST" <<PLIST
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -250,24 +256,66 @@ func launch(_ connection: Connection) throws {
         </dict>
         </plist>
         PLIST
-        launchctl unload "$PLIST" 2>/dev/null || true
-        launchctl load "$PLIST"
-        sleep 1
-        """ + "\n" + schedulerHealthScript + " && echo RUNNING")
+        ok=""
+        # An already-healthy service is proof the setup is done: leave the
+        # running daemon untouched instead of restarting it.
+        for _ in 1 2; do
+            if """ + "\n" + schedulerHealthScript + "; then" + """
+                ok=1
+                break
+            fi
+            sleep 1
+        done
+        if [ -z "$ok" ]; then
+            # Replace only what actually owns the agent: ask launchd which
+            # domain has it, restart that one; on a fresh install prefer the
+            # gui domain, then the user domain (a headless Mac reached over
+            # SSH can have no gui session), then the legacy load.
+            launchctl unload "$PLIST" 2>/dev/null || true
+            if launchctl print "gui/$(id -u)/com.zapfast.scheduler" >/dev/null 2>&1; then
+                launchctl bootout "gui/$(id -u)/com.zapfast.scheduler" 2>/dev/null || true
+                launchctl bootstrap "gui/$(id -u)" "$PLIST"
+            elif launchctl print "user/$(id -u)/com.zapfast.scheduler" >/dev/null 2>&1; then
+                launchctl bootout "user/$(id -u)/com.zapfast.scheduler" 2>/dev/null || true
+                launchctl bootstrap "user/$(id -u)" "$PLIST"
+            else
+                launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl bootstrap "user/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>&1 | tail -n 2 >&2
+            fi
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                if """ + "\n" + schedulerHealthScript + "; then" + """
+                    ok=1
+                    break
+                fi
+                sleep 1
+            done
+        fi
+        if [ -z "$ok" ]; then
+            echo "scheduler still not healthy; last scheduler.log lines:" >&2
+            tail -n 5 "$APP_SUPPORT/scheduler.log" >&2 2>/dev/null || true
+        fi
+        [ -n "$ok" ] && echo RUNNING""")
         if service.0 == 0, String(decoding: service.1, as: UTF8.self).contains("RUNNING") {
             let alert = NSAlert()
             alert.messageText = "Send Later is set up"
             alert.informativeText = "The scheduler is running on \(connection.host) as a login agent."
             alert.runModal()
         } else {
-            installFailed(connection, stage: "starting the scheduler service")
+            let stderrText = String(decoding: service.2, as: UTF8.self)
+            let lines = stderrText.split(separator: "\n").map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let detail = String(lines.suffix(3).joined(separator: "\n").prefix(400))
+            installFailed(connection, stage: "starting the scheduler service", detail: detail)
         }
     }
 
-    func installFailed(_ connection: Connection, stage: String) {
+    func installFailed(_ connection: Connection, stage: String, detail: String = "") {
         let alert = NSAlert()
         alert.messageText = "Send Later setup did not finish"
-        alert.informativeText = "Setup stopped while \(stage) on \(connection.host). Anything already copied stays there and is reused on a safe retry (relaunch while holding Option), or see contrib/send-later for manual install and removal."
+        var text = "Setup stopped while \(stage) on \(connection.host). Anything already copied stays there and is reused on a safe retry (relaunch while holding Option), or see contrib/send-later for manual install and removal."
+        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            text += "\n\nThe Server Mac said: \(trimmed)"
+        }
+        alert.informativeText = text
         alert.runModal()
     }
 

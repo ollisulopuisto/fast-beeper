@@ -40,7 +40,7 @@ class SchedulerInstallTests(unittest.TestCase):
         self.assertIn('relaunch while holding Option', SOURCE)
 
     def test_partial_failure_reports_stage_not_noop(self):
-        self.assertIn('func installFailed(_ connection: Connection, stage: String)', SOURCE)
+        self.assertIn('func installFailed(_ connection: Connection, stage: String, detail: String = "")', SOURCE)
         self.assertNotIn('Nothing else changed on', SOURCE)
 
 
