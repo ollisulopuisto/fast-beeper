@@ -2309,6 +2309,12 @@ pub enum Dialog {
     SendLater,
     /// The Send Later queue: pending scheduled messages with their states.
     ScheduledList,
+    /// A voice note's own transcription language, overriding the global
+    /// default for this message only.
+    TranscriptionLanguage {
+        chat: ChatId,
+        message: String,
+    },
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,
@@ -2721,6 +2727,13 @@ pub enum Action {
         chat: ChatId,
         message: String,
         path: PathBuf,
+    },
+    /// Sets (Some) or clears (None) a voice note's own transcription
+    /// language, overriding the global default.
+    SetTranscriptionLanguage {
+        chat: ChatId,
+        message: String,
+        language: Option<String>,
     },
     /// Sets the voice playback speed to one of the supported speeds.
     SetVoiceSpeed(f32),

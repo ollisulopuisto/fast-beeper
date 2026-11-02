@@ -4635,11 +4635,36 @@ impl App {
                 if let Some(worker) = &self.transcriber {
                     worker.remove_chat(self.account().id.0.clone(), chat.clone());
                 }
+                // The note's language overrides follow its transcripts.
+                let prefix = format!("{}\t{chat}\t", self.account().id.0);
+                if self
+                    .settings
+                    .transcription_language_overrides
+                    .keys()
+                    .any(|key| key.starts_with(&prefix))
+                {
+                    self.settings
+                        .transcription_language_overrides
+                        .retain(|key, _| !key.starts_with(&prefix));
+                    self.settings_dirty = true;
+                }
                 self.reload_lists();
             }
             Event::ChatCleared { chat, through } => {
                 if let Some(worker) = &self.transcriber {
                     worker.remove_chat(self.account().id.0.clone(), chat.clone());
+                }
+                let prefix = format!("{}\t{chat}\t", self.account().id.0);
+                if self
+                    .settings
+                    .transcription_language_overrides
+                    .keys()
+                    .any(|key| key.starts_with(&prefix))
+                {
+                    self.settings
+                        .transcription_language_overrides
+                        .retain(|key, _| !key.starts_with(&prefix));
+                    self.settings_dirty = true;
                 }
                 self.handle_chat_cleared(&chat, through, live);
                 self.stars.remove(&chat);
@@ -8786,13 +8811,23 @@ impl App {
                         let pinned = self.settings.transcription_language.trim().to_string();
                         (!pinned.is_empty()).then_some(pinned)
                     };
+                    // A note's own language beats the global default.
+                    let message_language = self
+                        .settings
+                        .transcription_language_overrides
+                        .get(&crate::settings::transcription_language_key(
+                            &self.account().id.0,
+                            &chat,
+                            &message,
+                        ))
+                        .cloned();
                     worker.transcribe(
                         crate::transcriber::Job {
                             message_id: message,
                             chat_id: chat,
                             audio: path,
                             duration_secs: None,
-                            language: None,
+                            language: message_language,
                         },
                         self.account().id.0.clone(),
                         language,
@@ -8803,6 +8838,30 @@ impl App {
                         "Set the transcription service in Settings first",
                     ));
                 }
+            }
+            Action::SetTranscriptionLanguage {
+                chat,
+                message,
+                language,
+            } => {
+                let key = crate::settings::transcription_language_key(
+                    &self.account().id.0,
+                    &chat,
+                    &message,
+                );
+                match language
+                    .map(|language| language.trim().to_owned())
+                    .filter(|language| !language.is_empty())
+                {
+                    Some(language) => self
+                        .settings
+                        .transcription_language_overrides
+                        .insert(key, language),
+                    None => self.settings.transcription_language_overrides.remove(&key),
+                };
+                self.mark_settings_dirty();
+                self.transcription_language_draft.clear();
+                self.dialog = None;
             }
             Action::SetVoiceSpeed(speed) => {
                 self.settings.voice_speed = crate::audio::supported_speed(speed);
@@ -9317,6 +9376,20 @@ impl App {
             Action::ShowDialog(dialog) => {
                 self.cancel_contact_dialog_request();
                 self.clear_chat_lock_entry();
+                if let Dialog::TranscriptionLanguage { chat, message } = &dialog {
+                    let key = crate::settings::transcription_language_key(
+                        &self.account().id.0,
+                        chat,
+                        message,
+                    );
+                    let draft = self
+                        .settings
+                        .transcription_language_overrides
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.transcription_language_draft = draft;
+                }
                 if dialog == Dialog::NewChat {
                     self.new_chat_search.clear();
                     self.new_group = None;
@@ -25855,9 +25928,84 @@ mod transcription_tests {
             "transcribe m1 in ada@s.whatsapp.net",
         );
         assert!(
-            recorded.iter().any(|line| line.contains("(Some(\"fi\"))")),
+            recorded
+                .iter()
+                .any(|line| line.contains("global Some(\"fi\")")),
             "the pinned language rides along: {recorded:?}"
         );
+    }
+
+    #[test]
+    fn a_per_message_language_overrides_the_global_pinned_one() {
+        let mut app = app();
+        app.settings.transcription_language = "en".into();
+        app.settings.transcription_language_overrides.insert(
+            crate::settings::transcription_language_key("1", "ada@s.whatsapp.net", "m1"),
+            "fi".into(),
+        );
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([]));
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        let recorded = until_recorded(app.transcriber.as_ref().unwrap(), "transcribe m1 in");
+        assert!(
+            recorded.iter().any(|line| {
+                line.contains("global Some(\"en\")") && line.contains("message Some(\"fi\")")
+            }),
+            "the note's own language rides the job: {recorded:?}"
+        );
+    }
+
+    #[test]
+    fn the_language_dialog_prefills_saves_and_clears() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.settings.transcription_language_overrides.insert(
+            crate::settings::transcription_language_key("1", "ada@s.whatsapp.net", "m1"),
+            "fi".into(),
+        );
+        // Opening the dialog from the menu prefills the draft.
+        app.apply(
+            Action::ShowDialog(Dialog::TranscriptionLanguage {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+            }),
+            &ctx,
+        );
+        assert_eq!(app.transcription_language_draft, "fi");
+        // Saving trims and replaces the override, then closes.
+        app.apply(
+            Action::SetTranscriptionLanguage {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                language: Some("  sv ".into()),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.settings.transcription_language_overrides.get(
+                &crate::settings::transcription_language_key("1", "ada@s.whatsapp.net", "m1")
+            ),
+            Some(&"sv".to_owned())
+        );
+        assert!(app.dialog.is_none(), "saving closes the dialog");
+        // An empty field drops the override: the note follows the global
+        // language again.
+        app.apply(
+            Action::SetTranscriptionLanguage {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                language: None,
+            },
+            &ctx,
+        );
+        assert!(app.settings.transcription_language_overrides.is_empty());
     }
 
     #[test]

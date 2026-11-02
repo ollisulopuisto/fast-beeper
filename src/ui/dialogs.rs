@@ -3,7 +3,7 @@
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Stroke, pos2, vec2};
 
 use crate::app::App;
-use crate::model::{Action, Dialog};
+use crate::model::{Action, ChatId, Dialog};
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -39,6 +39,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::WhatsNew => 480.0,
                 Dialog::SendLater => 460.0,
                 Dialog::ScheduledList => 480.0,
+                Dialog::TranscriptionLanguage { .. } => 380.0,
                 Dialog::UnlockLockedChats | Dialog::ConfirmLockChat(_) => 380.0,
                 Dialog::ConfirmDeleteChat(_) | Dialog::JoinGroup | Dialog::ConfirmStartOver => {
                     380.0
@@ -93,6 +94,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::WhatsNew => whats_new(app, ui),
                 Dialog::SendLater => send_later(app, ui),
                 Dialog::ScheduledList => scheduled_list(app, ui),
+                Dialog::TranscriptionLanguage { chat, message } => {
+                    transcription_language(app, ui, &chat, &message)
+                }
                 Dialog::UnlockLockedChats => unlock_locked_chats(app, ui),
                 Dialog::ConfirmLockChat(id) => confirm_lock_chat(app, ui, &id),
                 Dialog::ConfirmDeleteChat(id) => confirm_delete_chat(app, ui, &id),
@@ -1870,6 +1874,82 @@ fn confirm_leave_group(app: &mut App, ui: &mut egui::Ui, id: &str) {
             )
             .clicked()
             {
+                app.actions.push(Action::CloseDialog);
+            }
+        });
+    });
+}
+
+/// One voice note's transcription language: it overrides the global
+/// default for this note only; an empty field hands the note back to the
+/// global setting.
+fn transcription_language(app: &mut App, ui: &mut egui::Ui, chat: &ChatId, message: &str) {
+    let palette = app.palette;
+    title(
+        ui,
+        app,
+        &crate::i18n::gettext(app.locale, "Transcription language"),
+    );
+    theme::paragraph(
+        ui,
+        crate::i18n::gettext(
+            app.locale,
+            "Transcribe this voice note in another language, for example \"fi\" or \"en\". Leave empty to use the global transcription language.",
+        ),
+        theme::regular(13.0),
+        palette.secondary,
+    );
+    ui.add_space(4.0);
+    let id = egui::Id::new("transcription-language");
+    let submit = ui.memory(|memory| memory.has_focus(id))
+        && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let field = Frame::new()
+        .fill(palette.surface)
+        .corner_radius(CornerRadius::same(theme::RADIUS))
+        .inner_margin(Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut app.transcription_language_draft)
+                    .id(id)
+                    .hint_text(
+                        egui::RichText::new("fi")
+                            .color(palette.dim)
+                            .font(theme::regular(16.0)),
+                    )
+                    .font(theme::regular(16.0))
+                    .text_color(palette.text)
+                    .frame(egui::Frame::NONE)
+                    .desired_width(f32::INFINITY),
+            );
+            if !response.has_focus() && app.transcription_language_draft.is_empty() {
+                response.request_focus();
+            }
+        });
+    theme::focus_outline(ui, id, field.response.rect, f32::from(theme::RADIUS));
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let save = theme::pill_button(
+                ui,
+                &palette,
+                &crate::i18n::gettext(app.locale, "Save"),
+                true,
+            );
+            if save.clicked() || submit {
+                let draft = app.transcription_language_draft.trim().to_owned();
+                app.actions.push(Action::SetTranscriptionLanguage {
+                    chat: chat.clone(),
+                    message: message.to_owned(),
+                    language: (!draft.is_empty()).then_some(draft),
+                });
+            }
+            let cancel = theme::pill_button(
+                ui,
+                &palette,
+                &crate::i18n::gettext(app.locale, "Cancel"),
+                false,
+            );
+            if cancel.clicked() {
                 app.actions.push(Action::CloseDialog);
             }
         });

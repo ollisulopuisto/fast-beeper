@@ -191,6 +191,8 @@ jobs:
           # A transcribed voice note: the transcript wraps under the player.
           shot chat-transcript-1180x780 1180x780 chat,transcript
           shot chat-dark-transcript-1180x780 1180x780 chat,transcript,theme=Catppuccin.json
+          # The per-message language dialog over the fixture voice note.
+          shot chat-transcription-language-1180x780 1180x780 chat,transcript,transcription-language
           # The same populated sidebar on a dark preset.
           shot chat-dark-networks-1180x780 1180x780 chat,networks,theme=Catppuccin.json
           # The populated rail scrolled to its end: Pinned and the bottom
