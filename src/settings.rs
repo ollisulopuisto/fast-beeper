@@ -1,6 +1,6 @@
 //! User preferences stored in JSON.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -404,6 +404,19 @@ pub enum NotificationSound {
     Custom(std::path::PathBuf),
 }
 
+/// One Beeper chat's local Silence promise: the halves of "Hide and mute
+/// indefinitely" that fast-beeper keeps itself when the bridge does not
+/// persist them. Unarchive and Unmute each clear their own half.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Silence {
+    /// The chat stays out of the list whatever the sync reports.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The chat stays muted: `Some(0)` forever, `Some(unix)` until then.
+    #[serde(default)]
+    pub muted_until: Option<i64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -452,6 +465,9 @@ pub struct Settings {
     pub zoom: f32,
     #[serde(default)]
     pub beeper: BeeperPreferences,
+    /// Beeper chats with a local Silence promise, keyed by chat id.
+    #[serde(default)]
+    pub silenced: BTreeMap<String, Silence>,
     pub sidebar_width: f32,
     /// Width of the search pane beside the open chat.
     pub search_pane_width: f32,
@@ -624,6 +640,7 @@ impl Default for Settings {
             window_height: None,
             window_x: None,
             window_y: None,
+            silenced: Default::default(),
             window_maximized: false,
         }
     }

@@ -3871,7 +3871,10 @@ impl App {
                     self.toast(label);
                 }
             }
-            Event::Chats(chats) => {
+            Event::Chats(mut chats) => {
+                for chat in &mut chats {
+                    self.apply_silence(chat);
+                }
                 for chat in &chats {
                     if chat.unread == 0 {
                         self.clear_chat_notifications(&chat.id);
@@ -5294,12 +5297,58 @@ impl App {
         self.link = status;
     }
 
+    /// Records or lifts the hidden half of a Beeper chat's Silence promise,
+    /// dropping the entry once neither half holds.
+    fn silence_hide(&mut self, chat: &str, hidden: bool) {
+        let entry = self.settings.silenced.entry(chat.to_owned()).or_default();
+        entry.hidden = hidden;
+        if !entry.hidden && entry.muted_until.is_none() {
+            self.settings.silenced.remove(chat);
+        }
+        self.settings_dirty = true;
+    }
+
+    /// Records or lifts the muted half of a Beeper chat's Silence promise:
+    /// `Some(0)` forever, `Some(unix)` until then, `None` to lift.
+    fn silence_mute(&mut self, chat: &str, until: Option<i64>) {
+        let entry = self.settings.silenced.entry(chat.to_owned()).or_default();
+        entry.muted_until = until;
+        if !entry.hidden && entry.muted_until.is_none() {
+            self.settings.silenced.remove(chat);
+        }
+        self.settings_dirty = true;
+    }
+
+    /// Reasserts the local Silence promise over freshly synced state. The
+    /// server is the truth for everything it persists; a chat silenced here
+    /// stays hidden and muted until Unarchive or Unmute, whatever the bridge
+    /// reports. An expired timed mute lapses on its own.
+    fn apply_silence(&mut self, chat: &mut Chat) {
+        let Some(silence) = self.settings.silenced.get(&chat.id).copied() else {
+            return;
+        };
+        let muted = silence
+            .muted_until
+            .is_some_and(|until| until == 0 || until > crate::util::now());
+        if silence.hidden {
+            chat.archived = true;
+        }
+        if muted {
+            chat.muted_until = silence.muted_until;
+        }
+        if !silence.hidden && !muted {
+            self.settings.silenced.remove(&chat.id);
+            self.settings_dirty = true;
+        }
+    }
+
     fn handle_chat_updated(&mut self, chat: Chat, live: bool) {
         // A hidden account's remembered chat is not being read: marking it
         // read would send receipts for messages nobody has seen.
         let remembered = self.open_chat.as_deref() == Some(chat.id.as_str());
         let is_open = live && remembered && self.chat_view();
         let mut chat = chat;
+        self.apply_silence(&mut chat);
         if chat.unread == 0 {
             self.clear_chat_notifications(&chat.id);
             // Read on another device: the chat's next message may notify at once.
@@ -8619,8 +8668,16 @@ impl App {
             }
             Action::DiscardUnsentVoice => self.unsent_voice = None,
             Action::SetMuted(chat, until) => {
+                let beeper = self
+                    .chat(&chat)
+                    .is_some_and(|known| known.backend_account.is_some());
                 if let Some(known) = self.chat_mut(&chat) {
                     known.muted_until = until;
+                }
+                if beeper {
+                    // Mutes on Beeper chats are an app-level promise too:
+                    // they hold here even where the bridge drops them.
+                    self.silence_mute(&chat, until);
                 }
                 self.backend.send(Command::SetMuted(chat, until));
             }
@@ -9020,8 +9077,14 @@ impl App {
                 });
             }
             Action::SetArchived(chat, archived) => {
+                let beeper = self
+                    .chat(&chat)
+                    .is_some_and(|known| known.backend_account.is_some());
                 if let Some(known) = self.chat_mut(&chat) {
                     known.archived = archived;
+                }
+                if beeper {
+                    self.silence_hide(&chat, archived);
                 }
                 if archived && self.open_chat.as_deref() == Some(chat.as_str()) {
                     self.actions.push(Action::CloseChat);
@@ -25597,5 +25660,90 @@ mod conversation_palette_tests {
         app.open_chat = Some(chat.id.clone());
         app.chats = vec![chat];
         assert_eq!(app.conversation_palette(), Palette::dark());
+    }
+
+    fn beeper_chat(id: &str) -> Chat {
+        let mut chat = Chat::new(id.to_owned(), "Chat".to_owned());
+        chat.backend_account = Some("account".to_owned());
+        chat
+    }
+
+    #[test]
+    fn a_silenced_beeper_chat_stays_hidden_and_muted_through_sync() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let ctx = egui::Context::default();
+        app.chats = vec![beeper_chat("chat-1")];
+        app.apply(Action::SetMuted("chat-1".into(), Some(0)), &ctx);
+        app.apply(Action::SetArchived("chat-1".into(), true), &ctx);
+        let silence = app.settings.silenced.get("chat-1").copied().unwrap();
+        assert!(silence.hidden);
+        assert_eq!(silence.muted_until, Some(0));
+        // The sync still reports both unset: the local promise wins anyway.
+        app.apply_backend_event(Event::Chats(vec![beeper_chat("chat-1")]), false);
+        let chat = app.chat("chat-1").unwrap();
+        assert!(chat.archived, "a sync must not unhide a silenced chat");
+        assert!(chat.muted(crate::util::now()), "a sync must not unmute it");
+        // A lone chat update cannot lift the promise either.
+        app.apply_backend_event(Event::ChatUpdated(Box::new(beeper_chat("chat-1"))), false);
+        let chat = app.chat("chat-1").unwrap();
+        assert!(chat.archived && chat.muted(crate::util::now()));
+        // Undo takes Unarchive and Unmute; then the sync rules again.
+        app.apply(Action::SetArchived("chat-1".into(), false), &ctx);
+        app.apply(Action::SetMuted("chat-1".into(), None), &ctx);
+        assert!(app.settings.silenced.get("chat-1").is_none());
+        app.apply_backend_event(Event::Chats(vec![beeper_chat("chat-1")]), false);
+        let chat = app.chat("chat-1").unwrap();
+        assert!(!chat.archived);
+        assert!(!chat.muted(crate::util::now()));
+    }
+
+    #[test]
+    fn an_expired_timed_mute_lapses_from_the_silence_promise() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let ctx = egui::Context::default();
+        app.chats = vec![beeper_chat("chat-1")];
+        // A timed mute already in the past is dropped on the next sync.
+        app.apply(
+            Action::SetMuted("chat-1".into(), Some(crate::util::now() - 60)),
+            &ctx,
+        );
+        app.apply_backend_event(Event::Chats(vec![beeper_chat("chat-1")]), false);
+        assert!(app.settings.silenced.get("chat-1").is_none());
+        assert!(!app.chat("chat-1").unwrap().muted(crate::util::now()));
+    }
+
+    #[test]
+    fn a_silenced_chat_never_notifies_or_counts() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let ctx = egui::Context::default();
+        app.chats = vec![beeper_chat("chat-1")];
+        app.apply(Action::SetMuted("chat-1".into(), Some(0)), &ctx);
+        app.apply(Action::SetArchived("chat-1".into(), true), &ctx);
+        // A new message arrives on the sync: unread, unmuted, unarchived as
+        // far as the server knows. The promise still gates the notification.
+        let mut incoming = beeper_chat("chat-1");
+        incoming.unread = 1;
+        app.apply_backend_event(Event::Chats(vec![incoming]), false);
+        let now = crate::util::now();
+        let chat = app.chat("chat-1").unwrap();
+        assert_eq!(chat.unread, 1, "the unread fact itself survives");
+        assert!(
+            !notification_eligible(chat, now, now),
+            "silenced chats never notify"
+        );
+    }
+
+    #[test]
+    fn silence_is_promised_only_for_beeper_chats() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let ctx = egui::Context::default();
+        app.chats = vec![Chat::new("chat-1".to_owned(), "Chat".to_owned())];
+        app.apply(Action::SetMuted("chat-1".into(), Some(0)), &ctx);
+        app.apply(Action::SetArchived("chat-1".into(), true), &ctx);
+        assert!(app.settings.silenced.get("chat-1").is_none());
     }
 }
