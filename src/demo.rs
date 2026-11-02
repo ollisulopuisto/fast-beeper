@@ -18665,13 +18665,13 @@ mod tests {
                 "filter must fit the sidebar: {rect:?}"
             );
         }
-        // Compact icon row: the filters share one line even at the narrow
-        // default sidebar, matching filter_chips' one-line contract.
-        for rect in &chips {
+        // Compact icon column: one filter per row down the rail's single
+        // centered column, matching filter_chips' stacked contract.
+        for pair in chips.windows(2) {
             assert!(
-                (rect.top() - chips[0].top()).abs() < 0.5,
-                "filters share one row: {rect:?} against {:?}",
-                chips[0]
+                (pair[0].center().x - pair[1].center().x).abs() < 0.5
+                    && pair[1].top() >= pair[0].bottom(),
+                "filters form one centered column, one per row: {pair:?}"
             );
         }
     }
