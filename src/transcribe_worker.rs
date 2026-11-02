@@ -62,7 +62,7 @@ pub fn run(
                 }
                 // One at a time: engines are local models; parallel runs
                 // would thrash the machine for no latency win.
-                while let Some(job) = queue.next() {
+                while let Some(job) = queue.claim() {
                     let language =
                         resolve_language(job.language.as_deref(), global_language.as_deref());
                     set(&status, &job.message_id, Status::Running);

@@ -80,7 +80,7 @@ impl JobQueue {
     }
 
     /// Claims the next pending job as running.
-    pub fn next(&mut self) -> Option<Job> {
+    pub fn claim(&mut self) -> Option<Job> {
         let job = self.pending.pop_front()?;
         self.running = Some(job.clone());
         Some(job)
@@ -231,16 +231,15 @@ impl Store {
                 for entry in std::fs::read_dir(chat.path())?.flatten() {
                     // DirEntry::file_type never follows links, so a symlink
                     // is excluded before any metadata call touches its target.
-                    if let Ok(file_type) = entry.file_type() {
-                        if file_type.is_file() {
-                            if let Ok(meta) = entry.metadata() {
-                                files.push((
-                                    meta.len(),
-                                    meta.modified().unwrap_or(std::time::UNIX_EPOCH),
-                                    entry.path(),
-                                ));
-                            }
-                        }
+                    if let Ok(file_type) = entry.file_type()
+                        && file_type.is_file()
+                        && let Ok(meta) = entry.metadata()
+                    {
+                        files.push((
+                            meta.len(),
+                            meta.modified().unwrap_or(std::time::UNIX_EPOCH),
+                            entry.path(),
+                        ));
                     }
                 }
             }
@@ -301,7 +300,7 @@ mod tests {
         let mut q = JobQueue::new(10);
         assert!(q.push(job("m1")));
         assert!(!q.push(job("m1")));
-        let claimed = q.next().unwrap();
+        let claimed = q.claim().unwrap();
         assert_eq!(claimed.message_id, "m1");
         assert!(!q.push(job("m1"))); // running still counts
     }
@@ -313,7 +312,7 @@ mod tests {
         q.push(job("m2"));
         q.push(job("m3"));
         assert_eq!(q.pending_len(), 2);
-        assert_eq!(q.next().unwrap().message_id, "m2");
+        assert_eq!(q.claim().unwrap().message_id, "m2");
     }
 
     #[test]
@@ -321,9 +320,9 @@ mod tests {
         let mut q = JobQueue::new(10);
         q.push(job("m1"));
         q.push(job("m2"));
-        q.next();
+        q.claim();
         q.recover();
-        assert_eq!(q.next().unwrap().message_id, "m1");
+        assert_eq!(q.claim().unwrap().message_id, "m1");
     }
 
     #[test]
