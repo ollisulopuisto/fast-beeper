@@ -1351,25 +1351,11 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
         results(app, ui);
         return;
     }
-    let global_pins = app.dedups_pins();
+    // A pin is a shortcut, not a removal: pinned chats keep their rail
+    // chips AND their ordinary rows here, linked ones included.
     let chats: Vec<Chat> = app
         .visible_chats()
         .into_iter()
-        .filter(|c| {
-            !global_pins
-                || (!c.pinned
-                    && !app.settings.beeper.people.iter().any(|p| {
-                        p.members.iter().any(|m| m.matches(c))
-                            && p.members.iter().any(|m| {
-                                app.chats.iter().any(|known| {
-                                    m.matches(known)
-                                        && known.pinned
-                                        && !known.archived
-                                        && !known.locked
-                                })
-                            })
-                    }))
-        })
         .map(|c| app.beeper_person_preview(c))
         .collect();
     if chats.is_empty() {
@@ -1390,12 +1376,10 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
                 _ => "No groups",
             };
             (title, "Choose All to see every chat.")
-        } else if global_pins
-            && (app.beeper_network_filter.is_some() || !app.beeper_global_pins().is_empty())
-        {
+        } else if app.beeper_network_filter.is_some() {
             (
-                "No other chats in this view",
-                "Pinned chats stay available above. Choose Chats for all networks.",
+                "No chats in this view",
+                "Choose Chats for all networks.",
             )
         } else if app.syncing {
             ("Loading your chats", "Receiving history from your phone.")
@@ -3757,6 +3741,48 @@ mod tests {
         let center = compact_badge_center(avatar);
         assert!(center.x + width / 2.0 <= rail.right(), "{width} too wide");
         assert!(center.y - 10.0 >= rail.top(), "the badge fits its cell");
+    }
+
+    #[test]
+    fn a_pinned_chat_keeps_its_row_in_the_list() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let (mut app, _events) =
+            App::headless(AppDirs::under(directory.path()), Settings::default());
+        let chat = |id: &str, name: &str| {
+            let mut chat = Chat::new(id.into(), name.into());
+            chat.backend_account = Some("wa-personal".into());
+            chat.last_activity = 20;
+            chat
+        };
+        let pinned = {
+            let mut chat = chat("491700000100@s.whatsapp.net", "Pinned");
+            chat.pinned = true;
+            chat
+        };
+        let ordinary = chat("491700000101@s.whatsapp.net", "Ordinary");
+        app.chats.push(pinned.clone());
+        app.chats.push(ordinary.clone());
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(360.0, 600.0))),
+                ..Default::default()
+            },
+            |ui| show(&mut app, ui),
+        );
+        output.textures_delta.clear();
+        // The rail keeps its pinned chip; the list keeps the full row. One
+        // pin, one shortcut, one row: no surface drops the chat.
+        let row = ctx
+            .data(|data| data.get_temp::<Rect>(chat_row_id(&pinned.id)))
+            .expect("a pinned chat keeps its ordinary row in the list");
+        assert!(
+            row.height() > 20.0,
+            "the pinned chat's list entry is a full row, not a chip: {row:?}"
+        );
+        ctx.data(|data| data.get_temp::<Rect>(chat_row_id(&ordinary.id)))
+            .expect("an unpinned chat keeps its row as before");
     }
 
     #[test]
