@@ -9,11 +9,35 @@ struct Connection: Codable {
 }
 
 enum LaunchError: Error { case invalid, ssh, target, tunnel, missingBinary }
+
+/// The bundle's Dock presence belongs to the packaged app, whose main
+/// executable is this launcher; the real window lives in the child client
+/// process. A Dock click can therefore deliver the reopen/activate here,
+/// where no window exists. Forward every activation to the client so its
+/// window comes forward the same way the client's own reopen handler does.
+final class Forwarder: NSObject, NSApplicationDelegate {
+    var clientPID: Int32 = 0
+    var onClientExit: () -> Void = {}
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        activateClient()
+        return true
+    }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        activateClient()
+    }
+    func activateClient() {
+        guard clientPID > 0,
+              let running = NSRunningApplication(processIdentifier: clientPID) else { return }
+        running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    }
+}
+let forwarder = Forwarder()
 let manager = FileManager.default
 let profile = manager.homeDirectoryForCurrentUser.appendingPathComponent(".zapfast-beeper-prototype")
 let configURL = profile.appendingPathComponent("launcher.json")
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
+app.delegate = forwarder
 
 func showError() {
     let alert = NSAlert()
@@ -419,11 +443,17 @@ func launch(_ connection: Connection) throws {
     client.standardOutput = FileHandle.nullDevice
     client.standardError = FileHandle.nullDevice
     try client.run()
-    while client.isRunning {
-        if !tunnel.isRunning { stop(client); throw LaunchError.tunnel }
-        Thread.sleep(forTimeInterval: 0.25)
+    forwarder.clientPID = client.processIdentifier
+    client.terminationHandler = { _ in
+        DispatchQueue.main.async { NSApp.terminate(nil) }
     }
-    client.waitUntilExit()
+    Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+        if !tunnel.isRunning {
+            stop(client)
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+    app.run()
 }
 
 if let connection = configure() {

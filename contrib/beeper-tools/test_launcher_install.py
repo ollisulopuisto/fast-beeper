@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'packaging/macos/BeeperLauncher.swift').read_text()
+CLIENT_MACOS = (ROOT / 'src/macos.rs').read_text()
 
 
 class SchedulerInstallTests(unittest.TestCase):
@@ -42,6 +43,35 @@ class SchedulerInstallTests(unittest.TestCase):
     def test_partial_failure_reports_stage_not_noop(self):
         self.assertIn('func installFailed(_ connection: Connection, stage: String, detail: String = "")', SOURCE)
         self.assertNotIn('Nothing else changed on', SOURCE)
+
+
+class DockActivationTests(unittest.TestCase):
+    """Dock/Finder activation must reach the process that owns the window."""
+
+    def test_launcher_forwards_activation_to_the_client(self):
+        # The packaged app's main executable is the launcher, so a Dock
+        # click can deliver the reopen to it rather than to the client
+        # holding the windows. The launcher forwards every activation.
+        self.assertIn('NSApplicationDelegate', SOURCE)
+        self.assertIn('applicationShouldHandleReopen', SOURCE)
+        self.assertIn('applicationDidBecomeActive', SOURCE)
+        self.assertIn('NSRunningApplication(processIdentifier: clientPID)', SOURCE)
+        self.assertIn('.activateAllWindows', SOURCE)
+        self.assertIn('app.delegate = forwarder', SOURCE)
+        self.assertIn('forwarder.clientPID = client.processIdentifier', SOURCE)
+
+    def test_launcher_pumps_events_instead_of_busy_waiting(self):
+        # Delegate methods only run when the launcher pumps its event loop.
+        self.assertIn('app.run()', SOURCE)
+        self.assertIn('client.terminationHandler', SOURCE)
+        self.assertNotIn('while client.isRunning', SOURCE)
+        self.assertNotIn('Thread.sleep(forTimeInterval: 0.25)', SOURCE)
+
+    def test_client_reopen_activates_even_with_visible_windows(self):
+        reopen = CLIENT_MACOS.split('fn reopen(', 1)[1]
+        body = reopen.split('Miniaturized windows are not visible', 1)[0]
+        self.assertIn('app.activateIgnoringOtherApps(true)', body)
+
 
 
 if __name__ == '__main__':
