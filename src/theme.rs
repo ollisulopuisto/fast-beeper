@@ -1029,6 +1029,53 @@ pub fn network_icon(network: &str) -> Icon {
     }
 }
 
+/// A subtle conversation-background hue per chat network, matched like
+/// [network_icon], so the open conversation reads as its network at a
+/// glance. Brand colours at a low blend keep light and dark palettes
+/// readable; unknown networks leave the background untouched.
+pub fn network_tint(network: &str) -> Option<Color32> {
+    let name = network.to_lowercase().replace([' ', '-', '_'], "");
+    let color = if name.contains("whatsapp") {
+        Color32::from_rgb(37, 211, 102)
+    } else if name.contains("signal") {
+        Color32::from_rgb(58, 118, 240)
+    } else if name.contains("telegram") {
+        Color32::from_rgb(42, 171, 238)
+    } else if name.contains("instagram") {
+        Color32::from_rgb(225, 48, 108)
+    } else if name.contains("messenger") {
+        Color32::from_rgb(0, 132, 255)
+    } else if name.contains("facebook") {
+        Color32::from_rgb(24, 119, 242)
+    } else if name.contains("slack") {
+        Color32::from_rgb(74, 21, 75)
+    } else if name.contains("discord") {
+        Color32::from_rgb(88, 101, 242)
+    } else if name.contains("googlemessages") {
+        Color32::from_rgb(26, 115, 232)
+    } else if name.contains("matrix") {
+        Color32::from_rgb(13, 189, 139)
+    } else if name.contains("imessage") {
+        Color32::from_rgb(10, 132, 255)
+    } else if name.contains("linkedin") {
+        Color32::from_rgb(10, 102, 194)
+    } else {
+        return None;
+    };
+    Some(color)
+}
+
+/// Blend a network hue into a background at a fixed subtle strength.
+pub(crate) fn tinted(base: Color32, tint: Color32) -> Color32 {
+    const AMOUNT: f32 = 0.10;
+    let mix = |a: u8, b: u8| (a as f32 * (1.0 - AMOUNT) + b as f32 * AMOUNT).round() as u8;
+    Color32::from_rgb(
+        mix(base.r(), tint.r()),
+        mix(base.g(), tint.g()),
+        mix(base.b(), tint.b()),
+    )
+}
+
 /// A static icon.
 pub fn icon(ui: &mut egui::Ui, icon: Icon, size: f32, color: Color32) -> Response {
     ui.add(icon.image(color, size))
