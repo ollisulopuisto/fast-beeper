@@ -8263,7 +8263,10 @@ impl App {
                 }
             }
             Action::OpenFile(path) => {
-                if crate::safety::can_open_attachment(&path) && path.is_file() {
+                let allowed = crate::safety::can_open_attachment(&path);
+                if allowed && matches!(path.try_exists(), Ok(false)) {
+                    self.attachment_missing(path);
+                } else if allowed && path.is_file() {
                     if let Err(error) = open::that_detached(&path) {
                         self.toast_error(format!("Could not open the attachment: {error}"));
                     }
@@ -10627,6 +10630,31 @@ impl App {
             {
                 self.toasts.remove(oldest);
             }
+        }
+    }
+
+    /// A message still names a file that has gone from disk. Its folder would
+    /// not help (#662): say so, and have the worker give the bubble back its
+    /// download control. A row out of view is mended at the next startup.
+    fn attachment_missing(&mut self, path: PathBuf) {
+        self.toast_error(crate::i18n::gettext(
+            self.locale,
+            "This file is no longer on this computer. Download it again.",
+        ));
+        let found = self.open_chat.as_ref().and_then(|chat| {
+            let shown = &self.conversations.get(chat)?.messages;
+            shown.iter().find_map(|message| {
+                let card = message.content.place_of_file(&path)?;
+                Some((chat.clone(), message.id.clone(), card))
+            })
+        });
+        if let Some((chat, message, card)) = found {
+            self.backend.send(Command::AttachmentMissing {
+                chat,
+                message,
+                card,
+                path,
+            });
         }
     }
 
@@ -24051,6 +24079,56 @@ mod tests {
             app.actions
                 .iter()
                 .any(|action| matches!(action, Action::OpenFolder(_)))
+        );
+    }
+
+    /// #662: a file that is gone is not a safety question, and its folder
+    /// would not help. The bubble gets its download control back.
+    #[test]
+    fn opening_a_missing_attachment_says_so_and_asks_to_mend_it() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        let (backend, mut commands, _events) = Backend::recording_with_events();
+        app.backend = backend;
+        let path = PathBuf::from("/fixture/gone.jpg");
+        let mut row = message("1@s.whatsapp.net", "m1", 1);
+        row.content = Content::Image {
+            motion: None,
+            caption: None,
+            media: crate::model::Media {
+                mime: "image/jpeg".into(),
+                size: 4,
+                width: None,
+                height: None,
+                album: None,
+                path: Some(path.clone()),
+                state: crate::model::MediaState::Idle,
+            },
+        };
+        app.open_chat = Some(row.chat.clone());
+        app.conversations
+            .entry(row.chat.clone())
+            .or_default()
+            .messages
+            .push(row);
+        app.apply(Action::OpenFile(path.clone()), &ctx);
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::OpenFolder(_))),
+            "no folder to look through"
+        );
+        assert!(
+            app.toasts
+                .iter()
+                .all(|toast| !toast.message.contains("For safety"))
+        );
+        assert!(
+            std::iter::from_fn(|| commands.try_recv().ok()).any(|command| matches!(
+                command,
+                Command::AttachmentMissing { message, card: None, path: gone, .. }
+                    if message == "m1" && gone == path
+            ))
         );
     }
 

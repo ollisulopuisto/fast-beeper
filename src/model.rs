@@ -1475,6 +1475,25 @@ impl Content {
         }
     }
 
+    /// Where this message keeps `path`: `Some(None)` for its own attachment,
+    /// `Some(Some(index))` for a carousel card's picture.
+    pub fn place_of_file(&self, path: &std::path::Path) -> Option<Option<usize>> {
+        let holds = |media: &Media| media.path.as_deref() == Some(path);
+        if self.media().is_some_and(holds) {
+            return Some(None);
+        }
+        let Self::Interactive {
+            card: Some(card), ..
+        } = self
+        else {
+            return None;
+        };
+        card.carousel
+            .iter()
+            .position(|item| item.image.as_ref().is_some_and(holds))
+            .map(Some)
+    }
+
     /// Whether this message belongs in the viewer album, and as what.
     ///
     /// A GIF is not a video here: it plays inline as an animation, so it is

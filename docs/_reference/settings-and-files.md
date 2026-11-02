@@ -28,6 +28,8 @@ Back up the archive if you need its history. WhatsApp sends only recent
 history to a new device, although ZapFast can request some older messages from
 the phone. Clearing the media cache makes ZapFast download attachments again.
 Expired attachments may still be available through the phone.
+If a downloaded file has gone when you try to open it, ZapFast says so and its
+message offers the download again, without a restart.
 A download is reported as complete only after its local path is recorded in
 the archive. If that write fails, the attachment shows a failure instead;
 the downloaded file is kept in its destination.
