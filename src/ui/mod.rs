@@ -166,17 +166,13 @@ fn main_view(app: &mut App, ui: &mut egui::Ui, list_only: bool) {
     // step aside while the panel is open. The Calls tab's history needs the
     // full list pane: only the chats collapse into the rail's avatars.
     let full_list = app.sidebar_mode() == SidebarDisplayMode::Expanded || app.page == Page::Calls;
-    // Not the info panel, just a window too small for the sidebar, the list
-    // and a usable conversation: the sidebar falls back to the compact
-    // rail, as when the list is hidden.
+    // Not the info panel, just a window too small for the rail, the list
+    // and a usable conversation: the list steps aside and the rail shows
+    // the chats' avatars instead, as when the list is hidden.
     let skinny = full_list
-        && ui.available_width() - rail::WIDTH - app.settings.sidebar_width < pane::CONVERSATION_MIN;
-    let compact_rail = !full_list || skinny;
-    let rail_width = if compact_rail {
-        chats::compact_width(ui.ctx())
-    } else {
-        rail::WIDTH
-    };
+        && ui.available_width() - rail::COMPACT - app.settings.sidebar_width
+            < pane::CONVERSATION_MIN;
+    let rail_width = chats::compact_width(ui.ctx());
     ui.ctx()
         .data_mut(|data| data.insert_temp(rail::width_id(), rail_width));
     let mut list_width = chats::compact_width(ui.ctx());
@@ -186,7 +182,7 @@ fn main_view(app: &mut App, ui: &mut egui::Ui, list_only: bool) {
     let crowded = app.info_visible()
         && ui.available_width() - list_width < pane::INFO_MIN + pane::INFO_CONVERSATION_MIN;
     if !narrow(ui.ctx()) && !crowded {
-        rail::show(app, ui, compact_rail, !full_list);
+        rail::show(app, ui, !full_list);
         if full_list {
             chats::show(app, ui);
         }

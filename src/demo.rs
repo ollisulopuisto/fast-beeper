@@ -22194,8 +22194,8 @@ mod rail_tests {
             let rail = rail_rect(&ctx).expect("the rail is drawn");
             assert!(rail.left() < 1.0, "{macos}: at the left edge: {rail:?}");
             assert!(
-                (rail.width() - crate::ui::rail::WIDTH).abs() < 1.0,
-                "{macos}: the combined sidebar's width beside the list: {rail:?}"
+                (rail.width() - crate::ui::rail::COMPACT).abs() < 1.0,
+                "{macos}: the rail is one icon column beside the list: {rail:?}"
             );
             let header = list_header(&ctx).expect("the list is drawn");
             assert!(

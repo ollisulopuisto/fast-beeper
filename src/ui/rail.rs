@@ -1,10 +1,13 @@
-//! The combined left sidebar: destinations (Chats and Calls; Starred,
-//! Archived and Locked chats while there are any; Settings and our own
-//! avatar, the account switcher) across the top, the quick filters under
-//! them, and the favorite and pinned chats as direct jumps. It replaces the
+//! The left rail: one narrow vertical column of icons. Destinations (Chats
+//! and Calls; Starred, Archived and Locked chats while there are any;
+//! Settings and our own avatar, the account switcher) at the top, the quick
+//! filters, queues, labels and the favorite and pinned chats as icon and
+//! avatar jumps down the middle, and the Beeper networks as one plate per
+//! row at the bottom. Every icon carries its unread badge; every name and
+//! shortcut lives on the tooltip and accessibility label. It replaces the
 //! old network-selector rail, so the chat-list column keeps only its search
 //! field and chats. While the chat list is hidden, the chats' avatars fill
-//! the sidebar too, so every chat is still one click away.
+//! the rail instead, so every chat is still one click away.
 
 use egui::{Frame, Margin, Rect, Sense, Vec2, vec2};
 
@@ -16,11 +19,7 @@ use crate::theme::{self, Icon, Palette};
 use super::focus::{Stop, TabStop};
 use super::widgets;
 
-/// Width of the combined sidebar beside the chat list: room for filter
-/// chips and chat rows.
-pub const WIDTH: f32 = 216.0;
-/// Width of the compact rail: icons and avatars only, while the list is
-/// hidden or the window leaves the conversation too little room beside it.
+/// Width of the rail: one column of icons and avatars.
 pub const COMPACT: f32 = 52.0;
 /// Height of one destination at the top: the list header's title and
 /// search field sit level with Chats and Calls.
@@ -40,9 +39,6 @@ const BOTTOM_GAP: f32 = GAP / 2.0;
 /// How far below the window's top the macOS traffic lights end, centred as
 /// they are in the 60-point title bar, with a little room under them.
 const LIGHTS_CLEARANCE: f32 = theme::TOP_BAR_HEIGHT / 2.0 + 12.0;
-/// The least room the expanded sidebar keeps for its filters, favorites and
-/// pins before it lets the window's height scroll them.
-const MIDDLE_MIN: f32 = 120.0;
 /// The least room the chats' avatars keep while the list is hidden.
 const MIN_AVATARS: f32 = 64.0;
 /// Width of the hairline between the destinations and the avatars.
@@ -196,12 +192,12 @@ impl Destination {
     }
 }
 
-/// The combined sidebar as a fixed panel on the left of the chat list.
-/// `hidden` says the chat list is hidden: the sidebar then offers to show
+/// The rail as a fixed panel on the left of the chat list.
+/// `hidden` says the chat list is hidden: the rail then offers to show
 /// it again and stands beside the conversation.
-pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
+pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
     let palette = app.palette;
-    let width = if compact { COMPACT } else { WIDTH };
+    let width = COMPACT;
     // Its own panel id: sharing the list's would hand that resizable panel
     // this width, and it would save it as the list's width.
     let panel = egui::Panel::left("chat-rail")
@@ -243,8 +239,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                 CELL + GAP + MIN_AVATARS
             } else {
                 0.0
-            }
-            + if compact { 0.0 } else { MIDDLE_MIN };
+            };
         let height = ui.available_height().max(minimum);
         // Demo captures can ask for the rail already scrolled to its end,
         // as after a wheel scroll, to prove the lower sections stay
@@ -296,10 +291,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                         },
                     );
                 }
-                if !compact {
-                    // Quick filters and the favorite/pinned chats live here,
-                    // so the chat-list column keeps only its search field
-                    // and chats.
+                if !hidden {
+                    // Quick filters, queues, labels and the favorite/pinned
+                    // chats live here, so the chat-list column keeps only
+                    // its search field and chats.
                     ui.spacing_mut().item_spacing.y = row_gap;
                     super::chats::filter_chips(app, ui);
                     super::chats::favorites_row(app, ui);
