@@ -22046,7 +22046,8 @@ mod tests {
         assert_eq!(hits.len(), 2, "{hits:?}");
         assert_eq!(hits.iter().filter(|hit| hit.id == "m1").count(), 1);
 
-        // An empty query finds nothing.
+        // An empty query finds nothing once the backend's own hits clear.
+        app.search_hits.clear();
         app.search = "   ".into();
         assert!(app.scoped_search_hits().is_empty());
         std::fs::remove_dir_all(&store_dir).ok();
@@ -26024,7 +26025,9 @@ mod transcription_tests {
         );
         let recorded = until_recorded(app.transcriber.as_ref().unwrap(), "transcribe m1");
         assert!(
-            recorded.iter().any(|line| line.contains("(None)")),
+            recorded
+                .iter()
+                .any(|line| line.contains("global None, message None")),
             "no pinned language, none sent: {recorded:?}"
         );
     }
