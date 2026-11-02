@@ -401,17 +401,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                         bottom: 8,
                     })
                     .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(
-                                "Choose a destination or reply to a message to write",
-                            )
-                            .color(palette.secondary),
-                        );
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Choose a destination to write")
+                                    .color(palette.secondary),
+                            );
+                            let right = egui::Layout::right_to_left(egui::Align::Center);
+                            ui.with_layout(right, |ui| {
+                                egui::ComboBox::from_id_salt("person-destination")
+                                    .selected_text("Choose destination")
+                                    .show_ui(ui, |ui| {
+                                        destination_entries(app, ui, &mut state, &valid, &person)
+                                    });
+                            });
+                        });
                     });
-                egui::ComboBox::from_id_salt("person-destination")
-                    .selected_text("Choose destination")
-                    .show_ui(ui, |ui| destination_entries(app, ui, &mut state, &valid, &person));
-                ui.small("Nothing is routed automatically.");
             });
     }
     let messages = crate::merged::ordered_refs(
