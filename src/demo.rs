@@ -2167,6 +2167,38 @@ fn transcript_sample(app: &mut App) {
     )]));
 }
 
+/// A fully populated rail for the one-icon-column layout proof: the
+/// networks sample plus favorites, several global pins and labels, so a
+/// short window must scroll the rail to keep every control reachable.
+fn rail_full_sample(app: &mut App) {
+    networks_sample(app);
+    // Favorites and pins need the networks sample's account tags first:
+    // both sections list only chats whose account the inventory knows.
+    let favorite = [1, 3, 5];
+    for (position, index) in favorite.into_iter().enumerate() {
+        if let Some(chat) = app.chats.get_mut(index) {
+            chat.favorite = true;
+            chat.favorite_position = position as u32;
+        }
+    }
+    for index in [2, 4] {
+        if let Some(chat) = app.chats.get_mut(index) {
+            chat.pinned = true;
+            chat.pinned_at = 100 + index as i64;
+        }
+    }
+    app.labels = ["Family", "Work", "Travel"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| crate::model::Label {
+            id: format!("demo-label-{index}"),
+            name: name.into(),
+            color_hex: ["#22c55e", "#3b82f6", "#f97316"][index].into(),
+            created_at: 0,
+        })
+        .collect();
+}
+
 pub fn apply_flags(app: &mut App, page: Option<&str>) {
     let Some(page) = page else {
         return;
@@ -3799,6 +3831,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // and the active network's accounts render, which also reveals
             // the Queues section.
             "networks" => networks_sample(app),
+            "rail-full" => rail_full_sample(app),
             // Deterministic per-account appearance overrides for rendered
             // proof: the open chat's account (wa-personal) draws its
             // conversation with its own theme, or with its own background,
