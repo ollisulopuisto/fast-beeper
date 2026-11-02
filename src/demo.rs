@@ -5943,6 +5943,25 @@ mod tests {
         assert!(ada.messages.iter().any(|m| m.quoted.is_some()));
     }
 
+    /// Polls the stub worker's draining thread until it records a line
+    /// containing the needle: frame_ui applies queued actions at the end of
+    /// the frame, so a click's effect is observable on the stub's recorded
+    /// queue, not in app.actions.
+    fn until_recorded(worker: &crate::transcribe_worker::Worker, needle: &str) -> Vec<String> {
+        let started = std::time::Instant::now();
+        loop {
+            let recorded = worker.recorded();
+            if recorded.iter().any(|line| line.contains(needle)) {
+                return recorded;
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "the stub was told about {needle}: {recorded:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     /// Transcription: with no service configured the voice note shows no
     /// Transcribe button; with a service the button queues the local job.
     #[test]
@@ -6020,15 +6039,17 @@ mod tests {
         settle(&mut app, &ctx, &mut at, &mut drawn_now, "Transcribe");
         let at = at.expect("the configured service offers Transcribe");
         frame_with(&mut app, &ctx, click(at));
-        frame_with(&mut app, &ctx, vec![]);
+        // frame_ui applies queued actions at the end of the frame, so the
+        // click's TranscribeVoice no longer sits in app.actions; the stub's
+        // recorded queue is the observable effect.
+        let recorded = until_recorded(app.transcriber.as_ref().unwrap(), "transcribe");
         assert!(
-            app.actions.iter().any(|action| matches!(
-                action,
-                crate::model::Action::TranscribeVoice { message, path, .. }
-                    if (message == "ada-voice" || message == "you-voice")
-                        && path.ends_with("demo-voice.ogg")
-            )),
-            "the click queues the local job for the voice note"
+            recorded.iter().any(|line| {
+                (line.starts_with("transcribe ada-voice in ")
+                    || line.starts_with("transcribe you-voice in "))
+                    && line.ends_with("demo-voice.ogg")
+            }),
+            "the click queues the local job for the voice note: {recorded:?}"
         );
     }
 
@@ -6137,13 +6158,15 @@ mod tests {
         );
         let retry = retry.expect("a failed transcription offers a retry");
         frame_with(&mut app, &ctx, click(retry));
-        frame_with(&mut app, &ctx, vec![]);
+        // Same as above: the applied action's effect lands on the stub's
+        // recorded queue, not in app.actions.
+        let recorded = until_recorded(app.transcriber.as_ref().unwrap(), "transcribe ada-voice");
         assert!(
-            app.actions.iter().any(|action| matches!(
-                action,
-                crate::model::Action::TranscribeVoice { message, .. } if message == "ada-voice"
-            )),
-            "the retry requeues the same note"
+            recorded
+                .iter()
+                .any(|line| line.starts_with("transcribe ada-voice in ")
+                    && line.ends_with("demo-voice.ogg")),
+            "the retry requeues the same note: {recorded:?}"
         );
     }
 
