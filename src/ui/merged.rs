@@ -627,7 +627,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                         // is never the only cue; the icon's hover carries the
                         // full label with the exact time.
                         ui.push_id((&message.chat, &message.id), |ui| {
-                            let source = source_label(app, &valid, member);
                             let sender = if message.from_me {
                                 "You"
                             } else {
@@ -649,7 +648,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     )
                                 })
                                 .unwrap_or_default();
-                            let meta = format!("{exact} · {source} · {sender}");
+                            let meta = format!(
+                                "{exact} · {}{} · {sender}",
+                                network_label(&source_chat),
+                                account_name(app, &source_chat),
+                            );
                             let tint = crate::theme::network_tint(network_label(&source_chat))
                                 .unwrap_or(app.conversation_palette().secondary);
                             let icon = crate::theme::network_icon(network_label(&source_chat));
@@ -795,6 +798,12 @@ fn destination_extras(
     chosen: &str,
 ) {
     let palette = app.conversation_palette();
+    let full = state
+        .destination
+        .as_ref()
+        .and_then(|member| app.chat(&member.chat))
+        .map(|chat| format!("{}{}", network_label(chat), account_name(app, chat)))
+        .unwrap_or_else(|| chosen.to_owned());
     let schedulable =
         app.editing.is_none() && (!app.composer.trim().is_empty() || !app.pending.is_empty());
     let clock = ui
@@ -842,11 +851,14 @@ fn destination_extras(
             }
         })
         .response
-        .on_hover_text(if cross_over {
-            "Cross-over: a plain new message on the selected destination, without the reply reference"
-        } else {
-            "The network and account new messages send from"
-        });
+        .on_hover_text(format!(
+            "{full}\n{}",
+            if cross_over {
+                "Cross-over: a plain new message on the selected destination, without the reply reference"
+            } else {
+                "The network and account new messages send from"
+            }
+        ));
 }
 
 /// The account's own name from the Beeper inventory, for "Sending via":
