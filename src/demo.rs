@@ -4339,6 +4339,7 @@ fn contacts_by_id(app: &App) -> HashMap<&str, &Contact> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Action;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
 
