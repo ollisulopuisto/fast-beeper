@@ -52,6 +52,60 @@ class ScopeTests(unittest.TestCase):
         for path in ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml', 'build.rs', '.github/workflows/ci.yml', '.github/scripts/ci-scope.py'):
             self.assertTrue(all(scope.classify([path]).values()))
 
+    def _git_repo(self, root, files):
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(root), *args], stderr=subprocess.DEVNULL).decode().strip()
+        git('init')
+        git('config', 'user.email', 'test@example.invalid')
+        git('config', 'user.name', 'Test')
+        for name, text in files.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        git('add', '.')
+        git('commit', '-m', 'base')
+        return git
+
+    def _scope(self, script, root, base):
+        out = subprocess.check_output([__import__('sys').executable, str(script), '--base', base], cwd=root)
+        return json.loads(out)
+
+    def test_version_only_bump_keeps_packaging_and_native_skips_audit_and_nix(self):
+        script = Path(__file__).with_name('ci-scope.py').resolve()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = self._git_repo(root, {
+                'Cargo.toml': '[package]\nname = "demo"\nversion = "0.1.0"\n',
+                'Cargo.lock': '# lock\n[[package]]\nname = "demo"\nversion = "0.1.0"\n',
+                'CHANGELOG.md': '# notes\n',
+            })
+            base = git('rev-parse', 'HEAD')
+            (root / 'Cargo.toml').write_text('[package]\nname = "demo"\nversion = "0.2.0"\n')
+            (root / 'Cargo.lock').write_text('# lock\n[[package]]\nname = "demo"\nversion = "0.2.0"\n')
+            (root / 'CHANGELOG.md').write_text('# notes\nmore\n')
+            git('add', '.'); git('commit', '-m', 'bump')
+            self.assertEqual(self._scope(script, root, base),
+                             dict(portable=True, native=True, audit=False, nix=False))
+
+    def test_dependency_or_code_changes_keep_every_check(self):
+        script = Path(__file__).with_name('ci-scope.py').resolve()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = self._git_repo(root, {
+                'Cargo.toml': '[package]\nname = "demo"\nversion = "0.1.0"\n[dependencies]\nureq = "3"\n',
+                'Cargo.lock': '[[package]]\nname = "ureq"\nversion = "3.4.0"\nchecksum = "aaa"\n',
+            })
+            base = git('rev-parse', 'HEAD')
+            # Dependency line edit in the manifest: full checks.
+            (root / 'Cargo.toml').write_text('[package]\nname = "demo"\nversion = "0.1.0"\n[dependencies]\nureq = "4"\n')
+            git('add', '.'); git('commit', '-m', 'dep')
+            self.assertTrue(all(self._scope(script, root, base).values()))
+            # Lockfile checksum churn (a real dependency bump): full checks.
+            git('checkout', '-q', base)
+            (root / 'Cargo.lock').write_text('[[package]]\nname = "ureq"\nversion = "3.5.0"\nchecksum = "bbb"\n')
+            git('add', '.'); git('commit', '-m', 'lock')
+            self.assertTrue(all(self._scope(script, root, base).values()))
+
     def test_nix_changes_are_checked(self):
         for path in ('flake.lock', 'flake.nix', 'packaging/flatpak/manifest.yml'):
             self.assertTrue(scope.classify([path])['nix'])

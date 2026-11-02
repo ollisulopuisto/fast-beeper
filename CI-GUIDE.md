@@ -16,6 +16,13 @@
 - Cargo/toolchain/build inputs and CI routing changes select every check family.
   Nix inputs select native and Nix checks. Unclassified implementation paths
   conservatively select portable/native/Nix checks. Deleted files count too.
+  Exception: a diff whose only build-relevant changes rewrite bare
+  `version = "..."` lines in Cargo.toml/Cargo.lock (release metadata, no
+  dependency/checksum/source edits) keeps portable packaging validation and
+  native quality/tests but skips the advisory audit and the Nix fan-out, and
+  the Flatpak workflow skips its container build for the same diffs. Any
+  dependency-line, checksum, source or name change selects full checks, and
+  docs-only changes already select no builds.
 - Dependency advisories run for dependency changes, full manual CI and a small
   daily audit-only run. New advisories must be detected even without commits.
 - Merge queues, version tags and **CI -> Run workflow -> scope=full** select every
