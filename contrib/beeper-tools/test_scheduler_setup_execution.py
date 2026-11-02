@@ -81,33 +81,19 @@ print('{"ok":true}')
 def service_script():
     """Rebuild the exact service-start script the launcher ships over SSH.
 
-    Walks the Swift multiline-string concatenation in BeeperLauncher.swift:
-    plain string segments keep their text (minus the 8-space literal
-    indentation), `schedulerHealthScript` splices in the shipped probe, and
-    quoted literals like "\n" / "; then" are evaluated.
+    Walks the Swift multiline string in BeeperLauncher.swift: plain text
+    keeps its content (minus the 8-space literal indentation) and the
+    `\(schedulerHealthScript)` interpolation splices in the shipped probe.
     """
-    import ast
-    import re
     health = HEALTH.read_text().strip()
     open_marker = 'let service = remote(connection, """'
     i1 = SOURCE.index(open_marker) + len(open_marker)
     i2 = SOURCE.index('echo RUNNING""")', i1)
     block = SOURCE[i1:i2]
-    parts = block.split('"""')
-    script = 'set -e'
-    for index, part in enumerate(parts):
-        if index % 2 == 0:
-            lines = part.split('\n')
-            script += '\n'.join(line[8:] if line.startswith('        ') else line for line in lines)
-        else:
-            out = ''
-            segments = part.split('schedulerHealthScript')
-            for seg_index, seg in enumerate(segments):
-                for literal in re.findall(r'\+ "((?:[^"\\]|\\.)*)"', seg):
-                    out += ast.literal_eval('"' + literal + '"')
-                if seg_index < len(segments) - 1:
-                    out += '\n' + health
-            script += out
+    assert '"""' not in block, 'single literal: interpolation, not concatenation'
+    lines = block.split('\n')
+    script = 'set -e' + '\n'.join(line[8:] if line.startswith('        ') else line for line in lines)
+    script = script.replace('\\(schedulerHealthScript)', health)
     return script + 'echo RUNNING\n'
 
 

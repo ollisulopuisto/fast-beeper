@@ -260,7 +260,7 @@ func launch(_ connection: Connection) throws {
         # An already-healthy service is proof the setup is done: leave the
         # running daemon untouched instead of restarting it.
         for _ in 1 2; do
-            if """ + "\n" + schedulerHealthScript + "; then" + """
+            if \(schedulerHealthScript); then
                 ok=1
                 break
             fi
@@ -282,7 +282,7 @@ func launch(_ connection: Connection) throws {
                 launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl bootstrap "user/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>&1 | tail -n 2 >&2
             fi
             for _ in 1 2 3 4 5 6 7 8 9 10; do
-                if """ + "\n" + schedulerHealthScript + "; then" + """
+                if \(schedulerHealthScript); then
                     ok=1
                     break
                 fi
