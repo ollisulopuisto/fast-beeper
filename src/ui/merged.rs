@@ -344,7 +344,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         let chosen = destination_label(app, state.destination.as_ref());
         let extras_width = measure_extras(ui, &chosen);
         let mut render = |app: &mut App, ui: &mut egui::Ui| {
-            destination_extras(app, ui, &mut state, &valid, cross_over, &chosen);
+            destination_extras(app, ui, &mut state, &valid, &person, cross_over, &chosen);
         };
         super::conversation::composer_with_capabilities(
             app,
@@ -408,29 +408,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             .color(palette.secondary),
                         );
                     });
-                let mut picked = None;
                 egui::ComboBox::from_id_salt("person-destination")
                     .selected_text("Choose destination")
-                    .show_ui(ui, |ui| {
-                        for member in &valid {
-                            let Some(c) = app.chat(&member.chat) else {
-                                continue;
-                            };
-                            if ui
-                                .selectable_label(
-                                    false,
-                                    format!("{} · {}", c.name, source_label(app, &valid, member)),
-                                )
-                                .clicked()
-                            {
-                                picked = Some(member.clone());
-                            }
-                        }
-                    });
-                if let Some(member) = picked {
-                    state.explicit = true;
-                    state.destination = Some(member);
-                }
+                    .show_ui(ui, |ui| destination_entries(app, ui, &mut state, &valid, &person));
                 ui.small("Nothing is routed automatically.");
             });
     }
@@ -754,6 +734,72 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     true
 }
 
+/// The saved default destination for new messages, kept per linked person
+/// (the same setting Contact info shows). `None` means choose each time.
+fn set_default(app: &mut App, person: &Person, primary: Option<Member>) {
+    if let Some(link) = app
+        .settings
+        .beeper
+        .people
+        .iter_mut()
+        .find(|p| **p == *person)
+    {
+        link.primary = primary;
+    }
+    app.mark_settings_dirty();
+}
+
+/// The dropdown's rows: each exact member (the saved default is marked),
+/// then the saved-default controls. Picking a member is a one-off choice for
+/// the message being written; the default only changes through the button.
+fn destination_entries(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    state: &mut State,
+    valid: &[Member],
+    person: &Person,
+) {
+    for member in valid {
+        let Some(c) = app.chat(&member.chat) else {
+            continue;
+        };
+        let marker = if person.primary.as_ref() == Some(member) {
+            "  (default)"
+        } else {
+            ""
+        };
+        let label = format!("{} · {}{marker}", c.name, source_label(app, valid, member));
+        if ui
+            .selectable_label(state.destination.as_ref() == Some(member), label)
+            .clicked()
+        {
+            state.explicit = true;
+            state.destination = Some(member.clone());
+            app.reply_to = state
+                .reply
+                .as_ref()
+                .and_then(|(source, id)| crate::merged::reply_route(source, member, id));
+        }
+    }
+    ui.separator();
+    if let Some(current) = state
+        .destination
+        .clone()
+        .filter(|member| person.primary.as_ref() != Some(member))
+        && ui
+            .button("Make this the default for new messages")
+            .on_hover_text(
+                "Saved for this person. Replies still go to the message's own network and account.",
+            )
+            .clicked()
+    {
+        set_default(app, person, Some(current));
+    }
+    if person.primary.is_some() && ui.button("Clear default").clicked() {
+        set_default(app, person, None);
+    }
+}
+
 /// The destination selector's caption: the member's network and account,
 /// capped so the composer keeps its field.
 fn destination_label(app: &App, destination: Option<&Member>) -> String {
@@ -793,6 +839,7 @@ fn destination_extras(
     ui: &mut egui::Ui,
     state: &mut State,
     valid: &[Member],
+    person: &Person,
     cross_over: bool,
     chosen: &str,
 ) {
@@ -828,27 +875,7 @@ fn destination_extras(
     };
     egui::ComboBox::from_id_salt("person-destination")
         .selected_text(text)
-        .show_ui(ui, |ui| {
-            for member in valid {
-                let Some(c) = app.chat(&member.chat) else {
-                    continue;
-                };
-                if ui
-                    .selectable_label(
-                        state.destination.as_ref() == Some(member),
-                        format!("{} · {}", c.name, source_label(app, valid, member)),
-                    )
-                    .clicked()
-                {
-                    state.explicit = true;
-                    state.destination = Some(member.clone());
-                    app.reply_to = state
-                        .reply
-                        .as_ref()
-                        .and_then(|(source, id)| crate::merged::reply_route(source, member, id));
-                }
-            }
-        })
+        .show_ui(ui, |ui| destination_entries(app, ui, state, valid, person))
         .response
         .on_hover_text(format!(
             "{full}\n{}",
@@ -1148,10 +1175,10 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             .primary
             .as_ref()
             .and_then(|m| app.chat(&m.chat).filter(|c| m.matches(c)))
-            .map(network_label)
-            .unwrap_or("No primary selected");
+            .map(|c| format!("{}{}", network_label(c), account_name(app, c)))
+            .unwrap_or_else(|| "none, choose each time".to_owned());
         egui::ComboBox::from_id_salt("person-primary")
-            .selected_text(format!("Primary: {primary}"))
+            .selected_text(format!("Default for new messages: {primary}"))
             .show_ui(ui, |ui| {
                 let mut set = |app: &mut App, primary: Option<Member>| {
                     if let Some(link) = app
@@ -1169,7 +1196,7 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     app.mark_settings_dirty();
                 };
                 if ui
-                    .selectable_label(person.primary.is_none(), "No primary")
+                    .selectable_label(person.primary.is_none(), "No default (choose each time)")
                     .clicked()
                 {
                     set(app, None);
