@@ -66,15 +66,20 @@ impl ServerSender {
     }
 
     /// Reads at most MAX_BODY_BYTES so a misbehaving local server cannot
-    /// exhaust memory; the parse afterwards decides.
-    fn bounded_body(response: reqwest::blocking::Response) -> Result<String, SendError> {
-        let body = response
-            .text()
+    /// exhaust memory; the cap applies while streaming, not after the whole
+    /// body is already in memory.
+    fn bounded_body(mut response: reqwest::blocking::Response) -> Result<String, SendError> {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        response
+            .by_ref()
+            .take((MAX_BODY_BYTES + 1) as u64)
+            .read_to_end(&mut buf)
             .map_err(|e| SendError::Unknown(format!("response unreadable: {e}")))?;
-        if body.len() > MAX_BODY_BYTES {
+        if buf.len() > MAX_BODY_BYTES {
             return Err(SendError::Unknown("response too large".into()));
         }
-        Ok(body)
+        String::from_utf8(buf).map_err(|e| SendError::Unknown(format!("response not utf-8: {e}")))
     }
 
     /// One RFC3339 timestamp, as the API emits them, to Unix seconds.
@@ -223,6 +228,7 @@ pub fn control(
     now: i64,
     new_id: &dyn Fn() -> String,
     validate: &mut dyn FnMut(&str, &str) -> Result<(), String>,
+    reconcile: &mut dyn FnMut(&ScheduledMessage) -> Reconcile,
 ) -> (u16, String, bool) {
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match (method, segments.as_slice()) {
@@ -279,7 +285,57 @@ pub fn control(
         ("POST", ["v1", "scheduled", id, action]) => {
             let result = match *action {
                 "cancel" => queue.cancel(id),
-                "retry" => queue.retry(id, now),
+                "retry" => {
+                    // An Uncertain item may already have reached the chat, so
+                    // a blind retry can duplicate it. Reconcile first, or make
+                    // the caller confirm it accepts the possible duplicate.
+                    let uncertain = matches!(
+                        queue.get(id).map(|item| item.state),
+                        Some(crate::scheduler::State::Uncertain)
+                    );
+                    if uncertain {
+                        let parsed: serde_json::Value =
+                            serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+                        let confirmed = parsed
+                            .get("confirm_duplicate")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        if !confirmed {
+                            return (
+                                409,
+                                r#"{"error":"item is Uncertain: a copy may already have reached the chat; run reconcile first or retry with {\"confirm_duplicate\":true} accepting a possible duplicate"}"#.to_string(),
+                                false,
+                            );
+                        }
+                    }
+                    queue.retry(id, now)
+                }
+                "reconcile" => {
+                    let Some(item) = queue.get(id) else {
+                        let e = crate::scheduler::QueueError::NotFound(id.to_string());
+                        return (409, format!(r#"{{"error":"{e:?}"}}"#), false);
+                    };
+                    if item.state != crate::scheduler::State::Uncertain {
+                        let e = crate::scheduler::QueueError::BadState {
+                            id: id.to_string(),
+                            state: item.state,
+                        };
+                        return (409, format!(r#"{{"error":"{e:?}"}}"#), false);
+                    }
+                    return match reconcile(item) {
+                        Reconcile::Found => {
+                            queue.get_mut(id).expect("item checked above").state =
+                                crate::scheduler::State::Sent;
+                            (200, r#"{"reconcile":"found"}"#.to_string(), true)
+                        }
+                        Reconcile::NotFound => {
+                            (200, r#"{"reconcile":"not_found"}"#.to_string(), false)
+                        }
+                        Reconcile::Unknown => {
+                            (200, r#"{"reconcile":"unknown"}"#.to_string(), false)
+                        }
+                    };
+                }
                 "edit" => {
                     let parsed: serde_json::Value =
                         serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
@@ -392,7 +448,11 @@ mod tests {
 
     mod protocol {
         use super::super::control;
-        use crate::scheduler::{Queue, ScheduledMessage, State};
+        use crate::scheduler::{Queue, Reconcile, ScheduledMessage, State};
+
+        fn no_reconcile() -> impl FnMut(&ScheduledMessage) -> Reconcile {
+            |_| Reconcile::Unknown
+        }
 
         fn queue() -> Queue {
             Queue::default()
@@ -417,7 +477,8 @@ mod tests {
                     "",
                     0,
                     &|| "x".into(),
-                    &mut |_, _| Ok(())
+                    &mut |_, _| Ok(()),
+                    &mut no_reconcile()
                 )
                 .0,
                 200
@@ -430,6 +491,7 @@ mod tests {
                 0,
                 &|| "x".into(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!((status, body.as_str(), changed), (200, "[]", false));
         }
@@ -445,6 +507,7 @@ mod tests {
                 50,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!((status, changed), (200, true));
             assert!(body.contains("test-1"));
@@ -457,6 +520,7 @@ mod tests {
                 50,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!((status, changed), (200, true));
             assert_eq!(q.items[0].state, State::Cancelled);
@@ -469,6 +533,7 @@ mod tests {
                 50,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!((status, changed), (409, false));
         }
@@ -484,6 +549,7 @@ mod tests {
                 0,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!(status, 400);
             let (status, _, _) = control(
@@ -494,6 +560,7 @@ mod tests {
                 0,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!(status, 400);
             assert!(q.items.is_empty());
@@ -520,6 +587,7 @@ mod tests {
                 0,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!(status, 200);
             assert_eq!(q.items[0].text, "changed");
@@ -532,6 +600,7 @@ mod tests {
                 555,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!(status, 200);
             assert_eq!(q.items[0].due_at, 555);
@@ -551,6 +620,7 @@ mod tests {
                 50,
                 &ids(),
                 &mut |_, _| Err("chat belongs to account other".into()),
+                &mut no_reconcile(),
             );
             assert_eq!(status, 400);
             assert!(body.contains("invalid target"));
@@ -569,6 +639,7 @@ mod tests {
                     seen.push((chat.to_string(), account.to_string()));
                     Ok(())
                 },
+                &mut no_reconcile(),
             );
             assert_eq!(status, 200);
             assert_eq!(seen, vec![("c1".to_string(), "wa".to_string())]);
@@ -578,7 +649,17 @@ mod tests {
         fn unknown_paths_and_actions_are_404() {
             let mut q = queue();
             assert_eq!(
-                control(&mut q, "GET", "/v1/nope", "", 0, &ids(), &mut |_, _| Ok(())).0,
+                control(
+                    &mut q,
+                    "GET",
+                    "/v1/nope",
+                    "",
+                    0,
+                    &ids(),
+                    &mut |_, _| Ok(()),
+                    &mut no_reconcile()
+                )
+                .0,
                 404
             );
             assert_eq!(
@@ -589,7 +670,8 @@ mod tests {
                     "",
                     0,
                     &ids(),
-                    &mut |_, _| Ok(())
+                    &mut |_, _| Ok(()),
+                    &mut no_reconcile()
                 )
                 .0,
                 404
@@ -618,9 +700,135 @@ mod tests {
                 0,
                 &ids(),
                 &mut |_, _| Ok(()),
+                &mut no_reconcile(),
             );
             assert_eq!(status, 200);
             assert_eq!(q.items[0].state, State::Scheduled);
+        }
+
+        fn uncertain_queue() -> Queue {
+            let mut q = queue();
+            let mut item = ScheduledMessage::new(
+                "a".into(),
+                "wa".into(),
+                "c1".into(),
+                "hi".into(),
+                None,
+                100,
+                0,
+            );
+            item.state = State::Uncertain;
+            q.add(item).unwrap();
+            q
+        }
+
+        #[test]
+        fn retry_of_uncertain_requires_confirm_duplicate() {
+            let mut q = uncertain_queue();
+            let (status, body, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/retry",
+                "{}",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+                &mut no_reconcile(),
+            );
+            assert_eq!(status, 409);
+            assert!(body.contains("confirm_duplicate"));
+            assert!(!changed);
+            assert_eq!(q.items[0].state, State::Uncertain);
+            let (status, _, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/retry",
+                r#"{"confirm_duplicate":true}"#,
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+                &mut no_reconcile(),
+            );
+            assert_eq!(status, 200);
+            assert!(changed);
+            assert_eq!(q.items[0].state, State::Scheduled);
+        }
+
+        #[test]
+        fn reconcile_found_marks_sent() {
+            let mut q = uncertain_queue();
+            let (status, body, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/reconcile",
+                "",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+                &mut |_| Reconcile::Found,
+            );
+            assert_eq!(
+                (status, body.as_str(), changed),
+                (200, r#"{"reconcile":"found"}"#, true)
+            );
+            assert_eq!(q.items[0].state, State::Sent);
+        }
+
+        #[test]
+        fn reconcile_not_found_keeps_uncertain() {
+            let mut q = uncertain_queue();
+            let (status, body, changed) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/reconcile",
+                "",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+                &mut |_| Reconcile::NotFound,
+            );
+            assert_eq!(
+                (status, body.as_str(), changed),
+                (200, r#"{"reconcile":"not_found"}"#, false)
+            );
+            assert_eq!(q.items[0].state, State::Uncertain);
+        }
+
+        #[test]
+        fn reconcile_rejects_non_uncertain_and_unknown_ids() {
+            let mut q = queue();
+            q.add(ScheduledMessage::new(
+                "a".into(),
+                "wa".into(),
+                "c1".into(),
+                "hi".into(),
+                None,
+                100,
+                0,
+            ))
+            .unwrap();
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/a/reconcile",
+                "",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+                &mut no_reconcile(),
+            );
+            assert_eq!(status, 409);
+            let (status, _, _) = control(
+                &mut q,
+                "POST",
+                "/v1/scheduled/ghost/reconcile",
+                "",
+                0,
+                &ids(),
+                &mut |_, _| Ok(()),
+                &mut no_reconcile(),
+            );
+            assert_eq!(status, 409);
         }
     }
 
