@@ -325,7 +325,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, compact: bool, hidden: bool) {
                 for chunk in bottom.chunks(per_row) {
                     let (cell, _) = ui.allocate_exact_size(vec2(width, PLATE), Sense::hover());
                     for (center, destination) in bottom_row_centers(cell, chunk.len()).zip(chunk) {
-                        destination_plate(app, ui, &palette, *destination, center);
+                        let plate = Rect::from_center_size(center, vec2(PLATE, PLATE));
+                        destination_plate(app, ui, &palette, *destination, plate);
                     }
                     ui.add_space(BOTTOM_GAP);
                 }
