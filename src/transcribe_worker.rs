@@ -377,8 +377,10 @@ impl Worker {
                         global_language,
                         ..
                     } => format!(
-                        "transcribe {} in {} as {account_id} ({global_language:?})",
-                        job.message_id, job.chat_id
+                        "transcribe {} in {} as {account_id} ({global_language:?}) from {}",
+                        job.message_id,
+                        job.chat_id,
+                        job.audio.display()
                     ),
                     Command::RemoveChat {
                         account_id,

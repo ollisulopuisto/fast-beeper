@@ -21949,21 +21949,30 @@ mod tests {
             .unwrap();
         app.transcriber = Some(crate::transcribe_worker::Worker::stub_with_store(store));
         app.search = "maailma".into();
-        // The backend already returned the loaded message: no duplicate.
-        app.search_hits.push(message(chat, "m1", 100));
 
+        // No backend hit for the loaded message: its transcript still
+        // surfaces it, keeping the real timestamp with the matched
+        // transcript line as the preview.
         let hits = app.scoped_search_hits();
         assert_eq!(hits.len(), 2, "{hits:?}");
-        // The archived hit keeps its real timestamp and sender; its preview
-        // is the matched transcript line, not the voice-note label.
         let loaded: Vec<_> = hits.iter().filter(|hit| hit.id == "m1").collect();
-        assert_eq!(loaded.len(), 1, "backend hit not duplicated");
+        assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].timestamp, 100);
         assert!(loaded[0].summary().contains("hei maailma"));
-        // The unloaded hit still navigates by chat + message id.
+        // The unloaded hit still navigates by chat + message id and carries
+        // no invented timestamp.
         let unloaded = hits.iter().find(|hit| hit.id == "m2").unwrap();
         assert_eq!(unloaded.chat, chat);
+        assert_eq!(unloaded.timestamp, 0);
         assert!(unloaded.summary().contains("maailma from an unloaded note"));
+
+        // A backend hit for the same message wins the dedup: the row is
+        // not duplicated.
+        app.search_hits.push(message(chat, "m1", 100));
+        let hits = app.scoped_search_hits();
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        assert_eq!(hits.iter().filter(|hit| hit.id == "m1").count(), 1);
+
         // An empty query finds nothing.
         app.search = "   ".into();
         assert!(app.scoped_search_hits().is_empty());
