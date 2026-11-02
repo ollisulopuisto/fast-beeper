@@ -510,8 +510,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let mut cache = ui
         .ctx()
         .data_mut(|data| data.remove_temp::<RowCache>(rows_key).unwrap_or_default());
-    if (cache.width - ui.available_width()).abs() > 0.5 {
-        cache.width = ui.available_width();
+    let timeline_width = ui.available_width() - 16.0;
+    if (cache.width - timeline_width).abs() > 0.5 {
+        cache.width = timeline_width;
         cache.heights.clear();
     }
     // Cap retained layout metadata, not the user's loaded history.
@@ -519,143 +520,169 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         cache.heights.clear();
     }
     let mut grew_above = 0.0;
-    let mut previous_header = None;
+    let mut previous_day: Option<String> = None;
     let mut previous_laid_out = false;
     let mut previous_on_screen = false;
-    let output = egui::ScrollArea::vertical()
-        .id_salt(("person-timeline", &person.members))
-        .stick_to_bottom(!filtered)
-        .min_scrolled_height(remaining)
-        .max_height(remaining)
-        .auto_shrink([false, false])
+    // Equal side margins, matching the composer, whatever the sidebar state.
+    let output = egui::Frame::new()
+        .inner_margin(egui::Margin::symmetric(8, 0))
         .show(ui, |ui| {
-            let viewport = ui.clip_rect();
-            if visible.is_empty() {
-                ui.label(if filtered {
-                    "No matches in loaded history."
-                } else {
-                    "Loading linked histories…"
-                });
-            }
-            for original_message in visible {
-                let day = jiff::Timestamp::from_second(original_message.timestamp)
-                    .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
-                    .unwrap_or_default();
-                let header = (
-                    original_message.chat.clone(),
-                    original_message.sender.clone(),
-                    day.clone(),
-                    original_message.from_me,
-                );
-                let boundary = crate::merged::header_boundary(
-                    previous_header.as_ref().map(
-                        |(chat, sender, day, from_me): &(String, String, String, bool)| {
-                            (chat.as_str(), sender.as_str(), day.as_str(), *from_me)
-                        },
-                    ),
-                    (&header.0, &header.1, &header.2, header.3),
-                );
-                previous_header = Some(header);
-                let row_key = (original_message.chat.clone(), original_message.id.clone());
-                let top = ui.cursor().top();
-                let height = cache.heights.get(&row_key).copied().unwrap_or_else(|| {
-                    super::conversation::linked_estimated_height(original_message, cache.width)
-                });
-                if !crate::merged::row_near_view(
-                    top,
-                    height,
-                    viewport.top(),
-                    viewport.bottom(),
-                    250.0,
-                ) {
-                    cache.heights.entry(row_key).or_insert(height);
-                    ui.add_space(height);
-                    previous_laid_out = false;
-                    previous_on_screen = false;
-                    continue;
-                }
-                let mut updated;
-                let message = if let Some(quote) = &original_message.quoted {
-                    if quote
-                        .chat
-                        .as_deref()
-                        .is_none_or(|source| source == original_message.chat)
-                    {
-                        if let Some(original) = app
-                            .conversations
-                            .get(&original_message.chat)
-                            .and_then(|history| history.message(&quote.id))
-                        {
-                            updated = original_message.clone();
-                            let quote = updated.quoted.as_mut().unwrap();
-                            quote.sender = original.sender.clone();
-                            quote.sender_name = original.sender_name.clone();
-                            quote.summary = original.content.full_summary();
-                            quote.labelled = Some(original.content.labelled());
-                            quote.mentions = original.mentions.clone();
-                            &updated
+            egui::ScrollArea::vertical()
+                .id_salt(("person-timeline", &person.members))
+                .stick_to_bottom(!filtered)
+                .min_scrolled_height(remaining)
+                .max_height(remaining)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let viewport = ui.clip_rect();
+                    if visible.is_empty() {
+                        ui.label(if filtered {
+                            "No matches in loaded history."
+                        } else {
+                            "Loading linked histories…"
+                        });
+                    }
+                    for original_message in visible {
+                        let day = jiff::Timestamp::from_second(original_message.timestamp)
+                            .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
+                            .unwrap_or_default();
+                        let new_day = previous_day.as_deref() != Some(day.as_str());
+                        previous_day = Some(day.clone());
+                        let row_key = (original_message.chat.clone(), original_message.id.clone());
+                        let top = ui.cursor().top();
+                        let height = cache.heights.get(&row_key).copied().unwrap_or_else(|| {
+                            super::conversation::linked_estimated_height(
+                                original_message,
+                                cache.width,
+                            )
+                        });
+                        if !crate::merged::row_near_view(
+                            top,
+                            height,
+                            viewport.top(),
+                            viewport.bottom(),
+                            250.0,
+                        ) {
+                            cache.heights.entry(row_key).or_insert(height);
+                            ui.add_space(height);
+                            previous_laid_out = false;
+                            previous_on_screen = false;
+                            continue;
+                        }
+                        let mut updated;
+                        let message = if let Some(quote) = &original_message.quoted {
+                            if quote
+                                .chat
+                                .as_deref()
+                                .is_none_or(|source| source == original_message.chat)
+                            {
+                                if let Some(original) = app
+                                    .conversations
+                                    .get(&original_message.chat)
+                                    .and_then(|history| history.message(&quote.id))
+                                {
+                                    updated = original_message.clone();
+                                    let quote = updated.quoted.as_mut().unwrap();
+                                    quote.sender = original.sender.clone();
+                                    quote.sender_name = original.sender_name.clone();
+                                    quote.summary = original.content.full_summary();
+                                    quote.labelled = Some(original.content.labelled());
+                                    quote.mentions = original.mentions.clone();
+                                    &updated
+                                } else {
+                                    original_message
+                                }
+                            } else {
+                                original_message
+                            }
                         } else {
                             original_message
-                        }
-                    } else {
-                        original_message
-                    }
-                } else {
-                    original_message
-                };
-                let Some(member) = valid.iter().find(|m| m.chat == message.chat) else {
-                    continue;
-                };
-                let source_chat = app.chat(&message.chat).unwrap().clone();
-                let on_screen = top >= viewport.top();
-                // Colour is never the only cue: every bubble in a mixed
-                // timeline names its source network in text above it. The
-                // day still appears only where the day actually changes.
-                ui.push_id((&message.chat, &message.id), |ui| {
-                    let source = source_label(app, &valid, member);
-                    let sender = if message.from_me {
-                        "You"
-                    } else {
-                        message.sender_name.as_deref().unwrap_or("Sender")
-                    };
-                    if boundary {
-                        ui.small(format!("{day} · {source} · {sender}"));
-                    } else {
-                        ui.small(format!("{source} · {sender}"));
-                    }
-                    let before = actions.len();
-                    super::conversation::linked_bubble(
-                        app,
-                        ui,
-                        &source_chat,
-                        message,
-                        &mut actions,
-                    );
-                    let reply = actions.drain(before..).collect::<Vec<_>>();
-                    for action in reply {
-                        match action {
-                            Action::Reply(id) => {
-                                selected_reply = Some((member.clone(), id));
+                        };
+                        let Some(member) = valid.iter().find(|m| m.chat == message.chat) else {
+                            continue;
+                        };
+                        let source_chat = app.chat(&message.chat).unwrap().clone();
+                        let on_screen = top >= viewport.top();
+                        // The network colour plus a small icon mark the source; the
+                        // day shows only where it changes.
+                        ui.push_id((&message.chat, &message.id), |ui| {
+                            if new_day {
+                                ui.small(&day);
                             }
-                            Action::Edit(_)
-                            | Action::SelectMessage(_)
-                            | Action::SweepMessages { .. }
-                            | Action::TranslateLocally(_) => refused_action = true,
-                            other => actions.push(other),
+                            // One small network icon per message; the exact
+                            // time, network, account and sender wait on hover.
+                            let source = source_label(app, &valid, member);
+                            let sender = if message.from_me {
+                                "You"
+                            } else {
+                                message.sender_name.as_deref().unwrap_or("Sender")
+                            };
+                            let exact = jiff::Timestamp::from_second(message.timestamp)
+                                .map(|t| {
+                                    t.to_zoned(jiff::tz::TimeZone::system())
+                                        .strftime("%Y-%m-%d %H:%M:%S")
+                                        .to_string()
+                                })
+                                .unwrap_or_default();
+                            let details = format!(
+                                "{sender} · {exact}\n{source}{}",
+                                account_name(app, &source_chat)
+                            );
+                            let layout = if message.from_me {
+                                egui::Layout::right_to_left(egui::Align::Center)
+                            } else {
+                                egui::Layout::left_to_right(egui::Align::Center)
+                            };
+                            let tint = app.conversation_palette().secondary;
+                            ui.with_layout(layout, |ui| {
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(14.0, 14.0),
+                                    egui::Sense::hover(),
+                                );
+                                crate::theme::paint_icon(
+                                    ui,
+                                    crate::theme::network_icon(network_label(&source_chat)),
+                                    rect,
+                                    12.0,
+                                    tint,
+                                );
+                                response.on_hover_text(details);
+                            });
+                            let before = actions.len();
+                            super::conversation::linked_bubble(
+                                app,
+                                ui,
+                                &source_chat,
+                                message,
+                                &mut actions,
+                            );
+                            let reply = actions.drain(before..).collect::<Vec<_>>();
+                            for action in reply {
+                                match action {
+                                    Action::Reply(id) => {
+                                        selected_reply = Some((member.clone(), id));
+                                    }
+                                    Action::Edit(_)
+                                    | Action::SelectMessage(_)
+                                    | Action::SweepMessages { .. }
+                                    | Action::TranslateLocally(_) => refused_action = true,
+                                    other => actions.push(other),
+                                }
+                            }
+                        });
+                        previous_laid_out = true;
+                        previous_on_screen = on_screen;
+                        let measured = (ui.cursor().top() - top).max(1.0);
+                        if top < viewport.top() {
+                            grew_above += measured - height;
                         }
+                        cache.heights.insert(row_key, measured);
                     }
-                });
-                previous_laid_out = true;
-                previous_on_screen = on_screen;
-                let measured = (ui.cursor().top() - top).max(1.0);
-                if top < viewport.top() {
-                    grew_above += measured - height;
-                }
-                cache.heights.insert(row_key, measured);
-            }
-            // Keep the last bubble/hover actions above the fixed composer.
-            ui.add_space(20.0);
-        });
+                    // Keep the last bubble/hover actions above the fixed composer.
+                    ui.add_space(20.0);
+                })
+        })
+        .inner;
     let bottom = (output.content_size.y - output.inner_rect.height()).max(0.0);
     if grew_above.abs() > 0.5 && output.state.offset.y > 1.0 && output.state.offset.y < bottom - 2.0
     {

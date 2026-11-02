@@ -6323,7 +6323,7 @@ pub(crate) fn list_menu(
 
 /// Same initial height heuristic used by the ordinary transcript, plus linked source/reply rows.
 pub(crate) fn linked_estimated_height(message: &Message, width: f32) -> f32 {
-    estimated_height(message, width, false, 0) + 42.0
+    estimated_height(message, width, false, 0) + 22.0
 }
 /// Linked timelines use the very same bubble/media renderer as ordinary chats.
 pub(crate) fn linked_bubble(
@@ -6333,8 +6333,8 @@ pub(crate) fn linked_bubble(
     message: &Message,
     actions: &mut Vec<Action>,
 ) {
-    // The message's own source network hues its bubbles; the day/source
-    // header above carries the same network as text. Text colours stay the
+    // The message's own source network hues its bubbles; a small network
+    // icon above carries it too. Text colours stay the
     // palette's, so both themes keep their contrast.
     let mut palette = app.conversation_palette();
     if let Some(tint) = chat
