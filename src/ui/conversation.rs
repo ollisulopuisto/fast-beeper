@@ -6343,7 +6343,9 @@ pub(crate) fn linked_bubble(
         .and_then(crate::theme::network_tint)
     {
         palette.bubble_in = crate::theme::tinted_strength(palette.bubble_in, tint, 0.16);
-        palette.bubble_out = crate::theme::tinted_strength(palette.bubble_out, tint, 0.16);
+        // The outgoing bubble reads as its network at a glance, not a
+        // halfway hue; the stronger tint keeps the in/out bases distinct.
+        palette.bubble_out = crate::theme::tinted_strength(palette.bubble_out, tint, 0.45);
     }
     let names_or = |id: &str, hint: Option<&str>| app.display_name_or(id, hint);
     let mention_names = |id: &str| app.mention_name(id);
