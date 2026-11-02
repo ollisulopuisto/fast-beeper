@@ -4339,6 +4339,7 @@ fn contacts_by_id(app: &App) -> HashMap<&str, &Contact> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Action;
     use crate::paths::AppDirs;
     use crate::settings::Settings;
 
@@ -6298,12 +6299,29 @@ mod tests {
         render(app, ctx);
     }
 
-    /// Alt+2, or Control+2 on macOS.
-    fn messages_shortcut() -> egui::Modifiers {
-        if cfg!(target_os = "macos") {
-            egui::Modifiers::CTRL
-        } else {
-            egui::Modifiers::ALT
+    /// Focuses the message list through the FocusMessages action, as its
+    /// shortcut does. The key binding is macOS-only since Alt+digit picks
+    /// a sidebar filter and Command+digit a favorite; the binding itself
+    /// is covered by the keys tests on macOS.
+    fn focus_messages_shortcut(app: &mut App, ctx: &egui::Context) {
+        app.actions.push(Action::FocusMessages);
+        render(app, ctx);
+    }
+
+    /// Favorites the given chats in the given order, so the favorites bar -
+    /// and Command+digit with it - numbers them ahead of every other chat.
+    /// Channels, locked, archived and pinned chats stay off the bar.
+    fn favorite_first(app: &mut App, ids: &[String]) {
+        for chat in &mut app.chats {
+            chat.favorite = false;
+        }
+        for (index, id) in ids.iter().enumerate() {
+            let chat = app.chat_mut(id).expect("a favorite target");
+            chat.favorite = true;
+            chat.favorite_position = index as u32;
+            if chat.backend_account.is_none() {
+                chat.backend_account = Some("wa-personal".into());
+            }
         }
     }
 
@@ -6587,7 +6605,18 @@ mod tests {
         ctx.enable_accesskit();
         let root = egui::accesskit_root_id().accesskit_id();
         let first = app.open_chat.clone().unwrap();
-        let second = app.visible_chats()[1].id.clone();
+        // Command+2 opens the favorites bar's second chat; pinned chats
+        // (the open one) never reach the bar, so favorite the first two
+        // eligible chats.
+        let bar: Vec<String> = app
+            .visible_chats()
+            .iter()
+            .filter(|chat| !chat.is_channel() && !chat.locked && !chat.archived && !chat.pinned)
+            .take(2)
+            .map(|chat| chat.id.clone())
+            .collect();
+        favorite_first(&mut app, &bar);
+        let second = bar[1].clone();
         let mut lists_seen = 0;
         // From the first frame, whose passes lay the list out hidden once,
         // then on to another chat.
@@ -6790,7 +6819,7 @@ mod tests {
         render(&mut app, &ctx);
         assert_eq!(ctx.memory(|memory| memory.focused()), Some(list));
         assert_eq!(ring(&ctx), None, "no ring without the keyboard");
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         assert_eq!(
             ctx.memory(|memory| memory.focused()),
             Some(crate::ui::conversation::messages_list_id(&chat))
@@ -6814,7 +6843,7 @@ mod tests {
         app.attach(&ctx);
         let chat = long_chat(&mut app, 400);
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         assert!(ring(&ctx).is_some(), "rings the newest message");
         // Far above the view, and not revealed.
         app.message_cursor.insert(chat.clone(), "long-0".into());
@@ -6833,7 +6862,7 @@ mod tests {
         app.attach(&ctx);
         app.open_chat = None;
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         assert!(
             app.announcer.spoken().contains(&"No chat open"),
             "{:?}",
@@ -6855,7 +6884,7 @@ mod tests {
         let list = crate::ui::conversation::messages_list_id(&chat);
         app.page = crate::model::Page::Calls;
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         assert_eq!(app.page, crate::model::Page::Calls, "the history stays");
         assert_eq!(ctx.memory(|memory| memory.focused()), Some(list));
         press_key(&mut app, &ctx, egui::Key::ArrowUp, egui::Modifiers::NONE);
@@ -6875,13 +6904,10 @@ mod tests {
                     egui::Pos2::ZERO,
                     egui::vec2(500.0, 780.0),
                 )),
-                events: vec![egui::Event::Key {
-                    key: egui::Key::Num2,
-                    physical_key: None,
-                    pressed: true,
-                    repeat: false,
-                    modifiers: messages_shortcut(),
-                }],
+                events: {
+                    app.actions.push(Action::FocusMessages);
+                    Vec::new()
+                },
                 ..Default::default()
             },
             |ui| {
@@ -6944,7 +6970,7 @@ mod tests {
         render(&mut app, &ctx);
         let chat = app.open_chat.clone().unwrap();
         let list = crate::ui::conversation::messages_list_id(&chat);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         press_key(&mut app, &ctx, egui::Key::ArrowUp, egui::Modifiers::NONE);
         let cursor = app.message_cursor.get(&chat).cloned();
         frame_with_window_focus(&mut app, &ctx, false);
@@ -6964,7 +6990,7 @@ mod tests {
         render(&mut app, &ctx);
         let chat = app.open_chat.clone().unwrap();
         let list = crate::ui::conversation::messages_list_id(&chat);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         let target = app.conversations[&chat].messages[2].id.clone();
         app.actions.push(crate::model::Action::OpenMessage {
             chat: chat.clone(),
@@ -7002,7 +7028,7 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         let channel = channel(&app);
         let conversation = app.conversations.get_mut(&channel).unwrap();
         let template = conversation.messages.last().unwrap().clone();
@@ -7078,7 +7104,7 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         let channel = channel(&app);
         app.actions
             .push(crate::model::Action::OpenChat(channel.clone()));
@@ -7101,7 +7127,7 @@ mod tests {
         // Channels are listed under their own filter.
         app.chat_filter = crate::model::ChatFilter::Channels;
         render(app, ctx);
-        press_key(app, ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(app, ctx);
         let conversation = app.conversations.get_mut(&channel).unwrap();
         let template = conversation.messages.last().unwrap().clone();
         conversation.messages = (0..60)
@@ -7290,11 +7316,21 @@ mod tests {
             ctx.memory(|memory| memory.focused()),
             Some(crate::ui::conversation::messages_list_id(&chat))
         );
-        let second = app.visible_chats()[1].id.clone();
+        // Command+digit jumps by the favorites bar's order, not the
+        // list's; favorite the list's first eligible chats in list order.
+        let bar: Vec<String> = app
+            .visible_chats()
+            .iter()
+            .filter(|chat| !chat.is_channel() && !chat.locked && !chat.archived && !chat.pinned)
+            .take(digits.len())
+            .map(|chat| chat.id.clone())
+            .collect();
+        favorite_first(&mut app, &bar);
+        let second = bar[1].clone();
         assert_ne!(second, chat);
         assert!(
             app.chat(&second).unwrap().can_send(),
-            "the second chat has a message field"
+            "the second favorite has a message field"
         );
         press_key(&mut app, &ctx, egui::Key::Num2, egui::Modifiers::COMMAND);
         render(&mut app, &ctx);
@@ -7303,14 +7339,12 @@ mod tests {
             ctx.memory(|memory| memory.focused()),
             Some(egui::Id::new("composer-text"))
         );
-        let (index, read_only) = app
-            .visible_chats()
+        let (index, read_only) = bar
             .iter()
-            .take(digits.len())
             .enumerate()
-            .find(|(_, chat)| !chat.can_send())
-            .map(|(index, chat)| (index, chat.id.clone()))
-            .expect("a chat without a message field among the first nine");
+            .find(|(_, id)| !app.chat(id).unwrap().can_send())
+            .map(|(index, id)| (index, id.clone()))
+            .expect("a chat without a message field among the bar's first nine");
         focus_messages(&mut app, &ctx);
         assert_eq!(
             ctx.memory(|memory| memory.focused()),
@@ -7356,7 +7390,7 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         assert!(app.messages_focused);
         let reopened = egui::Context::default();
         app.attach(&reopened);
@@ -15580,11 +15614,11 @@ mod tests {
             )],
         );
         render(&mut app, &ctx);
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         assert_eq!(
             ctx.memory(|memory| memory.focused()),
             Some(crate::ui::conversation::messages_list_id(&chat)),
-            "Alt+2 focused the message list"
+            "the messages shortcut focused the message list"
         );
         (app, ctx, chat, events)
     }
@@ -15695,7 +15729,7 @@ mod tests {
             Some(crate::ui::conversation::messages_list_id(&chat)),
             "Tab left the list"
         );
-        press_key(&mut app, &ctx, egui::Key::Num2, messages_shortcut());
+        focus_messages_shortcut(&mut app, &ctx);
         settle_key_scroll(&mut app, &ctx);
         at_the_true_bottom(&mut app, &ctx, &chat, "Alt+2");
     }
@@ -17851,6 +17885,15 @@ mod tests {
         let mut second = Chat::new("search-fixture-2@g.us".into(), "Search fixture two".into());
         second.last_activity = first.last_activity - 1;
         app.chats.extend([first, second]);
+        // Command+digit jumps by the favorites bar's order; favorite both
+        // fixtures so Command+2 means the second one.
+        favorite_first(
+            &mut app,
+            &[
+                "search-fixture-1@g.us".to_string(),
+                "search-fixture-2@g.us".to_string(),
+            ],
+        );
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
@@ -17895,14 +17938,26 @@ mod tests {
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
-        let original = app.open_chat.clone().unwrap();
-        assert_eq!(app.visible_chats()[0].id, original);
+        // Command+digit jumps by the favorites bar's order, which skips
+        // pinned chats (the open one is pinned): favorite the first two
+        // eligible chats and open the first.
+        let bar: Vec<String> = app
+            .visible_chats()
+            .iter()
+            .filter(|chat| !chat.is_channel() && !chat.locked && !chat.archived && !chat.pinned)
+            .take(2)
+            .map(|chat| chat.id.clone())
+            .collect();
+        favorite_first(&mut app, &bar);
+        let original = bar[0].clone();
+        app.actions.push(Action::OpenChat(original.clone()));
+        render(&mut app, &ctx);
         frame_with(
             &mut app,
             &ctx,
             vec![egui::Event::Text("unsent draft".into())],
         );
-        let target = app.visible_chats()[1].id.clone();
+        let target = bar[1].clone();
         assert_ne!(target, original);
         frame_with(
             &mut app,
@@ -18229,7 +18284,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_wrap_within_sidebar_and_locked_is_only_shown_when_needed() {
+    fn filters_stay_one_row_within_sidebar_and_locked_is_only_shown_when_needed() {
         use crate::ui::rail::{Destination, destination_id};
         let mut app = app();
         for chat in &mut app.chats {
@@ -18254,7 +18309,12 @@ mod tests {
             .read_response(destination_id(Destination::Settings))
             .unwrap()
             .rect;
-        assert!(locked.bottom() <= settings.top());
+        // The bottom group shares one row: Locked sits left of Settings.
+        assert!(
+            (locked.center().y - settings.center().y).abs() < 0.5
+                && locked.right() <= settings.left(),
+            "Locked shares the bottom row left of Settings: {locked:?} {settings:?}"
+        );
         let chips: Vec<_> = crate::model::ChatFilter::EVERY
             .into_iter()
             .map(|filter| {
@@ -18272,10 +18332,15 @@ mod tests {
                 "filter must fit the sidebar: {rect:?}"
             );
         }
-        assert!(
-            chips.last().unwrap().top() > chips[0].top(),
-            "narrow sidebar wraps filters"
-        );
+        // Compact icon row: the filters share one line even at the narrow
+        // default sidebar, matching filter_chips' one-line contract.
+        for rect in &chips {
+            assert!(
+                (rect.top() - chips[0].top()).abs() < 0.5,
+                "filters share one row: {rect:?} against {:?}",
+                chips[0]
+            );
+        }
     }
 
     #[test]
@@ -21841,24 +21906,35 @@ mod rail_tests {
             let top = [Destination::Chats, Destination::Calls]
                 .map(|destination| destination_rect(&ctx, destination));
             let starred = destination_rect(&ctx, Destination::Starred);
-            let shown_starred = starred;
             let settings = destination_rect(&ctx, Destination::Settings);
-            let shown_settings = settings;
             let me = stop_rect(&ctx, Stop::Profile).expect("our avatar is drawn");
             for rect in top.iter().chain([&starred, &settings, &me]) {
                 assert!(rail.contains_rect(*rect), "{macos}: {rect:?} in {rail:?}");
             }
             assert!(top[0].bottom() <= top[1].top());
-            // Starred heads the bottom group, a plate and a gap above
-            // Archived, or Settings when nothing is archived or locked.
-            let below = if Destination::Archived.offered(&app) {
-                destination_rect(&ctx, Destination::Archived)
-            } else {
-                settings
-            };
+            // The bottom group shares one centered row of plates in
+            // Starred, Archived, Locked, Settings order, 4 points apart.
+            let bottom: Vec<egui::Rect> = [
+                Destination::Starred,
+                Destination::Archived,
+                Destination::Locked,
+                Destination::Settings,
+            ]
+            .into_iter()
+            .filter(|destination| destination.offered(&app))
+            .map(|destination| destination_rect(&ctx, destination))
+            .collect();
+            for pair in bottom.windows(2) {
+                let (left, right) = (pair[0], pair[1]);
+                assert!(
+                    (left.center().y - right.center().y).abs() < 0.5
+                        && (right.left() - left.right() - 4.0).abs() < 0.5,
+                    "{macos}: the bottom row shares a line 4 points apart: {left:?} {right:?}"
+                );
+            }
             assert!(
-                (below.top() - starred.bottom() - 8.0).abs() < 0.5,
-                "{macos}: Starred directly above the next bottom button: {starred:?} {below:?}"
+                (rail.width() - bottom.last().unwrap().right() - bottom[0].left()).abs() < 1.0,
+                "{macos}: the bottom row is centered: {bottom:?} in {rail:?}"
             );
             assert!(
                 starred.top() > top[1].bottom() + 100.0,
@@ -21866,9 +21942,9 @@ mod rail_tests {
             );
             assert_eq!(starred.size(), egui::vec2(36.0, 36.0));
             assert!(
-                (me.top() - settings.bottom() - 8.0).abs() < 0.5
+                (me.top() - settings.bottom() - 4.0).abs() < 0.5
                     && (rail.bottom() - me.bottom() - 8.0).abs() < 0.5,
-                "{macos}: Settings, our avatar and the edge 8 points apart: {settings:?} {me:?}"
+                "{macos}: the bottom row, our avatar and the edge a tight gap apart: {settings:?} {me:?}"
             );
             assert_eq!(settings.size(), egui::vec2(36.0, 36.0));
             assert_eq!(me.size(), egui::vec2(32.0, 32.0));
@@ -21903,11 +21979,16 @@ mod rail_tests {
             let calls = destination_rect(&ctx, Destination::Calls);
             let show = stop_rect(&ctx, Stop::Sidebar).expect("Show the chat list");
             assert!(rail.contains_rect(show) && show.top() >= calls.bottom());
-            // Nothing the list's toggle leaves in place moves.
+            // The top group is anchored; the bottom row recenters in the
+            // narrower rail, one centered plate per row.
             assert_eq!(chats, top[0], "{macos}: Chats stays put");
             assert_eq!(calls, top[1], "{macos}: Calls stays put");
-            assert_eq!(starred, shown_starred, "{macos}: Starred stays put");
-            assert_eq!(settings, shown_settings, "{macos}: Settings stays put");
+            for rect in [starred, settings] {
+                assert!(
+                    (rail.width() - rect.right() - rect.left()).abs() < 1.0,
+                    "{macos}: the bottom plates center in the rail: {rect:?} in {rail:?}"
+                );
+            }
             let first = app.visible_chats()[0].id.clone();
             let avatar = recorded(&ctx, crate::ui::chats::compact_chat_id(&first))
                 .expect("the chats' avatars fill the rail");
@@ -22012,7 +22093,7 @@ mod rail_tests {
                 let (mut app, ctx) = open(page, macos);
                 let chats = destination_rect(&ctx, Destination::Chats);
                 let profile = stop_rect(&ctx, Stop::Profile).unwrap();
-                let size = egui::vec2(1180.0, 300.0);
+                let size = egui::vec2(1180.0, 260.0);
                 for _ in 0..3 {
                     frame_at(&mut app, &ctx, size, Vec::new());
                 }
@@ -22177,7 +22258,13 @@ mod rail_tests {
         let archived = destination_rect(&ctx, Destination::Archived);
         let settings = destination_rect(&ctx, Destination::Settings);
         let rail = rail_rect(&ctx).unwrap();
-        assert!(rail.contains_rect(archived) && archived.bottom() <= settings.top());
+        assert!(rail.contains_rect(archived));
+        // The bottom group shares one row: Archived sits left of Settings.
+        assert!(
+            (archived.center().y - settings.center().y).abs() < 0.5
+                && archived.right() <= settings.left(),
+            "Archived shares the bottom row left of Settings: {archived:?} {settings:?}"
+        );
         assert!(
             ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new("archived-chip")))
                 .is_none(),

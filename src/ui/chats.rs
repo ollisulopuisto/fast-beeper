@@ -3299,9 +3299,12 @@ mod tests {
         assert_eq!(frame(&mut app), scrolled, "the list keeps its place");
     }
 
+    /// Numbered shortcuts belong to the favorites bar, which skips locked
+    /// chats: inside the unlocked locked folder they open nothing and the
+    /// list stays where it is.
     #[test]
-    fn numbered_shortcuts_reveal_locked_chats_and_consume_the_scroll_request() {
-        let (_directory, mut app, ids, ctx) = rail_app(24);
+    fn numbered_shortcuts_skip_locked_chats_inside_the_locked_folder() {
+        let (_directory, mut app, _ids, ctx) = rail_app(24);
         for chat in &mut app.chats {
             chat.locked = true;
         }
@@ -3311,6 +3314,9 @@ mod tests {
             .push(Action::UnlockLockedFolder("fixture-code".into()));
         app.background_frame(&ctx);
         assert!(app.locked_folder_open());
+        // A locked favorite never reaches the bar.
+        app.chats[8].favorite = true;
+        app.chats[8].backend_account = Some("wa-personal".into());
 
         let mut frame = |key: Option<Key>| {
             let mut offset = 0.0;
@@ -3345,15 +3351,18 @@ mod tests {
             (offset, height)
         };
         assert_eq!(frame(None).0, 0.0);
-        let (offset, height) = frame(Some(Key::Num9));
-        assert!(offset > 0.0, "the ninth locked chat starts off screen");
-        assert!(8.0 * theme::ROW_HEIGHT >= offset);
-        assert!(9.0 * theme::ROW_HEIGHT <= offset + height + 0.5);
+        let (offset, _) = frame(Some(Key::Num9));
+        assert_eq!(offset, 0.0, "no numbered shortcut scrolls the locked list");
         let (offset, _) = frame(Some(Key::Num1));
-        assert_eq!(offset, 0.0, "navigating back reveals the first row");
-        assert!(app.actions.contains(&Action::OpenChat(ids[8].clone())));
-        assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
-        assert!(app.scroll_chat_into_view.is_none(), "reveal was consumed");
+        assert_eq!(offset, 0.0, "the locked list stays where it is");
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::OpenChat(_))),
+            "locked chats keep their numbers off the favorites bar: {:?}",
+            app.actions
+        );
+        assert!(app.scroll_chat_into_view.is_none());
     }
 
     #[test]
@@ -3796,18 +3805,23 @@ mod tests {
                 "a favorite is one avatar chip of {FAVORITE_CELL} points, not a chat row"
             );
         }
-        // A chat that is also pinned shows under Pinned only.
-        assert!(
-            ctx.data(|data| data.get_temp::<Rect>(favorite_chip_id(&pinned_favorite.id)))
-                .is_none(),
-            "a pinned favorite leaves the bar to the Pinned section"
-        );
         // Five chips at 44 points plus spacing do not fit one 216-point
         // rail row: the fifth wraps below the first.
         let last = chip(&wrapped_b);
         assert!(
             last.top() > first.bottom() - 1.0,
             "the fifth chip wraps to a second row"
+        );
+        // A chat that is also pinned shows under Pinned only: its chip
+        // sits in the pinned section below the bar, never in it. Both
+        // sections draw the same avatar chips, so the position, not the
+        // rect's absence, tells the sections apart.
+        let pinned_chip = ctx
+            .data(|data| data.get_temp::<Rect>(favorite_chip_id(&pinned_favorite.id)))
+            .expect("the pinned favorite renders as a pinned chip");
+        assert!(
+            pinned_chip.top() >= last.bottom() - 1.0,
+            "the pinned favorite's chip belongs to the pinned section below the bar: {pinned_chip:?} vs bar ending at {last:?}"
         );
         // The section must allocate every wrapped row: the Pinned section
         // starts below the last chip's bottom edge, never over it.

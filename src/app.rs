@@ -25595,7 +25595,10 @@ mod account_background_tests {
         let chat = Chat::new("ada@s.whatsapp.net".into(), "Ada".into());
         app.open_chat = Some(chat.id.clone());
         app.chats = vec![chat];
+        // Each theme keeps its own global pick; set both so the check does
+        // not depend on the fixture's palette.
         app.settings.wallpaper_color = WallpaperColor::Cruise;
+        app.settings.dark_wallpaper_color = WallpaperColor::Cruise;
         assert_eq!(
             app.wallpaper().color,
             WallpaperColor::Cruise.color32(&app.palette)
