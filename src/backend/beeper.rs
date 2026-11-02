@@ -151,6 +151,9 @@ struct BeeperUser {
     username: Option<String>,
 }
 
+type PreviewFallbacks =
+    std::sync::Arc<std::sync::Mutex<HashMap<(String, String), Option<BeeperMessage>>>>;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BeeperMessage {
@@ -337,8 +340,7 @@ struct Api {
     own_ids: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
     /// Real last message for chats whose Beeper preview carries no content
     /// (a reaction event, say), keyed by chat and the placeholder preview id.
-    #[allow(clippy::type_complexity)]
-    preview_fallbacks: std::sync::Arc<std::sync::Mutex<HashMap<(String, String), Option<BeeperMessage>>>>,
+    preview_fallbacks: PreviewFallbacks,
     avatar_sources: std::sync::Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 
