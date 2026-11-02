@@ -2398,7 +2398,10 @@ mod tests {
         // Note: no everything_is_visible here - it reports every popup as
         // open, which stacks all four account combos on top of each other
         // and poisons their open/close tracking. The account card is
-        // opened with a real header click instead.
+        // opened with a real header click instead. Animations are off so
+        // the card's open animation does not clip the combo's interact
+        // rect over the frames that follow (1/60s per harness frame).
+        ctx.all_styles_mut(|style| style.animation_time = 0.0);
         let painted = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, egui::Rect)>::new()));
         let collect = std::rc::Rc::clone(&painted);
         let frame = |app: &mut App, events: Vec<egui::Event>| {
