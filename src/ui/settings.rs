@@ -2424,7 +2424,22 @@ mod tests {
             })
         };
         frame(&mut app, vec![]);
-        let combo = rect_of("Conversation theme").expect("the theme combo registers its rect");
+        let combo = rect_of("Conversation theme").unwrap_or_else(|| {
+            // The rect is missing: say what the page painted instead.
+            let mut texts = Vec::new();
+            for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
+                ctx.graphics(|graphics| {
+                    if let Some(list) = graphics.get(layer) {
+                        for clipped in list.all_entries() {
+                            if let egui::Shape::Text(text) = &clipped.shape {
+                                texts.push(text.galley.text().to_owned());
+                            }
+                        }
+                    }
+                });
+            }
+            panic!("the theme combo registers its rect; painted: {texts:?}");
+        });
         frame(&mut app, click(combo.center()));
         frame(&mut app, vec![]);
         let dark = rect_of("Dark").expect("the open popup registers the Dark item");

@@ -812,6 +812,31 @@ mod tests {
         });
         output.textures_delta.clear();
     }
+    /// Clicks the sender's name inside `message`'s bubble: the first line
+    /// of a group bubble. The same name can paint elsewhere - a typing
+    /// line, a quote block - and only the bubble's name opens the panel.
+    fn click_sender(app: &mut App, tour: &mut Tour, ctx: &egui::Context, message: &str) {
+        let rect = Tour::bubble(app, ctx, message).expect("the bubble is on screen");
+        let pos = rect.left_top() + egui::vec2(18.0, 14.0);
+        for pressed in [true, false] {
+            frame(
+                app,
+                tour,
+                ctx,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        frame(app, tour, ctx, Vec::new());
+    }
+
     fn click(app: &mut App, tour: &mut Tour, ctx: &egui::Context, label: &str) {
         let pos = *tour
             .labels
@@ -1164,7 +1189,7 @@ mod tests {
         // Mira's name over her message in the group opens her own panel,
         // over the group that stays open.
         let mira = "491702222222@s.whatsapp.net";
-        click(&mut app, &mut tour, &ctx, "Mira");
+        click_sender(&mut app, &mut tour, &ctx, "group-reply");
         assert_eq!(shown(&app), Some(mira.to_owned()), "a sender opens theirs");
         assert_eq!(app.open_chat.as_deref(), Some(group.as_str()));
         // The chat list's Info opens that chat and its panel together.
@@ -1481,7 +1506,7 @@ mod tests {
             frame(&mut app, &mut tour, &ctx, Vec::new());
         }
         app.backend.take_demo_commands();
-        click(&mut app, &mut tour, &ctx, "Mira");
+        click_sender(&mut app, &mut tour, &ctx, "group-reply");
         for _ in 0..2 {
             frame(&mut app, &mut tour, &ctx, Vec::new());
         }

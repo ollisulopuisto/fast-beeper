@@ -1885,6 +1885,10 @@ mod tests {
             [Action::ToggleStarred]
         );
         app.show_starred = false;
+        // Command+digit jumps to the favorites bar's nth chat, not the
+        // list's; with all chats favorited in list order, Command+2 keeps
+        // opening the second one.
+        favorite_all(&mut app);
         assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::COMMAND));
         assert!(app.actions.contains(&Action::OpenChat(ids[1].clone())));
     }
@@ -2126,6 +2130,7 @@ mod tests {
         assert!(app.actions.is_empty());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn the_messages_shortcut_focuses_the_list() {
         let (_root, mut app, ids) = app_with_chats(1);
@@ -2167,8 +2172,29 @@ mod tests {
         assert_eq!(app.actions, [Action::FocusMessages]);
     }
 
+    /// On Linux, Alt+2 picks the second sidebar filter and yields to a
+    /// focused text field; the message list is reached by Tab.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn the_filter_digits_pick_filters_outside_text_fields() {
+        let (_root, mut app, ids) = app_with_chats(1);
+        app.open_chat = Some(ids[0].clone());
+        let ctx = egui::Context::default();
+        assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::ALT));
+        assert_eq!(
+            app.actions,
+            [Action::SetChatFilter(crate::model::ChatFilter::Unread)]
+        );
+        // A focused text field keeps the digit: no filter change.
+        app.actions.clear();
+        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("composer-text")));
+        assert!(press(&mut app, &ctx, Key::Num2, Modifiers::ALT));
+        assert!(app.actions.is_empty(), "{:?}", app.actions);
+    }
+
     /// The list's shortcut and the rail's Ctrl+Shift+2 (Cmd on macOS) never
     /// take each other's keys, and Shift does not turn one into the other.
+    #[cfg(target_os = "macos")]
     #[test]
     fn the_messages_shortcut_and_the_rail_keys_stay_apart() {
         let (_root, mut app, ids) = app_with_chats(2);

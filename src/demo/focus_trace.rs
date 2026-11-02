@@ -353,14 +353,6 @@ fn key_press(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {
     events
 }
 
-fn alt() -> egui::Modifiers {
-    if cfg!(target_os = "macos") {
-        egui::Modifiers::CTRL
-    } else {
-        egui::Modifiers::ALT
-    }
-}
-
 fn long_chat(app: &mut App, count: usize) {
     let chat = app.open_chat.clone().expect("the demo opens a chat");
     let conversation = app.conversations.get_mut(&chat).expect("its messages");
@@ -380,7 +372,12 @@ fn long_chat(app: &mut App, count: usize) {
 /// as Tab would.
 fn focus_stop(trace: &mut Trace, stop: Stop) {
     match stop {
-        Stop::Messages => trace.press("Alt+2", egui::Key::Num2, alt()),
+        // The list's key binding is macOS-only since Alt+digit picks a
+        // sidebar filter; every platform reaches it through the action.
+        Stop::Messages => {
+            trace.app.actions.push(crate::model::Action::FocusMessages);
+            trace.settle("focus messages", 3);
+        }
         Stop::Composer => {}
         _ => {
             let id = control(&trace.ctx, stop).expect("drawn");
@@ -458,20 +455,34 @@ fn alt_with_a_digit_also_delivers_its_text() {
     );
 }
 
-/// Alt+2 in the message field moves to the message list and types nothing,
-/// though Windows delivers its digit as text too.
+/// Alt+2 in the message field yields to the field: it picks no filter and
+/// moves no focus, so layouts that need Alt with a digit can still type.
 #[test]
-fn alt_2_in_the_message_field_types_nothing() {
+fn alt_2_in_the_message_field_yields_to_typing() {
     let mut trace = Trace::new(app());
     focus_stop(&mut trace, Stop::Composer);
-    let draft = trace.app.composer.clone();
-    trace.press("Alt+2", egui::Key::Num2, alt());
-    let chat = trace.app.open_chat.clone().expect("the demo opens a chat");
+    // Option/Alt specifically: Control+2 stays the macOS list shortcut.
+    trace.press("Alt+2", egui::Key::Num2, egui::Modifiers::ALT);
     assert_eq!(
         trace.last().egui,
-        Some(crate::ui::conversation::messages_list_id(&chat))
+        Some(egui::Id::new("composer-text")),
+        "Alt+2 in the field keeps its caret"
     );
-    assert_eq!(trace.app.composer, draft, "nothing typed");
+    assert!(
+        !trace
+            .app
+            .actions
+            .contains(&crate::model::Action::FocusMessages),
+        "no messages jump from the field"
+    );
+    assert!(
+        !trace
+            .app
+            .actions
+            .iter()
+            .any(|action| matches!(action, crate::model::Action::SetChatFilter(_))),
+        "no filter picked from the field"
+    );
 }
 
 /// With the pointer, no keyboard navigation and no screen reader, Escape
@@ -505,14 +516,20 @@ fn escape_with_nothing_open_changes_nothing() {
     }
 }
 
-/// Alt+2 with no chat open says so, and focus stays put without a sound.
+/// The messages shortcut with no chat open says so, and focus stays put
+/// without a sound. Reached through the action, as on Linux Alt+digit
+/// picks a sidebar filter instead.
 #[test]
-fn alt_2_without_a_chat_only_announces() {
+fn the_messages_shortcut_without_a_chat_only_announces() {
     for &stop in NO_CHAT_STOPS {
         let mut trace = no_chat_open(stop);
         let from = trace.mark();
-        trace.press("Alt+2", egui::Key::Num2, alt());
-        trace.assert_unchanged(from, &format!("Alt+2 without a chat on {stop:?}"));
+        trace.app.actions.push(Action::FocusMessages);
+        trace.settle("messages shortcut", 3);
+        trace.assert_unchanged(
+            from,
+            &format!("messages shortcut without a chat on {stop:?}"),
+        );
         assert!(
             trace.app.announcer.spoken().contains(&"No chat open"),
             "{:?}",
