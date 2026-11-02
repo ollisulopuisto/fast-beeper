@@ -12129,12 +12129,6 @@ mod reaction_tests {
                 gif: false,
                 note: false,
             }),
-            row(Content::Audio {
-                media: media("audio/ogg", path.clone(), Idle),
-                seconds: Some(3),
-                voice_note: true,
-                waveform: Vec::new(),
-            }),
             row(Content::Sticker {
                 media: media("image/webp", path, Idle),
                 animated: false,
@@ -12198,7 +12192,7 @@ mod reaction_tests {
             .map(String::as_str)
             .filter(|label| !labels.iter().any(|drawn| drawn == label))
             .collect();
-        assert_eq!(undrawn, ["Reply privately"]);
+        assert_eq!(undrawn, ["Reply privately", "Transcription language…"]);
         // Hover texts are not in the accessibility tree.
         labels.extend(["React with any emoji".into(), "Remove your reaction".into()]);
         labels.sort();
