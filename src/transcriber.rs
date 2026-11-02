@@ -233,14 +233,13 @@ impl Store {
                     // is excluded before any metadata call touches its target.
                     if let Ok(file_type) = entry.file_type()
                         && file_type.is_file()
+                        && let Ok(meta) = entry.metadata()
                     {
-                        if let Ok(meta) = entry.metadata() {
-                            files.push((
-                                meta.len(),
-                                meta.modified().unwrap_or(std::time::UNIX_EPOCH),
-                                entry.path(),
-                            ));
-                        }
+                        files.push((
+                            meta.len(),
+                            meta.modified().unwrap_or(std::time::UNIX_EPOCH),
+                            entry.path(),
+                        ));
                     }
                 }
             }
