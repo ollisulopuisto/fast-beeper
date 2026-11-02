@@ -25623,6 +25623,139 @@ mod person_tests {
     }
 }
 
+/// Local voice-note transcription wiring: the service address gates the
+/// feature, jobs carry the pinned language, and a removed or cleared chat
+/// loses its transcripts. The worker is a recording stub; no audio and no
+/// text leave the machine.
+#[cfg(test)]
+mod transcription_tests {
+    use super::*;
+
+    fn app() -> App {
+        let root = std::env::temp_dir().join(format!("zapfast-transcribe-{}", std::process::id()));
+        App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    fn until_recorded(worker: &crate::transcribe_worker::Worker, needle: &str) -> Vec<String> {
+        let started = std::time::Instant::now();
+        loop {
+            let recorded = worker.recorded();
+            if recorded.iter().any(|line| line.contains(needle)) {
+                return recorded;
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "the stub was told about {needle}: {recorded:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn transcribing_without_a_configured_service_says_where_to_set_it() {
+        let mut app = app();
+        assert!(app.transcriber.is_none());
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("Set the transcription service")),
+            "the toast points at Settings: {:?}",
+            app.toasts
+                .iter()
+                .map(|toast| &toast.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_transcribe_job_carries_the_chat_and_the_pinned_language() {
+        let mut app = app();
+        app.settings.transcription_language = "fi".into();
+        let worker = crate::transcribe_worker::Worker::stub([]);
+        app.transcriber = Some(worker);
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        let recorded = until_recorded(
+            app.transcriber.as_ref().unwrap(),
+            "transcribe m1 in ada@s.whatsapp.net",
+        );
+        assert!(
+            recorded.iter().any(|line| line.contains("(Some(\"fi\"))")),
+            "the pinned language rides along: {recorded:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_language_setting_leaves_detection_to_the_service() {
+        let mut app = app();
+        let worker = crate::transcribe_worker::Worker::stub([]);
+        app.transcriber = Some(worker);
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::TranscribeVoice {
+                chat: "ada@s.whatsapp.net".into(),
+                message: "m1".into(),
+                path: std::path::PathBuf::from("/tmp/note.ogg"),
+            },
+            &ctx,
+        );
+        let recorded = until_recorded(app.transcriber.as_ref().unwrap(), "transcribe m1");
+        assert!(
+            recorded.iter().any(|line| line.contains("(None)")),
+            "no pinned language, none sent: {recorded:?}"
+        );
+    }
+
+    #[test]
+    fn removing_or_clearing_a_chat_removes_its_transcripts() {
+        let mut app = app();
+        app.chats
+            .push(Chat::new("ada@s.whatsapp.net".into(), "Ada".into()));
+        let worker = crate::transcribe_worker::Worker::stub([]);
+        app.transcriber = Some(worker);
+        app.apply_backend_event(
+            Event::ChatRemoved {
+                chat: "ada@s.whatsapp.net".into(),
+            },
+            false,
+        );
+        until_recorded(
+            app.transcriber.as_ref().unwrap(),
+            "remove-chat ada@s.whatsapp.net",
+        );
+        app.chats
+            .push(Chat::new("berta@s.whatsapp.net".into(), "Berta".into()));
+        app.apply_backend_event(
+            Event::ChatCleared {
+                chat: "berta@s.whatsapp.net".into(),
+                cleared: true,
+                through: 0,
+            },
+            false,
+        );
+        until_recorded(
+            app.transcriber.as_ref().unwrap(),
+            "remove-chat berta@s.whatsapp.net",
+        );
+    }
+}
+
 /// Per-account chat background: the open chat's Beeper account may override
 /// the global wallpaper pick, per light/dark palette.
 #[cfg(test)]

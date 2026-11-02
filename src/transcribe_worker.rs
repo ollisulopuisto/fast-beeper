@@ -38,6 +38,8 @@ pub struct Worker {
     tx: Sender<Command>,
     /// message_id -> status, read by the view every frame.
     pub status: Arc<Mutex<HashMap<String, Status>>>,
+    /// What a stub was told, for tests; always empty on a live worker.
+    recorded: Arc<Mutex<Vec<String>>>,
 }
 
 /// The loop, factored out for tests: drain commands until Shutdown or the
@@ -127,7 +129,11 @@ impl Worker {
             .name("transcribe".to_string())
             .spawn(move || run(rx, engine, store, thread_status, wake))
             .expect("transcribe worker thread");
-        Self { tx, status }
+        Self {
+            tx,
+            status,
+            recorded: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     /// Queues one voice note. Duplicate message ids are dropped in the
@@ -160,12 +166,48 @@ impl Worker {
         let _ = self.tx.send(Command::Clear);
     }
 
-    /// A worker with no thread behind it, for demos and tests: the given
-    /// statuses are what the view sees; queued work goes nowhere.
+    /// A worker with no engine behind it, for demos and tests: the given
+    /// statuses are what the view sees; queued work is only recorded.
     pub fn stub(pairs: impl IntoIterator<Item = (String, Status)>) -> Self {
-        let (tx, _rx) = channel();
-        let status = Arc::new(Mutex::new(pairs.into_iter().collect()));
-        Self { tx, status }
+        let (tx, rx) = channel();
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&recorded);
+        std::thread::spawn(move || {
+            while let Ok(command) = rx.recv() {
+                let line = match &command {
+                    Command::Transcribe {
+                        job,
+                        account_id,
+                        global_language,
+                    } => format!(
+                        "transcribe {} in {} as {account_id} ({global_language:?})",
+                        job.message_id, job.chat_id
+                    ),
+                    Command::RemoveChat {
+                        account_id,
+                        chat_id,
+                    } => format!("remove-chat {chat_id} of {account_id}"),
+                    Command::Clear => "clear".to_owned(),
+                    Command::Shutdown => "shutdown".to_owned(),
+                };
+                log.lock().unwrap_or_else(|p| p.into_inner()).push(line);
+            }
+        });
+        Self {
+            tx,
+            status: Arc::new(Mutex::new(pairs.into_iter().collect())),
+            recorded,
+        }
+    }
+
+    /// What a stub was told, for tests. The draining thread parks on the
+    /// channel; callers poll until the expectation holds. Available in
+    /// every build so the field is used outside test targets too.
+    pub fn recorded(&self) -> Vec<String> {
+        self.recorded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Status for one message, for the bubble to draw.

@@ -5941,6 +5941,196 @@ mod tests {
         assert!(ada.messages.iter().any(|m| m.quoted.is_some()));
     }
 
+    /// Transcription: with no service configured the voice note shows no
+    /// Transcribe button; with a service the button queues the local job.
+    #[test]
+    fn the_transcribe_button_needs_and_uses_the_configured_service() {
+        fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+                egui::Shape::Vec(shapes) => {
+                    shapes.iter().for_each(|shape| texts(shape, out));
+                }
+                _ => {}
+            }
+        }
+        fn drawn(ctx: &egui::Context) -> Vec<String> {
+            let mut out = Vec::new();
+            for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
+                ctx.graphics(|graphics| {
+                    if let Some(list) = graphics.get(layer) {
+                        for clipped in list.all_entries() {
+                            texts(&clipped.shape, &mut out);
+                        }
+                    }
+                });
+            }
+            out
+        }
+        let click = |pos: egui::Pos2| {
+            let mut events = vec![egui::Event::PointerMoved(pos)];
+            events.extend([true, false].map(|pressed| egui::Event::PointerButton {
+                pos,
+                pressed,
+                button: egui::PointerButton::Primary,
+                modifiers: egui::Modifiers::NONE,
+            }));
+            events
+        };
+        let settle = |app: &mut App,
+                      ctx: &egui::Context,
+                      found: &mut Option<egui::Pos2>,
+                      drawn_out: &mut Vec<String>,
+                      needle: &str| {
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 2400.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let ctx = ui.ctx().clone();
+                        app.background_frame(&ctx);
+                        app.frame_ui(ui);
+                        *found = painted_label_center(&ctx, needle);
+                        *drawn_out = drawn(&ctx);
+                    },
+                );
+                output.textures_delta.clear();
+            }
+        };
+        let mut app = app();
+        apply_flags(&mut app, Some("voice"));
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut at = None;
+        let mut drawn_now = Vec::new();
+        settle(&mut app, &ctx, &mut at, &mut drawn_now, "Transcribe");
+        assert!(
+            at.is_none() && !drawn_now.iter().any(|text| text == "Transcribe"),
+            "no configured service, no transcription offer"
+        );
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([]));
+        settle(&mut app, &ctx, &mut at, &mut drawn_now, "Transcribe");
+        let at = at.expect("the configured service offers Transcribe");
+        frame_with(&mut app, &ctx, click(at));
+        frame_with(&mut app, &ctx, vec![]);
+        assert!(
+            app.actions.iter().any(|action| matches!(
+                action,
+                Action::TranscribeVoice { message, path, .. }
+                    if (message == "ada-voice" || message == "you-voice")
+                        && path.ends_with("demo-voice.ogg")
+            )),
+            "the click queues the local job for the voice note"
+        );
+    }
+
+    /// The worker's states render: progress while it runs, the finished
+    /// text under the player, and the error with a retry that requeues.
+    #[test]
+    fn the_transcript_states_render_and_retry_requeues() {
+        let settle = |app: &mut App, ctx: &egui::Context, needle: &str| {
+            let mut found = None;
+            let mut texts = Vec::new();
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 2400.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let ctx = ui.ctx().clone();
+                        app.background_frame(&ctx);
+                        app.frame_ui(ui);
+                        found = painted_label_center(&ctx, needle);
+                        let mut collected = Vec::new();
+                        for layer in ctx.memory(|memory| memory.layer_ids().collect::<Vec<_>>()) {
+                            ctx.graphics(|graphics| {
+                                if let Some(list) = graphics.get(layer) {
+                                    for clipped in list.all_entries() {
+                                        if let egui::Shape::Text(text) = &clipped.shape {
+                                            collected.push(text.galley.text().to_owned());
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        texts = collected;
+                    },
+                );
+                output.textures_delta.clear();
+            }
+            (found, texts)
+        };
+        let click = |pos: egui::Pos2| {
+            let mut events = vec![egui::Event::PointerMoved(pos)];
+            events.extend([true, false].map(|pressed| egui::Event::PointerButton {
+                pos,
+                pressed,
+                button: egui::PointerButton::Primary,
+                modifiers: egui::Modifiers::NONE,
+            }));
+            events
+        };
+
+        let mut app = app();
+        apply_flags(&mut app, Some("voice"));
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+            "ada-voice".to_string(),
+            crate::transcribe_worker::Status::Running,
+        )]));
+        let (_, texts) = settle(&mut app, &ctx, "Transcribing\u{2026}");
+        assert!(
+            texts.iter().any(|text| text.contains("Transcribing")),
+            "the running state shows progress: {texts:?}"
+        );
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+            "ada-voice".to_string(),
+            crate::transcribe_worker::Status::Ready(
+                "Every word stayed on this machine.".to_string(),
+            ),
+        )]));
+        let (_, texts) = settle(&mut app, &ctx, "unused-needle");
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("stayed on this machine")),
+            "the finished transcript renders: {texts:?}"
+        );
+
+        app.transcriber = Some(crate::transcribe_worker::Worker::stub([(
+            "ada-voice".to_string(),
+            crate::transcribe_worker::Status::Failed("the service is unreachable".into()),
+        )]));
+        let (retry, texts) = settle(&mut app, &ctx, "Retry transcription");
+        assert!(
+            texts.iter().any(|text| text.contains("unreachable")),
+            "the failure says what happened: {texts:?}"
+        );
+        let retry = retry.expect("a failed transcription offers a retry");
+        frame_with(&mut app, &ctx, click(retry));
+        frame_with(&mut app, &ctx, vec![]);
+        assert!(
+            app.actions.iter().any(|action| matches!(
+                action,
+                Action::TranscribeVoice { message, .. } if message == "ada-voice"
+            )),
+            "the retry requeues the same note"
+        );
+    }
+
     #[test]
     fn demo_assets_stay_in_the_demo_directories() {
         let mut app = app();
