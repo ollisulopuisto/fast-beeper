@@ -152,7 +152,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     // Contact info panel, so the timeline keeps its room.
     let searching =
         state.search_open || !state.search.trim().is_empty() || state.source_filter.is_some();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.heading(&person.name);
         ui.label(format!("{} linked chats · local only", valid.len()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1010,6 +1010,11 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             }
         }
     };
+    // Demo captures show the open picker without a manual scroll.
+    #[cfg(feature = "demo")]
+    if crate::demo::link_picker_seed().is_some() {
+        ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+    }
     ui.ctx().data_mut(|d| d.insert_temp(key, state));
     true
 }
