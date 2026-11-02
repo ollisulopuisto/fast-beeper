@@ -112,7 +112,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     // Command+digit belongs to the favorites bar, as it does
                     // without networks; the bar order is the shared helper's.
                     0 => {
-                        if let Some(chat) = super::chats::favorite_bar_chats(app).get(index) {
+                        if let Some(chat) = super::chats::chat_number_chats(app).get(index) {
                             app.actions.push(Action::OpenChat(chat.id.clone()));
                         }
                     }
@@ -513,7 +513,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         // message list rather than to nothing.
         ctx.data_mut(|data| data.insert_temp(crate::theme::keyboard_focus_id(), true));
         if let Some(index) = number
-            && let Some(next) = super::chats::favorite_bar_chats(app)
+            && let Some(next) = super::chats::chat_number_chats(app)
                 .get(index)
                 .map(|chat| chat.id.clone())
         {
@@ -1731,6 +1731,38 @@ mod tests {
         app.actions.clear();
         press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND);
         assert_eq!(app.actions, [Action::OpenChat(ids[0].clone())]);
+    }
+
+    /// Without any favorites the bar has no numbered chips, so Command+digit
+    /// keeps its earlier job: the nth chat of the visible list. The moment a
+    /// single favorite exists the bar takes over again and keys past its end
+    /// stay dead, matching the numbers on screen.
+    #[test]
+    fn numbered_shortcuts_fall_back_to_the_visible_list_without_favorites() {
+        let (_root, mut app, ids) = app_with_chats(3);
+        let ctx = egui::Context::default();
+
+        // No favorites at all: the visible list carries the numbers.
+        assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::COMMAND));
+        assert!(app.actions.contains(&Action::OpenChat(ids[1].clone())));
+        assert_eq!(app.scroll_chat_into_view.as_ref(), Some(&ids[1]));
+
+        // A key past the end of the list still does nothing and goes nowhere.
+        app.actions.clear();
+        assert!(!press(&mut app, &ctx, Key::Num9, Modifiers::COMMAND));
+        assert!(app.actions.is_empty());
+
+        // One favorite ends the fallback: the bar carries the numbers and
+        // keys past its end stay dead.
+        app.chats[2].favorite = true;
+        app.chats[2].backend_account = Some("wa-personal".into());
+        app.actions.clear();
+        app.scroll_chat_into_view = None;
+        assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND));
+        assert!(app.actions.contains(&Action::OpenChat(ids[2].clone())));
+        app.actions.clear();
+        assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::COMMAND));
+        assert!(app.actions.is_empty());
     }
 
     #[test]

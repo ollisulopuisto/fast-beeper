@@ -1147,6 +1147,20 @@ pub(super) fn favorite_bar_chats(app: &App) -> Vec<Chat> {
     favorites
 }
 
+/// Command+digit's target list: the favorites bar while it has chats.
+/// With no favorites at all the bar is empty and its numbering has no
+/// on-screen meaning, so the key keeps its earlier job: the nth chat of
+/// the visible list (pinned rows first). A short bar still means no key
+/// past its end: the numbers on screen stay the truth.
+pub(super) fn chat_number_chats(app: &App) -> Vec<Chat> {
+    let bar = favorite_bar_chats(app);
+    if bar.is_empty() {
+        app.visible_chats().into_iter().cloned().collect()
+    } else {
+        bar
+    }
+}
+
 pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
     let favorites = favorite_bar_chats(app);
     if favorites.is_empty() {
