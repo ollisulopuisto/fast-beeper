@@ -8006,11 +8006,13 @@ impl App {
                 self.persist_open_tabs();
                 if self.open_chat.as_deref() == Some(id.as_str()) {
                     // The right neighbor takes over, else the left one, else
-                    // the conversation closes through the ordinary path.
+                    // the conversation closes through the ordinary path. A
+                    // tab whose chat is gone is no takeover target.
                     let next = self
                         .open_tabs
                         .get(pos)
                         .or_else(|| self.open_tabs.last())
+                        .filter(|tab| self.chat(tab).is_some())
                         .cloned();
                     match next {
                         Some(next) => self.open_chat(next),
@@ -8021,13 +8023,15 @@ impl App {
             Action::NextTab => self.cycle_tab(1),
             Action::PreviousTab => self.cycle_tab(-1),
             Action::CloseChat => {
-                // With tabs, closing the chat closes its tab; the view only
-                // goes away when no tab remains.
+                // Closing the conversation closes its tab too; the remaining
+                // tabs stay for later. Neighbor takeover lives in CloseTab
+                // alone, so navigation and other internal closes keep their
+                // original meaning.
                 if let Some(id) = self.open_chat.clone()
                     && self.open_tabs.contains(&id)
                 {
-                    self.apply(Action::CloseTab(id), ctx);
-                    return;
+                    self.open_tabs.retain(|tab| tab != &id);
+                    self.persist_open_tabs();
                 }
                 self.close_info();
                 // A narrow window's Back from a picked call returns to the
@@ -24156,7 +24160,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_tab_cycles_wrapping_and_close_chat_closes_the_active_tab() {
+    fn ctrl_tab_cycles_wrapping_and_close_chat_closes_the_conversation() {
         let mut app = app();
         for (id, name) in [("a@s.whatsapp.net", "Ada"), ("b@s.whatsapp.net", "Ben")] {
             app.chats.push(Chat::new(id.into(), name.into()));
@@ -24168,12 +24172,14 @@ mod tests {
         assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
         app.apply(Action::PreviousTab, &ctx);
         assert_eq!(app.open_chat.as_deref(), Some("b@s.whatsapp.net"));
-        // Close chat now closes the active tab; the other stays open.
-        app.apply(Action::CloseChat, &ctx);
-        assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
-        assert_eq!(app.open_tabs, vec!["a@s.whatsapp.net".to_owned()]);
+        // Closing the conversation closes its tab; the other tab stays for
+        // later, and no neighbor takes over outside an explicit tab close.
         app.apply(Action::CloseChat, &ctx);
         assert_eq!(app.open_chat, None);
+        assert_eq!(app.open_tabs, vec!["a@s.whatsapp.net".to_owned()]);
+        // The remaining tab still opens its chat.
+        app.apply(Action::OpenChat("a@s.whatsapp.net".into()), &ctx);
+        assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
     }
 
     #[test]
