@@ -4,33 +4,63 @@ import pathlib
 import unittest
 
 spec = importlib.util.spec_from_file_location('probe_mod', pathlib.Path(__file__).with_name('raw_text_probe.py'))
-probe_mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(probe_mod)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+KEY = 'SECRETKEY123456'
+ESCAPED = 'tein https://www.dropbox.com/scl/fi/abcdef/hh_uunista_ulos.mp4?rlkey=%s&amp;dl=0 private tail' % KEY
+BARE = 'https://www.dropbox.com/scl/fi/abcdef/hh_uunista_ulos.mp4?rlkey=%s&dl=0' % KEY
+
+
+def search_of(*items):
+    return lambda q: {'items': list(items)}
 
 
 class ProbeTests(unittest.TestCase):
-    def test_window_keeps_entity_bytes_and_nothing_else(self):
-        secret = 'private words before ' + 'x' * 40
-        text = secret + ' https://x.test/f?rlkey=k&amp;dl=0 more private text after'
-        out = probe_mod.probe(lambda q: {'items': [{'text': text, 'type': 'TEXT', 'chatID': '!room', 'senderID': '@a'}]}, 'dl=0')
+    def test_escaped_separator_is_shown_with_bytes_and_no_private_content(self):
+        out = m.probe(search_of({'text': ESCAPED, 'type': 'TEXT', 'chatID': '!room', 'senderID': '@a'}))
+        dumped = json.dumps(out)
+        for leak in (KEY, 'private tail', '!room', '@a', 'hh_uunista', 'abcdef'):
+            self.assertNotIn(leak, dumped)
+        params = out['hits'][0]['links'][0]['params']
+        self.assertEqual([p['name'] for p in params], ['rlkey', 'dl'])
+        self.assertEqual(params[0]['separator_after_hex'], '26 61 6d 70 3b')
+        self.assertEqual(params[1]['value'], '0')
+        self.assertEqual(out['hits'][0]['entity_ampersands_in_text'], 1)
+        self.assertEqual(out['hits'][0]['bare_ampersands_in_text'], 0)
+        self.assertFalse(out['hits'][0]['mapper_takes_html_branch'])
+        self.assertEqual(out['hits'][0]['payload_fields'], ['chatID', 'senderID', 'text', 'type'])
+
+    def test_bare_separator_is_distinguished(self):
+        out = m.probe(search_of({'text': BARE, 'type': 'TEXT'}))
         hit = out['hits'][0]
-        self.assertIn('&amp;dl=0', json.loads(hit['escaped_text']))
-        self.assertIn('26 61 6d 70 3b', hit['utf8_hex'])
-        self.assertNotIn('private words', json.dumps(out))
-        self.assertNotIn('more private', json.dumps(out))
-        self.assertNotIn('!room', json.dumps(out))
-        self.assertFalse(hit['text_contains_angle_bracket'])
+        self.assertEqual(hit['links'][0]['params'][0]['separator_after_hex'], '26')
+        self.assertEqual((hit['bare_ampersands_in_text'], hit['entity_ampersands_in_text']), (1, 0))
 
-    def test_bare_ampersand_and_hit_limit(self):
-        items = [{'text': 'a https://x.test/?rlkey=k&dl=0', 'type': 'TEXT'} for _ in range(5)]
-        out = probe_mod.probe(lambda q: {'items': items}, 'dl=0')
-        self.assertEqual(out['hit_count'], 3)
-        self.assertIn('26 64 6c', out['hits'][0]['utf8_hex'])
+    def test_html_branch_uses_the_mappers_tag_rule(self):
+        self.assertTrue(m.looks_html('<p>hi</p>'))
+        self.assertTrue(m.looks_html('x <a href="u">y</a>'))
+        self.assertFalse(m.looks_html('a < b && c > d'))
+        self.assertFalse(m.looks_html('plain https://x.test/?a=1&amp;b=2'))
+        out = m.probe(search_of({'text': '<p>' + BARE + '</p>', 'type': 'TEXT'}))
+        self.assertTrue(out['hits'][0]['mapper_takes_html_branch'])
 
-    def test_no_match_and_odd_payloads(self):
-        self.assertEqual(probe_mod.probe(lambda q: {'items': [{'text': 'nothing'}]}, 'dl=0')['hit_count'], 0)
-        self.assertEqual(probe_mod.probe(lambda q: [], 'dl=0')['hit_count'], 0)
-        self.assertEqual(probe_mod.probe(lambda q: {'items': ['x', None]}, 'dl=0')['hit_count'], 0)
+    def test_falls_back_through_phrases_and_bounds_queries_and_hits(self):
+        seen = []
+
+        def search(query):
+            seen.append(query)
+            return {'items': [{'text': BARE}] * 9} if query == 'rlkey=' else {'items': []}
+        out = m.probe(search)
+        self.assertEqual(seen, list(m.DEFAULT_PHRASES))
+        self.assertEqual((out['queries_tried'], out['hit_count']), (5, 6))
+        out = m.probe(lambda q: {'items': []}, tuple('phrase%d' % i for i in range(9)))
+        self.assertEqual(out['queries_tried'], 5)
+        self.assertEqual(out['hit_count'], 0)
+
+    def test_odd_payloads_do_not_raise(self):
+        self.assertEqual(m.probe(lambda q: [])['hit_count'], 0)
+        self.assertEqual(m.probe(search_of('x', None, {'text': None}))['hit_count'], 0)
 
 
 if __name__ == '__main__':
