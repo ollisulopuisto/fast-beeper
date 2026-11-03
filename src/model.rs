@@ -589,6 +589,9 @@ pub enum Delivery {
     Pending,
     Sent,
     Delivered,
+    /// A group message some other participant has read; not everyone.
+    /// Persists as delivered and never claims all-read.
+    ReadBySome,
     Read,
     Played,
     Failed,

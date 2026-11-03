@@ -2133,14 +2133,25 @@ fn linked_sample(app: &mut App) {
         .max()
         .unwrap_or_default();
     let mut history = crate::app::Conversation::default();
-    for (index, (template, text)) in [
-        (incoming, "on Signal instead"),
-        (outgoing, "same person, other network"),
+    // Short same-network runs show that the network mark never stretches a
+    // row: three quick replies from Ada, then two from you.
+    for (index, (from_me, text)) in [
+        (false, "on Signal instead"),
+        (false, "ok"),
+        (false, "yes!"),
+        (false, "see you"),
+        (true, "same person, other network"),
+        (true, "ok"),
+        (true, "great"),
     ]
     .into_iter()
     .enumerate()
     {
-        let mut message = template;
+        let mut message = if from_me {
+            outgoing.clone()
+        } else {
+            incoming.clone()
+        };
         message.chat = sg.id.clone();
         message.id = format!("sg-{index}");
         message.timestamp = latest + 60 * (index as i64 + 1);
@@ -3951,6 +3962,28 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "linked-picker" => {
                 *SHOT_LINK_PICKER.lock().unwrap() =
                     Some(("ham".into(), vec!["14155550199@s.whatsapp.net".into()]));
+            }
+            // Our last five messages, one per receipt state, to see each
+            // tick: unknown, sent, delivered, read by some, read.
+            "receipts" => {
+                use crate::model::Delivery;
+                let states = [
+                    ("Receipt state: unknown", Delivery::Unknown),
+                    ("Receipt state: sent", Delivery::Sent),
+                    ("Receipt state: delivered", Delivery::Delivered),
+                    ("Receipt state: read by some", Delivery::ReadBySome),
+                    ("Receipt state: read", Delivery::Read),
+                ];
+                if let Some(chat) = app.open_chat.clone()
+                    && let Some(conversation) = app.conversations.get_mut(&chat)
+                {
+                    let rows = conversation.messages.iter_mut().rev().take(states.len());
+                    for (row, (text, status)) in rows.zip(states.iter().rev()) {
+                        row.from_me = true;
+                        row.status = *status;
+                        row.content = crate::model::Content::text(*text);
+                    }
+                }
             }
             "rail-full" => rail_full_sample(app),
             // Deterministic per-account appearance overrides for rendered

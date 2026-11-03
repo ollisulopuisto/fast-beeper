@@ -424,7 +424,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         let had_quote = app.reply_to.is_some();
         let before = app.actions.len();
         let chosen = destination_label(app, state.destination.as_ref());
-        let extras_width = measure_extras(ui, &chosen);
+        let extras_width = measure_extras(ui);
         let mut render = |app: &mut App, ui: &mut egui::Ui| {
             destination_extras(app, ui, &mut state, &valid, &person, cross_over, &chosen);
         };
@@ -608,6 +608,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.set_max_width(timeline.width());
+                    // The same tight row rhythm as an ordinary chat's transcript.
+                    ui.spacing_mut().item_spacing.y = 3.0;
                     let viewport = ui.clip_rect();
                     if visible.is_empty() {
                         ui.label(if filtered {
@@ -730,31 +732,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             let tint = crate::theme::network_tint(network_label(&source_chat))
                                 .unwrap_or(app.conversation_palette().secondary);
                             let icon = crate::theme::network_icon(network_label(&source_chat));
-                            let network_chip = |ui: &mut egui::Ui| {
-                                let (rect, response) = ui.allocate_exact_size(
-                                    egui::Vec2::splat(20.0),
-                                    egui::Sense::hover(),
-                                );
-                                crate::theme::paint_network_mark(ui, icon, rect, 20.0, tint);
-                                response.on_hover_text(&meta);
-                            };
                             let before = actions.len();
-                            ui.horizontal(|ui| {
-                                if !message.from_me {
-                                    network_chip(ui);
-                                }
-                                // Outgoing rows reserve the icon's room
-                                // first, so the full-width bubble cannot
-                                // crowd it past the edge.
-                                let bubble_width = if message.from_me {
-                                    (ui.available_width() - 20.0 - ui.spacing().item_spacing.x)
-                                        .max(0.0)
-                                } else {
-                                    ui.available_width()
-                                };
-                                ui.allocate_ui_with_layout(
-                                    egui::vec2(bubble_width, 0.0),
-                                    egui::Layout::top_down(egui::Align::Min),
+                            // The bubble is laid out in the plain column, as in an
+                            // ordinary chat, so rows keep its rhythm. The chip is
+                            // painted beside it afterwards, in the room set aside
+                            // on the chip's side; it never adds to the row height.
+                            let chip = 20.0;
+                            let room = chip + ui.spacing().item_spacing.x;
+                            let mut area = ui.available_rect_before_wrap();
+                            if message.from_me {
+                                area.max.x -= room;
+                            } else {
+                                area.min.x += room;
+                            }
+                            let bubble_rect = ui
+                                .scope_builder(
+                                    egui::UiBuilder::new()
+                                        .max_rect(area)
+                                        .layout(egui::Layout::top_down(egui::Align::Min)),
                                     |ui| {
                                         super::conversation::linked_bubble(
                                             app,
@@ -762,13 +757,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                             &source_chat,
                                             message,
                                             &mut actions,
-                                        );
+                                        )
                                     },
+                                )
+                                .inner;
+                            if let Some(rect) = bubble_rect {
+                                let side = if message.from_me {
+                                    area.max.x + ui.spacing().item_spacing.x
+                                } else {
+                                    area.min.x - room
+                                };
+                                let y = rect.top() + (rect.height() / 2.0).min(chip);
+                                let centre = egui::pos2(side + chip / 2.0, y);
+                                let slot =
+                                    egui::Rect::from_center_size(centre, egui::Vec2::splat(chip));
+                                let response = ui.interact(
+                                    slot,
+                                    ui.id().with(("network-chip", &message.chat, &message.id)),
+                                    egui::Sense::hover(),
                                 );
-                                if message.from_me {
-                                    network_chip(ui);
-                                }
-                            });
+                                crate::theme::paint_network_mark(ui, icon, slot, chip, tint);
+                                response.on_hover_text(&meta);
+                            }
                             let reply = actions.drain(before..).collect::<Vec<_>>();
                             for action in reply {
                                 match action {
@@ -912,19 +922,14 @@ fn destination_label(app: &App, destination: Option<&Member>) -> String {
 }
 
 /// The width the composer's extras reserve: the clock, its gap, and the
-/// selector with its padding and arrow, plus slack.
-fn measure_extras(ui: &egui::Ui, chosen: &str) -> f32 {
-    let text = ui
-        .painter()
-        .layout_no_wrap(
-            chosen.to_owned(),
-            egui::TextStyle::Button.resolve(ui.style()),
-            egui::Color32::WHITE,
-        )
-        .size()
-        .x;
-    34.0 + ui.spacing().item_spacing.x + text + 2.0 * ui.spacing().button_padding.x + 28.0
+/// selector's icon button, plus slack.
+fn measure_extras(ui: &egui::Ui) -> f32 {
+    34.0 + ui.spacing().item_spacing.x + SELECTOR_SIZE + 10.0
 }
+
+/// The destination selector is the network's icon alone; the network and
+/// account names stay on its tooltip, accessible label and menu rows.
+const SELECTOR_SIZE: f32 = 28.0;
 
 /// The composer's right-end controls in the linked view: Send Later, then
 /// the destination, which names the network and account until Send.
@@ -962,23 +967,47 @@ fn destination_extras(
         app.actions
             .push(Action::ShowDialog(crate::model::Dialog::SendLater));
     }
-    let text = if cross_over {
-        egui::RichText::new(chosen.to_owned()).color(palette.warning)
+    let network = state
+        .destination
+        .as_ref()
+        .and_then(|member| app.chat(&member.chat))
+        .map(|chat| network_label(chat).to_owned())
+        .unwrap_or_default();
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(SELECTOR_SIZE, SELECTOR_SIZE),
+        egui::Sense::click(),
+    );
+    crate::theme::reveal_focus(&response);
+    crate::theme::focus_outline(ui, response.id, rect, 6.0);
+    let hint = format!(
+        "{full}\n{}",
+        if cross_over {
+            "Cross-over: a plain new message on the selected destination, without the reply reference"
+        } else {
+            "The network and account new messages send from"
+        }
+    );
+    let label = format!("Send to {full}");
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    if response.hovered() || response.has_focus() {
+        ui.painter().rect_filled(rect, 6.0, palette.surface_hover);
+    }
+    let tint = if cross_over {
+        palette.warning
     } else {
-        egui::RichText::new(chosen.to_owned())
+        crate::theme::network_tint(&network).unwrap_or(palette.secondary)
     };
-    egui::ComboBox::from_id_salt("person-destination")
-        .selected_text(text)
-        .show_ui(ui, |ui| destination_entries(app, ui, state, valid, person))
-        .response
-        .on_hover_text(format!(
-            "{full}\n{}",
-            if cross_over {
-                "Cross-over: a plain new message on the selected destination, without the reply reference"
-            } else {
-                "The network and account new messages send from"
-            }
-        ));
+    crate::theme::paint_network_mark(
+        ui,
+        crate::theme::network_icon(&network),
+        rect.shrink(4.0),
+        20.0,
+        tint,
+    );
+    let response = response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(hint);
+    egui::Popup::menu(&response).show(|ui| destination_entries(app, ui, state, valid, person));
 }
 
 /// The account's own name from the Beeper inventory, for "Sending via":

@@ -486,11 +486,6 @@ fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
                 caption,
             },
         ),
-        Command::SendVoice {
-            chat,
-            samples,
-            quoting,
-        } => (chat, quoting, Unsent::Voice(samples)),
         Command::SendLocation {
             chat,
             latitude,
@@ -514,12 +509,29 @@ fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
     }))
 }
 
+/// How an uploaded file is sent: the type Beeper picks, a plain document, or
+/// a voice note of this many seconds.
+#[derive(Clone, Copy)]
+enum Attachment {
+    Auto,
+    Document,
+    Voice(u32),
+}
+
 struct StopUploads(std::sync::Arc<std::sync::atomic::AtomicBool>);
 impl Drop for StopUploads {
     fn drop(&mut self) {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
+/// Removes a voice recording's temporary file once its message was accepted.
+/// Other attachments are the user's own files and are never deleted.
+fn discard_sent_recording(voice: bool, path: &std::path::Path) {
+    if voice {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn upload_stopped(cancel: Option<&std::sync::atomic::AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::SeqCst))
 }
@@ -1282,15 +1294,38 @@ impl Api {
         documents: bool,
         caption: Option<&str>,
     ) -> Result<SendAccepted, String> {
-        self.send_file_cancellable(chat, path, documents, caption, None)
+        let kind = if documents {
+            Attachment::Document
+        } else {
+            Attachment::Auto
+        };
+        self.send_attachment(chat, path, kind, caption, None, None)
     }
 
+    #[cfg(test)]
     fn send_file_cancellable(
         &self,
         chat: &str,
         path: &std::path::Path,
         documents: bool,
         caption: Option<&str>,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<SendAccepted, String> {
+        let kind = if documents {
+            Attachment::Document
+        } else {
+            Attachment::Auto
+        };
+        self.send_attachment(chat, path, kind, caption, None, cancel)
+    }
+
+    fn send_attachment(
+        &self,
+        chat: &str,
+        path: &std::path::Path,
+        kind: Attachment,
+        caption: Option<&str>,
+        reply: Option<&str>,
         cancel: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<SendAccepted, String> {
         if upload_stopped(cancel) {
@@ -1339,8 +1374,13 @@ impl Api {
             );
         }
         let mut attachment = serde_json::json!({"uploadID": id, "fileName": filename});
-        if documents {
-            attachment["type"] = "file".into();
+        match kind {
+            Attachment::Auto => {}
+            Attachment::Document => attachment["type"] = "file".into(),
+            Attachment::Voice(seconds) => {
+                attachment["type"] = "voice-note".into();
+                attachment["duration"] = seconds.into();
+            }
         }
         // The contract's text is an optional string: with no caption the
         // field goes away. An explicit null is not a string, and Beeper
@@ -1348,6 +1388,9 @@ impl Api {
         let mut message = serde_json::json!({ "attachment": attachment });
         if let Some(caption) = caption {
             message["text"] = caption.into();
+        }
+        if let Some(reply) = reply {
+            message["replyToMessageID"] = reply.into();
         }
         let response = self
             .http
@@ -1696,6 +1739,31 @@ fn plain_rich_text(raw: &str) -> String {
 
 /// A message with nothing to show: no text, no attachment, and a type that
 /// carries no content of its own. Reactions reach the chat list this way.
+/// A message's emoji reactions as one run, each distinct emoji once in the
+/// order first seen, with a count when several people used it: "🤝 👍2".
+/// Reactions that are not emoji (custom stickers) are left out.
+fn reaction_run(reactions: &[BeeperReaction]) -> String {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for reaction in reactions.iter().filter(|r| r.emoji) {
+        let key = reaction.reaction_key.as_str();
+        match counts.iter_mut().find(|entry| entry.0 == key) {
+            Some(entry) => entry.1 += 1,
+            None => counts.push((key, 1)),
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(key, count)| {
+            if count > 1 {
+                format!("{key}{count}")
+            } else {
+                key.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn is_empty_preview(m: &BeeperMessage) -> bool {
     m.text.as_deref().is_none_or(str::is_empty)
         && m.attachments.is_empty()
@@ -1803,17 +1871,29 @@ fn attachment_content(m: &BeeperMessage) -> Option<Content> {
     })
 }
 
+/// What a `seen` receipt establishes. `true` or a read timestamp is the
+/// bridge's per-message read claim. A per-participant map only lists some
+/// participants and carries no member count, so another reader there is
+/// "read by some", never all. The sender's own entry never counts. `false`,
+/// an empty string and an empty map say nothing.
+fn read_state(value: &serde_json::Value, own: &str) -> Option<Delivery> {
+    match value {
+        serde_json::Value::Bool(true) => Some(Delivery::Read),
+        serde_json::Value::String(time) if !time.is_empty() => Some(Delivery::Read),
+        serde_json::Value::Object(by) => by
+            .iter()
+            .any(|(who, v)| who != own && read_state(v, own).is_some())
+            .then_some(Delivery::ReadBySome),
+        _ => None,
+    }
+}
+
 fn delivery_of(m: &BeeperMessage) -> Delivery {
     if !m.is_sender.unwrap_or(false) {
         return Delivery::None;
     }
-    if m.seen.as_ref().is_some_and(|v| {
-        v == &serde_json::Value::Bool(true)
-            || v.as_str().is_some_and(|s| !s.is_empty())
-            || v.as_object()
-                .is_some_and(|o| o.values().any(|v| v == &serde_json::Value::Bool(true)))
-    }) {
-        return Delivery::Read;
+    if let Some(read) = m.seen.as_ref().and_then(|v| read_state(v, &m.sender_id)) {
+        return read;
     }
     match m.send_status.as_ref() {
         Some(s) if s.status.starts_with("FAIL_") => Delivery::Failed,
@@ -1950,20 +2030,37 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
     chat
 }
 
+/// The tick beside a chat's last message. A bridge that reports more than
+/// "sent" (pending, delivered, read, failed) is shown as it said; one that
+/// reports nothing keeps the plain sent tick the list has always drawn.
+fn preview_status(p: &BeeperMessage) -> Delivery {
+    match delivery_of(p) {
+        Delivery::Unknown => Delivery::Sent,
+        status => status,
+    }
+}
+
 impl Chat {
     fn last_preview(p: &BeeperMessage, body: String, labelled: bool) -> LastMessage {
+        // Emoji reactions on the newest message lead the row's text, so a
+        // reaction is visible without opening the chat.
+        let reactions = reaction_run(&p.reactions);
+        let (summary, full) = if reactions.is_empty() {
+            (body.lines().next().unwrap_or("").to_string(), body)
+        } else {
+            (
+                format!("{reactions} {}", body.lines().next().unwrap_or("")),
+                format!("{reactions} {body}"),
+            )
+        };
         LastMessage {
             from_me: p.is_sender.unwrap_or(false),
             sender: p.sender_id.clone(),
             sender_name: readable_name(&p.sender_name),
-            summary: body.lines().next().unwrap_or("").to_string(),
-            full: body,
+            summary,
+            full,
             labelled,
-            status: if p.is_sender.unwrap_or(false) {
-                Delivery::Sent
-            } else {
-                Delivery::None
-            },
+            status: preview_status(p),
         }
     }
 }
@@ -2145,7 +2242,13 @@ pub fn run(
     let upload_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Drop on every control-worker exit, before queued batches can drain.
     let _stop_uploads = StopUploads(upload_cancel.clone());
-    type UploadBatch = (ChatId, Vec<std::path::PathBuf>, bool, Option<String>);
+    type UploadBatch = (
+        ChatId,
+        Vec<std::path::PathBuf>,
+        bool,
+        Option<String>,
+        Option<(u32, Option<crate::model::ReplyTarget>, Vec<f32>)>,
+    );
     let (upload_tx, upload_rx) = std::sync::mpsc::sync_channel::<UploadBatch>(2);
     let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<(ChatId, String)>();
     let upload_api = api.clone();
@@ -2154,19 +2257,32 @@ pub fn run(
     std::thread::Builder::new()
         .name("beeper-upload".into())
         .spawn(move || {
-            while let Ok((chat, paths, documents, caption)) = upload_rx.recv() {
+            while let Ok((chat, paths, documents, caption, voice)) = upload_rx.recv() {
                 for (index, path) in paths.iter().enumerate() {
                     if upload_stopped(Some(&upload_cancel)) {
                         return;
                     }
-                    match upload_api.send_file_cancellable(
+                    let kind = match (&voice, documents) {
+                        (Some((seconds, ..)), _) => Attachment::Voice(*seconds),
+                        (None, true) => Attachment::Document,
+                        (None, false) => Attachment::Auto,
+                    };
+                    let reply = voice
+                        .as_ref()
+                        .and_then(|(_, quoting, _)| quoting.as_ref())
+                        .map(|quoting| quoting.id.as_str());
+                    match upload_api.send_attachment(
                         &chat,
                         path,
-                        documents,
+                        kind,
                         if index == 0 { caption.as_deref() } else { None },
+                        reply,
                         Some(&upload_cancel),
                     ) {
                         Ok(accepted) => {
+                            // A sent recording is no longer needed; a failed upload
+                            // returns its raw samples to the composer instead.
+                            discard_sent_recording(voice.is_some(), path);
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
                             } else {
@@ -2178,6 +2294,22 @@ pub fn run(
                             upload_waker.wake();
                         }
                         Err(error) => {
+                            if let Some((_, quoting, samples)) = voice {
+                                // The raw recording and its quote go back to the
+                                // composer; the encoded copy is no longer needed.
+                                // No automatic resend: the outcome may be unknown.
+                                discard_sent_recording(true, path);
+                                let _ = upload_events.send(Event::BeeperVoiceUncertain {
+                                    chat: chat.clone(),
+                                    quoting,
+                                    samples,
+                                    message: format!(
+                                        "{error}. Recording kept; check history before sending it again."
+                                    ),
+                                });
+                                upload_waker.wake();
+                                break;
+                            }
                             let _ = upload_events.send(Event::BeeperFilesUncertain {
                                 chat: chat.clone(),
                                 paths: paths[index..].to_vec(),
@@ -2214,6 +2346,9 @@ pub fn run(
                     }),
                     Ok(Command::SendFiles { chat, paths, documents, caption, .. }) => emit(Event::BeeperFilesUncertain {
                         chat, paths, documents, caption, message: "Beeper is not connected yet. Files retained; nothing was sent or queued for automatic retry.".into(),
+                    }),
+                    Ok(Command::SendVoice { chat, samples, quoting }) => emit(Event::SendRefused {
+                        chat, quoting, unsent: crate::backend::Unsent::Voice(samples), reason: crate::backend::Refusal::Offline,
                     }),
                     Ok(command) => match refuse_unsupported_payload(command) {
                         Err(event)=>emit(*event),
@@ -2920,8 +3055,9 @@ pub fn run(
                         emit(Event::BeeperFilesUncertain { chat, paths, documents, caption, message: "Beeper attachment replies, mentions and view-once are not supported; files kept".into() });
                         continue;
                     }
-                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption)) {
-                        let (chat, paths, documents, caption) = match error {
+                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption, None))
+                    {
+                        let (chat, paths, documents, caption, _) = match error {
                             std::sync::mpsc::TrySendError::Full(batch)
                             | std::sync::mpsc::TrySendError::Disconnected(batch) => batch,
                         };
@@ -2932,6 +3068,56 @@ pub fn run(
                             caption,
                             message: "Upload queue is busy; files kept without sending".into(),
                         });
+                    }
+                }
+                Command::SendVoice {
+                    chat,
+                    samples,
+                    quoting,
+                } => {
+                    if quoting
+                        .as_ref()
+                        .is_some_and(|q| q.source_chat(&chat) != chat)
+                    {
+                        emit(Event::SendRefused {
+                            chat,
+                            quoting,
+                            unsent: crate::backend::Unsent::Voice(samples),
+                            reason: crate::backend::Refusal::QuoteUnavailable,
+                        });
+                        continue;
+                    }
+                    let mut recording = samples.clone();
+                    crate::voice::normalize(&mut recording);
+                    let seconds = (recording.len() as f64 / f64::from(crate::voice::RATE))
+                        .round()
+                        .max(1.0) as u32;
+                    let file = crate::voice::encode(&recording).and_then(|bytes| {
+                        let path = std::env::temp_dir()
+                            .join(format!("voice-note-{}.ogg", crate::util::now()));
+                        std::fs::write(&path, bytes)
+                            .map(|()| path)
+                            .map_err(|error| error.to_string())
+                    });
+                    match file {
+                        Ok(path) => {
+                            let voice = Some((seconds, quoting.clone(), samples.clone()));
+                            let batch = (chat.clone(), vec![path], false, None, voice);
+                            if upload_tx.try_send(batch).is_err() {
+                                emit(Event::SendRefused {
+                                    chat,
+                                    quoting,
+                                    unsent: crate::backend::Unsent::Voice(samples),
+                                    reason: crate::backend::Refusal::Offline,
+                                });
+                            }
+                        }
+                        Err(_) => emit(Event::SendRefused {
+                            chat,
+                            quoting,
+                            unsent: crate::backend::Unsent::Voice(samples),
+                            reason: crate::backend::Refusal::UnsupportedBackend,
+                        }),
                     }
                 }
                 Command::Download {
@@ -3025,11 +3211,20 @@ pub fn run(
         // open chat's newest page on a slow cadence; the UI merge upserts
         // by id, so scroll position, composer and read state are untouched
         // and no extra notifications fire (no Incoming events here).
-        if let Some(chat) = &open_chat
-            && last_receipt_refresh.elapsed() >= RECEIPT_REFRESH
-        {
+        // A linked person's other chats are watched, not open, and their
+        // ticks stall the same way, so every watched chat is refreshed.
+        if last_receipt_refresh.elapsed() >= RECEIPT_REFRESH {
             last_receipt_refresh = Instant::now();
-            if let Ok(page) = api.list_messages(chat, None, None) {
+            let mut targets = watched_chats.clone();
+            if let Some(open) = &open_chat
+                && !targets.contains(open)
+            {
+                targets.push(open.clone());
+            }
+            for chat in &targets {
+                let Ok(page) = api.list_messages(chat, None, None) else {
+                    continue;
+                };
                 let mut messages: Vec<Message> = page
                     .items
                     .iter()
@@ -3986,6 +4181,123 @@ mod tests {
                 .unwrap_err()
                 .contains("stopped")
         );
+        worker.join().unwrap();
+    }
+
+    fn capture_voice_send(reply: Option<&str>) -> (Result<SendAccepted, String>, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let mut sent = String::new();
+            for body in [
+                r#"{"uploadID":"up1"}"#,
+                r#"{"pendingMessageID":"p1","chatID":"chat"}"#,
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                // Read until the declared body has arrived: headers and body
+                // can come in separate segments.
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut chunk).unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&request).to_string();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                        continue;
+                    };
+                    let want = head
+                        .to_ascii_lowercase()
+                        .split("content-length:")
+                        .nth(1)
+                        .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
+                        .unwrap_or(0usize);
+                    if body.len() >= want {
+                        break;
+                    }
+                }
+                sent = String::from_utf8_lossy(&request).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            sent
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"ogg").unwrap();
+        let result =
+            api.send_attachment("chat", file.path(), Attachment::Voice(7), None, reply, None);
+        (result, worker.join().unwrap())
+    }
+
+    #[test]
+    fn voice_send_declares_a_voice_note_with_its_duration() {
+        let (result, request) = capture_voice_send(None);
+        assert_eq!(result.unwrap().pending_id, "p1");
+        assert!(request.contains(r#""type":"voice-note""#), "{request}");
+        assert!(request.contains(r#""duration":7"#), "{request}");
+        assert!(!request.contains("replyToMessageID"), "{request}");
+    }
+
+    #[test]
+    fn voice_reply_carries_the_quoted_message_id() {
+        let (result, request) = capture_voice_send(Some("msg-42"));
+        assert!(result.is_ok());
+        assert!(
+            request.contains(r#""replyToMessageID":"msg-42""#),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn only_a_sent_recording_is_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let recording = dir.path().join("voice-note-1.ogg");
+        let document = dir.path().join("report.pdf");
+        std::fs::write(&recording, b"ogg").unwrap();
+        std::fs::write(&document, b"pdf").unwrap();
+        discard_sent_recording(false, &document);
+        assert!(document.exists());
+        discard_sent_recording(true, &recording);
+        assert!(!recording.exists());
+    }
+
+    #[test]
+    fn failed_voice_upload_keeps_the_recording() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 8192];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 500 Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"ogg").unwrap();
+        assert!(
+            api.send_attachment("chat", file.path(), Attachment::Voice(3), None, None, None)
+                .is_err()
+        );
+        assert!(file.path().exists());
         worker.join().unwrap();
     }
 
@@ -5610,6 +5922,44 @@ mod tests {
     }
 
     #[test]
+    fn read_receipts_in_every_shape_the_api_sends_count_as_read() {
+        use serde_json::json;
+        for (seen, expected) in [
+            (json!(true), Delivery::Read),
+            (json!("2026-11-03T07:48:00Z"), Delivery::Read),
+            (json!({"a": "2026-11-03T07:48:00Z"}), Delivery::ReadBySome),
+            (json!({"a": false, "b": true}), Delivery::ReadBySome),
+            (json!(false), Delivery::Sent),
+            (json!(""), Delivery::Sent),
+            (json!({"a": false}), Delivery::Sent),
+            (json!({}), Delivery::Sent),
+            (json!({"@me": "2026-11-03T07:48:00Z"}), Delivery::Sent),
+        ] {
+            let wire = json!({
+                "id": "x", "isSender": true, "senderID": "@me",
+                "seen": seen.clone(),
+                "sendStatus": {"status": "SUCCESS"}
+            });
+            let m: BeeperMessage = serde_json::from_value(wire).unwrap();
+            assert_eq!(map_message(&m, "chat").status, expected, "{seen}");
+        }
+    }
+
+    #[test]
+    fn a_chat_preview_shows_what_the_bridge_reported_not_always_sent() {
+        let preview = |wire: serde_json::Value| {
+            let m: BeeperMessage = serde_json::from_value(wire).unwrap();
+            preview_status(&m)
+        };
+        let read = serde_json::json!({"id": "x", "isSender": true, "seen": true});
+        assert_eq!(preview(read), Delivery::Read);
+        let bare = serde_json::json!({"id": "x", "isSender": true});
+        assert_eq!(preview(bare), Delivery::Sent);
+        let incoming = serde_json::json!({"id": "x", "isSender": false});
+        assert_eq!(preview(incoming), Delivery::None);
+    }
+
+    #[test]
     fn bridge_delivery_status_is_not_reported_as_success() {
         for (status, expected) in [
             ("PENDING", Delivery::Pending),
@@ -6067,6 +6417,34 @@ mod tests {
                 .summary,
             "no panic"
         );
+    }
+
+    #[test]
+    fn a_reaction_on_the_newest_message_leads_the_list_preview() {
+        let preview = |reactions: serde_json::Value| {
+            let chat: BeeperChat = serde_json::from_value(serde_json::json!({
+                "id":"c1", "accountID":"a1", "network":"WhatsApp",
+                "preview":{"id":"m1","senderID":"s","sortKey":"1","timestamp":"2026-11-03T09:47:00Z","isSender":true,"text":"joo, kunhan saan sen rakennettua","type":"TEXT","reactions":reactions}
+            }))
+            .unwrap();
+            map_chat(&chat, &|c| c.network.clone()).last.unwrap()
+        };
+        let one = preview(serde_json::json!([
+            {"participantID":"p","reactionKey":"🤝","emoji":true}
+        ]));
+        assert_eq!(one.summary, "🤝 joo, kunhan saan sen rakennettua");
+        assert_eq!(one.full, one.summary);
+        assert!(one.from_me, "the sent message keeps its ownership");
+        let many = preview(serde_json::json!([
+            {"participantID":"p","reactionKey":"👍","emoji":true},
+            {"participantID":"q","reactionKey":"🤝","emoji":true},
+            {"participantID":"r","reactionKey":"👍","emoji":true},
+            {"participantID":"s","reactionKey":"sticker-id","emoji":false}
+        ]));
+        assert_eq!(many.summary, "👍2 🤝 joo, kunhan saan sen rakennettua");
+        // A removed reaction leaves the plain text again.
+        let none = preview(serde_json::json!([]));
+        assert_eq!(none.summary, "joo, kunhan saan sen rakennettua");
     }
 
     #[test]

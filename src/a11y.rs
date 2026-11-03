@@ -350,6 +350,7 @@ pub fn status_word(locale: Locale, status: Delivery) -> Option<String> {
         Delivery::Pending => gettext(locale, "sending").into_owned(),
         Delivery::Sent => gettext(locale, "sent").into_owned(),
         Delivery::Delivered => gettext(locale, "delivered").into_owned(),
+        Delivery::ReadBySome => gettext(locale, "read by at least one person").into_owned(),
         Delivery::Read => gettext(locale, "read").into_owned(),
         Delivery::Played => gettext(locale, "played").into_owned(),
         Delivery::Failed => gettext(locale, "not sent").into_owned(),

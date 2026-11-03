@@ -1559,6 +1559,14 @@ pub enum Event {
         caption: Option<String>,
         message: String,
     },
+    /// A voice note's upload or send failed or ended uncertain. The recording
+    /// and its quote come back so the user can check history and resend by hand.
+    BeeperVoiceUncertain {
+        chat: ChatId,
+        quoting: Option<crate::model::ReplyTarget>,
+        samples: Vec<f32>,
+        message: String,
+    },
     Error(String),
     /// A change to a group's name or photo went to WhatsApp (`saving`), or
     /// WhatsApp answered it.

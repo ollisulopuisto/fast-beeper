@@ -2910,6 +2910,12 @@ impl App {
             || crate::model::phone_of(me).is_some_and(|phone| phone.contains(needle))
     }
 
+    /// Whether names come from a Beeper session, whose chats carry the
+    /// Beeper origin they were read from.
+    fn beeper_names(&self) -> bool {
+        self.chats.iter().any(|chat| chat.backend_origin.is_some())
+    }
+
     fn person_name(&self, id: &str, hint: Option<&str>) -> String {
         let contact = self.contacts.get(id);
         let present = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
@@ -2917,18 +2923,23 @@ impl App {
         let called = present(contact.and_then(|contact| contact.push_name.as_deref()))
             .or_else(|| present(hint));
         // Saved names first, as WhatsApp does; a profile name wears a tilde.
-        if let Some(name) = saved.or_else(|| called.map(|name| format!("~{name}"))) {
+        // Beeper's names are the bridge's own: it does not say whether one is
+        // saved or a profile name, so none is marked as unsaved.
+        let mark = |name: String| {
+            if self.beeper_names() || name.starts_with('~') {
+                name
+            } else {
+                format!("~{name}")
+            }
+        };
+        if let Some(name) = saved.or_else(|| called.map(&mark)) {
             return name;
         }
         if let Some(name) = self.sender_names.get(id).filter(|name| !name.is_empty()) {
-            return if name.starts_with('~') {
-                name.clone()
-            } else {
-                format!("~{name}")
-            };
+            return mark(name.clone());
         }
         if let Some(name) = self.roster_names.get(id).filter(|name| !name.is_empty()) {
-            return format!("~{name}");
+            return mark(name.clone());
         }
         // A name of digits alone is no name. When the id carries the number,
         // neither is one as `util::phone` grouped it when the chat was filed:
@@ -5183,6 +5194,16 @@ impl App {
                     message
                 });
             }
+            Event::BeeperVoiceUncertain {
+                chat,
+                quoting,
+                samples,
+                message,
+            } => {
+                if self.restore_unsent(chat, quoting, Unsent::Voice(samples)) {
+                    self.toast_error(message);
+                }
+            }
             Event::BeeperEditUncertain {
                 chat,
                 id,
@@ -5987,19 +6008,20 @@ impl App {
     /// Takes back a send the worker refused. Nothing typed or recorded is
     /// lost, and a refused reply is never sent again without its quote unless
     /// the user cancels the reply first.
-    fn send_refused(
+    /// Puts refused or uncertain content back where the user can retry it.
+    /// False when nothing was restored.
+    fn restore_unsent(
         &mut self,
         chat: ChatId,
         quoting: Option<crate::model::ReplyTarget>,
         unsent: Unsent,
-        reason: Refusal,
-    ) {
+    ) -> bool {
         // A private reply quotes another chat, so its recovery needs the
         // destination chat to still exist.
         if quoting.as_ref().is_some_and(|target| target.chat.is_some())
             && self.chat(&chat).is_none()
         {
-            return;
+            return false;
         }
         let open = !self.events_hidden && self.open_chat.as_deref() == Some(chat.as_str());
         // Re-arm the reply banner, unless the user has moved on to another
@@ -6079,6 +6101,19 @@ impl App {
                 self.restore_text(&chat, caption.unwrap_or_default());
             }
             Unsent::Sticker | Unsent::Gif => {}
+        }
+        true
+    }
+
+    fn send_refused(
+        &mut self,
+        chat: ChatId,
+        quoting: Option<crate::model::ReplyTarget>,
+        unsent: Unsent,
+        reason: Refusal,
+    ) {
+        if !self.restore_unsent(chat, quoting, unsent) {
+            return;
         }
         let message = match reason {
             Refusal::UnsupportedBackend => crate::i18n::gettext(
@@ -21242,6 +21277,31 @@ mod tests {
     }
 
     #[test]
+    fn an_uncertain_voice_upload_returns_the_recording_with_its_quote_and_never_resends() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let chat = "fixture@s.whatsapp.net";
+        let clip = vec![0.25; crate::voice::RATE as usize * 2];
+        app.open_chat = Some(chat.into());
+        events
+            .send(Event::BeeperVoiceUncertain {
+                chat: chat.into(),
+                quoting: Some(crate::model::ReplyTarget::from("original")),
+                samples: clip.clone(),
+                message: "upload failed. Recording kept; check history before sending it again."
+                    .into(),
+            })
+            .unwrap();
+        app.handle_events();
+        assert_eq!(app.unsent_voice, Some((chat.to_owned(), clip)));
+        assert_eq!(app.reply_to.as_deref(), Some("original"));
+        assert_eq!(error_toasts(&app).len(), 1);
+        assert!(commands.try_recv().is_err(), "nothing is sent again");
+    }
+
+    #[test]
     fn replying_while_editing_starts_a_new_message() {
         let mut app = app();
         app.open_chat = Some("fixture@s.whatsapp.net".into());
@@ -24646,6 +24706,18 @@ mod tests {
         assert_eq!(app.display_name("42@lid"), "~Bob");
         app.me = Some("42@lid".into());
         assert_eq!(app.display_name("42@lid"), "You");
+    }
+
+    #[test]
+    fn beeper_sender_names_carry_no_unsaved_marker() {
+        let mut app = app();
+        assert_eq!(app.display_name_or("a", Some("Ada")), "~Ada");
+        let mut chat = Chat::new("c".into(), "Group".into());
+        chat.backend_origin = Some("http://127.0.0.1:23374".into());
+        app.chats.push(chat);
+        assert_eq!(app.display_name_or("a", Some("Ada")), "Ada");
+        app.sender_names.insert("b".into(), "Grace".into());
+        assert_eq!(app.display_name_or("b", None), "Grace");
     }
 
     #[test]
