@@ -4112,6 +4112,9 @@ mod tests {
                 let mut chunk = [0u8; 4096];
                 loop {
                     let n = stream.read(&mut chunk).unwrap();
+                    if n == 0 {
+                        break;
+                    }
                     request.extend_from_slice(&chunk[..n]);
                     let text = String::from_utf8_lossy(&request).to_string();
                     let Some((head, body)) = text.split_once("\r\n\r\n") else {
@@ -4123,7 +4126,7 @@ mod tests {
                         .nth(1)
                         .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
                         .unwrap_or(0usize);
-                    if n == 0 || body.len() >= want {
+                    if body.len() >= want {
                         break;
                     }
                 }
