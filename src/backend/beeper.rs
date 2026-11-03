@@ -524,6 +524,14 @@ impl Drop for StopUploads {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
+/// Removes a voice recording's temporary file once its message was accepted.
+/// Other attachments are the user's own files and are never deleted.
+fn discard_sent_recording(voice: bool, path: &std::path::Path) {
+    if voice {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn upload_stopped(cancel: Option<&std::sync::atomic::AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::SeqCst))
 }
@@ -2211,9 +2219,7 @@ pub fn run(
                         Ok(accepted) => {
                             // A sent recording is no longer needed; a failed
                             // one stays on disk and returns to the composer.
-                            if voice.is_some() {
-                                let _ = std::fs::remove_file(path);
-                            }
+                            discard_sent_recording(voice.is_some(), path);
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
                             } else {
@@ -4087,6 +4093,123 @@ mod tests {
                 .unwrap_err()
                 .contains("stopped")
         );
+        worker.join().unwrap();
+    }
+
+    fn capture_voice_send(reply: Option<&str>) -> (Result<SendAccepted, String>, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let mut sent = String::new();
+            for body in [
+                r#"{"uploadID":"up1"}"#,
+                r#"{"pendingMessageID":"p1","chatID":"chat"}"#,
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                // Read until the declared body has arrived: headers and body
+                // can come in separate segments.
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut chunk).unwrap();
+                    request.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&request).to_string();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                        continue;
+                    };
+                    let want = head
+                        .to_ascii_lowercase()
+                        .split("content-length:")
+                        .nth(1)
+                        .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
+                        .unwrap_or(0usize);
+                    if n == 0 || body.len() >= want {
+                        break;
+                    }
+                }
+                sent = String::from_utf8_lossy(&request).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            sent
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"ogg").unwrap();
+        let result = api.send_attachment(
+            "chat",
+            file.path(),
+            Attachment::Voice(7),
+            None,
+            reply,
+            None,
+        );
+        (result, worker.join().unwrap())
+    }
+
+    #[test]
+    fn voice_send_declares_a_voice_note_with_its_duration() {
+        let (result, request) = capture_voice_send(None);
+        assert_eq!(result.unwrap().pending_id, "p1");
+        assert!(request.contains(r#""type":"voice-note""#), "{request}");
+        assert!(request.contains(r#""duration":7"#), "{request}");
+        assert!(!request.contains("replyToMessageID"), "{request}");
+    }
+
+    #[test]
+    fn voice_reply_carries_the_quoted_message_id() {
+        let (result, request) = capture_voice_send(Some("msg-42"));
+        assert!(result.is_ok());
+        assert!(request.contains(r#""replyToMessageID":"msg-42""#), "{request}");
+    }
+
+    #[test]
+    fn only_a_sent_recording_is_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let recording = dir.path().join("voice-note-1.ogg");
+        let document = dir.path().join("report.pdf");
+        std::fs::write(&recording, b"ogg").unwrap();
+        std::fs::write(&document, b"pdf").unwrap();
+        discard_sent_recording(false, &document);
+        assert!(document.exists());
+        discard_sent_recording(true, &recording);
+        assert!(!recording.exists());
+    }
+
+    #[test]
+    fn failed_voice_upload_keeps_the_recording() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 8192];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 500 Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"ogg").unwrap();
+        assert!(
+            api.send_attachment("chat", file.path(), Attachment::Voice(3), None, None, None)
+                .is_err()
+        );
+        assert!(file.path().exists());
         worker.join().unwrap();
     }
 
