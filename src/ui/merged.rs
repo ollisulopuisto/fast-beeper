@@ -608,6 +608,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.set_max_width(timeline.width());
+                    // The same tight row rhythm as an ordinary chat's transcript.
+                    ui.spacing_mut().item_spacing.y = 3.0;
                     let viewport = ui.clip_rect();
                     if visible.is_empty() {
                         ui.label(if filtered {
@@ -730,31 +732,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             let tint = crate::theme::network_tint(network_label(&source_chat))
                                 .unwrap_or(app.conversation_palette().secondary);
                             let icon = crate::theme::network_icon(network_label(&source_chat));
-                            let network_chip = |ui: &mut egui::Ui| {
-                                let (rect, response) = ui.allocate_exact_size(
-                                    egui::Vec2::splat(20.0),
-                                    egui::Sense::hover(),
-                                );
-                                crate::theme::paint_network_mark(ui, icon, rect, 20.0, tint);
-                                response.on_hover_text(&meta);
-                            };
                             let before = actions.len();
-                            ui.horizontal(|ui| {
-                                if !message.from_me {
-                                    network_chip(ui);
-                                }
-                                // Outgoing rows reserve the icon's room
-                                // first, so the full-width bubble cannot
-                                // crowd it past the edge.
-                                let bubble_width = if message.from_me {
-                                    (ui.available_width() - 20.0 - ui.spacing().item_spacing.x)
-                                        .max(0.0)
-                                } else {
-                                    ui.available_width()
-                                };
-                                ui.allocate_ui_with_layout(
-                                    egui::vec2(bubble_width, 0.0),
-                                    egui::Layout::top_down(egui::Align::Min),
+                            // The bubble is laid out in the plain column, as in an
+                            // ordinary chat, so rows keep its rhythm. The chip is
+                            // painted beside it afterwards, in the room set aside
+                            // on the chip's side; it never adds to the row height.
+                            let chip = 20.0;
+                            let room = chip + ui.spacing().item_spacing.x;
+                            let mut area = ui.available_rect_before_wrap();
+                            if message.from_me {
+                                area.max.x -= room;
+                            } else {
+                                area.min.x += room;
+                            }
+                            let bubble_rect = ui
+                                .scope_builder(
+                                    egui::UiBuilder::new()
+                                        .max_rect(area)
+                                        .layout(egui::Layout::top_down(egui::Align::Min)),
                                     |ui| {
                                         super::conversation::linked_bubble(
                                             app,
@@ -762,13 +757,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                             &source_chat,
                                             message,
                                             &mut actions,
-                                        );
+                                        )
                                     },
+                                )
+                                .inner;
+                            if let Some(rect) = bubble_rect {
+                                let side = if message.from_me {
+                                    area.max.x + ui.spacing().item_spacing.x
+                                } else {
+                                    area.min.x - room
+                                };
+                                let y = rect.top() + (rect.height() / 2.0).min(chip);
+                                let centre = egui::pos2(side + chip / 2.0, y);
+                                let slot =
+                                    egui::Rect::from_center_size(centre, egui::Vec2::splat(chip));
+                                let response = ui.interact(
+                                    slot,
+                                    ui.id().with(("network-chip", &message.chat, &message.id)),
+                                    egui::Sense::hover(),
                                 );
-                                if message.from_me {
-                                    network_chip(ui);
-                                }
-                            });
+                                crate::theme::paint_network_mark(ui, icon, slot, chip, tint);
+                                response.on_hover_text(&meta);
+                            }
                             let reply = actions.drain(before..).collect::<Vec<_>>();
                             for action in reply {
                                 match action {

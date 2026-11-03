@@ -2133,14 +2133,25 @@ fn linked_sample(app: &mut App) {
         .max()
         .unwrap_or_default();
     let mut history = crate::app::Conversation::default();
-    for (index, (template, text)) in [
-        (incoming, "on Signal instead"),
-        (outgoing, "same person, other network"),
+    // Short same-network runs show that the network mark never stretches a
+    // row: three quick replies from Ada, then two from you.
+    for (index, (from_me, text)) in [
+        (false, "on Signal instead"),
+        (false, "ok"),
+        (false, "yes!"),
+        (false, "see you"),
+        (true, "same person, other network"),
+        (true, "ok"),
+        (true, "great"),
     ]
     .into_iter()
     .enumerate()
     {
-        let mut message = template;
+        let mut message = if from_me {
+            outgoing.clone()
+        } else {
+            incoming.clone()
+        };
         message.chat = sg.id.clone();
         message.id = format!("sg-{index}");
         message.timestamp = latest + 60 * (index as i64 + 1);
