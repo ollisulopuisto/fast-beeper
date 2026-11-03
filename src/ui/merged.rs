@@ -1130,6 +1130,43 @@ fn picker(
             .hint_text("Search chats")
             .desired_width(f32::INFINITY),
     );
+// The action stays visible at the top; a long candidate list
+    // must not scroll it out of reach.
+    let room = 8_usize.saturating_sub(already);
+    let over = state.selected.len() > room;
+    let names: Vec<_> = state
+        .selected
+        .iter()
+        .filter_map(|id| app.chat(id))
+        .map(|c| c.name.clone())
+        .collect();
+    if !state.selected.is_empty() {
+        ui.small(format!(
+            "{} selected: {}",
+            state.selected.len(),
+            names.join(", ")
+        ));
+    }
+    if over {
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            format!("A linked person supports up to 8 chats; {room} left."),
+        );
+    }
+    if ui
+        .add_enabled(
+            !state.selected.is_empty() && !over,
+            egui::Button::new("Link selected"),
+        )
+        .clicked()
+    {
+        return state
+            .selected
+            .iter()
+            .filter_map(|id| app.chat(id))
+            .filter_map(Member::of)
+            .collect();
+    }
     let query = state.search.trim().to_lowercase();
     let matches = |c: &&Chat| {
         query.is_empty()
@@ -1187,41 +1224,6 @@ fn picker(
                     row(ui, state, c);
                 }
             });
-    }
-    let room = 8_usize.saturating_sub(already);
-    let over = state.selected.len() > room;
-    let names: Vec<_> = state
-        .selected
-        .iter()
-        .filter_map(|id| app.chat(id))
-        .map(|c| c.name.clone())
-        .collect();
-    if !state.selected.is_empty() {
-        ui.small(format!(
-            "{} selected: {}",
-            state.selected.len(),
-            names.join(", ")
-        ));
-    }
-    if over {
-        ui.colored_label(
-            egui::Color32::YELLOW,
-            format!("A linked person supports up to 8 chats; {room} left."),
-        );
-    }
-    if ui
-        .add_enabled(
-            !state.selected.is_empty() && !over,
-            egui::Button::new("Link selected"),
-        )
-        .clicked()
-    {
-        return state
-            .selected
-            .iter()
-            .filter_map(|id| app.chat(id))
-            .filter_map(Member::of)
-            .collect();
     }
     Vec::new()
 }
