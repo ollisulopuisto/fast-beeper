@@ -2187,7 +2187,7 @@ pub fn run(
         Vec<std::path::PathBuf>,
         bool,
         Option<String>,
-        Option<(u32, Option<String>)>,
+        Option<(u32, Option<crate::model::ReplyTarget>, Vec<f32>)>,
     );
     let (upload_tx, upload_rx) = std::sync::mpsc::sync_channel::<UploadBatch>(2);
     let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<(ChatId, String)>();
@@ -2203,11 +2203,14 @@ pub fn run(
                         return;
                     }
                     let kind = match (&voice, documents) {
-                        (Some((seconds, _)), _) => Attachment::Voice(*seconds),
+                        (Some((seconds, ..)), _) => Attachment::Voice(*seconds),
                         (None, true) => Attachment::Document,
                         (None, false) => Attachment::Auto,
                     };
-                    let reply = voice.as_ref().and_then(|(_, reply)| reply.as_deref());
+                    let reply = voice
+                        .as_ref()
+                        .and_then(|(_, quoting, _)| quoting.as_ref())
+                        .map(|quoting| quoting.id.as_str());
                     match upload_api.send_attachment(
                         &chat,
                         path,
@@ -2217,8 +2220,8 @@ pub fn run(
                         Some(&upload_cancel),
                     ) {
                         Ok(accepted) => {
-                            // A sent recording is no longer needed; a failed
-                            // one stays on disk and returns to the composer.
+                            // A sent recording is no longer needed; a failed upload
+                            // returns its raw samples to the composer instead.
                             discard_sent_recording(voice.is_some(), path);
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
@@ -2231,6 +2234,22 @@ pub fn run(
                             upload_waker.wake();
                         }
                         Err(error) => {
+                            if let Some((_, quoting, samples)) = voice {
+                                // The raw recording and its quote go back to the
+                                // composer; the encoded copy is no longer needed.
+                                // No automatic resend: the outcome may be unknown.
+                                discard_sent_recording(true, path);
+                                let _ = upload_events.send(Event::BeeperVoiceUncertain {
+                                    chat: chat.clone(),
+                                    quoting,
+                                    samples,
+                                    message: format!(
+                                        "{error}. Recording kept; check history before sending it again."
+                                    ),
+                                });
+                                upload_waker.wake();
+                                break;
+                            }
                             let _ = upload_events.send(Event::BeeperFilesUncertain {
                                 chat: chat.clone(),
                                 paths: paths[index..].to_vec(),
@@ -3007,7 +3026,6 @@ pub fn run(
                         });
                         continue;
                     }
-                    let reply = quoting.as_ref().map(|q| q.id.clone());
                     let mut recording = samples.clone();
                     crate::voice::normalize(&mut recording);
                     let seconds = (recording.len() as f64 / f64::from(crate::voice::RATE))
@@ -3022,7 +3040,7 @@ pub fn run(
                     });
                     match file {
                         Ok(path) => {
-                            let voice = Some((seconds, reply));
+                            let voice = Some((seconds, quoting.clone(), samples.clone()));
                             let batch = (chat.clone(), vec![path], false, None, voice);
                             if upload_tx.try_send(batch).is_err() {
                                 emit(Event::SendRefused {

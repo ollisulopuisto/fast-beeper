@@ -5183,6 +5183,16 @@ impl App {
                     message
                 });
             }
+            Event::BeeperVoiceUncertain {
+                chat,
+                quoting,
+                samples,
+                message,
+            } => {
+                if self.restore_unsent(chat, quoting, Unsent::Voice(samples)) {
+                    self.toast_error(message);
+                }
+            }
             Event::BeeperEditUncertain {
                 chat,
                 id,
@@ -5987,19 +5997,20 @@ impl App {
     /// Takes back a send the worker refused. Nothing typed or recorded is
     /// lost, and a refused reply is never sent again without its quote unless
     /// the user cancels the reply first.
-    fn send_refused(
+    /// Puts refused or uncertain content back where the user can retry it.
+    /// False when nothing was restored.
+    fn restore_unsent(
         &mut self,
         chat: ChatId,
         quoting: Option<crate::model::ReplyTarget>,
         unsent: Unsent,
-        reason: Refusal,
-    ) {
+    ) -> bool {
         // A private reply quotes another chat, so its recovery needs the
         // destination chat to still exist.
         if quoting.as_ref().is_some_and(|target| target.chat.is_some())
             && self.chat(&chat).is_none()
         {
-            return;
+            return false;
         }
         let open = !self.events_hidden && self.open_chat.as_deref() == Some(chat.as_str());
         // Re-arm the reply banner, unless the user has moved on to another
@@ -6079,6 +6090,19 @@ impl App {
                 self.restore_text(&chat, caption.unwrap_or_default());
             }
             Unsent::Sticker | Unsent::Gif => {}
+        }
+        true
+    }
+
+    fn send_refused(
+        &mut self,
+        chat: ChatId,
+        quoting: Option<crate::model::ReplyTarget>,
+        unsent: Unsent,
+        reason: Refusal,
+    ) {
+        if !self.restore_unsent(chat, quoting, unsent) {
+            return;
         }
         let message = match reason {
             Refusal::UnsupportedBackend => crate::i18n::gettext(
@@ -21234,6 +21258,31 @@ mod tests {
         assert!(app.unsent_voice.is_none());
         app.apply(Action::SendRecording, &ctx);
         assert!(commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn an_uncertain_voice_upload_returns_the_recording_with_its_quote_and_never_resends() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let chat = "fixture@s.whatsapp.net";
+        let clip = vec![0.25; crate::voice::RATE as usize * 2];
+        app.open_chat = Some(chat.into());
+        events
+            .send(Event::BeeperVoiceUncertain {
+                chat: chat.into(),
+                quoting: Some(crate::model::ReplyTarget::from("original")),
+                samples: clip.clone(),
+                message: "upload failed. Recording kept; check history before sending it again."
+                    .into(),
+            })
+            .unwrap();
+        app.handle_events();
+        assert_eq!(app.unsent_voice, Some((chat.to_owned(), clip)));
+        assert_eq!(app.reply_to.as_deref(), Some("original"));
+        assert_eq!(error_toasts(&app).len(), 1);
+        assert!(commands.try_recv().is_err(), "nothing is sent again");
     }
 
     #[test]
