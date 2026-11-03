@@ -368,7 +368,7 @@ fn status_rank(status: Delivery) -> i64 {
         Delivery::None | Delivery::Unknown => 0,
         Delivery::Pending => 1,
         Delivery::Sent => 2,
-        Delivery::Delivered => 3,
+        Delivery::Delivered | Delivery::ReadBySome => 3,
         Delivery::Read => 4,
         Delivery::Played => 5,
         Delivery::Failed => 6,

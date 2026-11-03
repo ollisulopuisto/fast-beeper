@@ -107,9 +107,13 @@ jobs:
             --binary 'target/${{ matrix.target }}/release/${{ matrix.executable }}' \
             --output dist --target '${{ matrix.target }}' --commit "$GITHUB_SHA"
       - name: Build scheduler sidecar
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu'
         shell: bash
         run: cargo build --locked --release --bin zapfast-scheduler --target '${{ matrix.target }}'
+      - name: Scheduler end-to-end test on Linux (stub Server, no network or accounts)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: contrib/send-later/e2e/run-e2e.sh
       - name: Package native Apple Silicon Finder app and DMG
         if: matrix.target == 'aarch64-apple-darwin'
         shell: bash
@@ -187,6 +191,8 @@ jobs:
           # naming and carrying its source network; the composer pinned at
           # the bottom with the destination control above it.
           shot chat-linked-1180x780 1180x780 chat,linked
+          shot chat-receipts-1180x780 1180x780 chat,receipts
+          shot chat-receipts-dark-1180x780 1180x780 chat,receipts,theme=Catppuccin.json
           shot chat-linked-dark-1180x780 1180x780 chat,linked,theme=Catppuccin.json
           # A chosen primary: the composer is live, "Sending via" shows.
           shot chat-linked-primary-1180x780 1180x780 chat,linked,linked-primary

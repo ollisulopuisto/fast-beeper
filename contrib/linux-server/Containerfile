@@ -1,0 +1,14 @@
+# Beeper Server for a Linux host (x64 or arm64) under rootless Podman.
+# EXPERIMENTAL: not built or run in CI or on a host. The official Beeper CLI
+# downloads Beeper's own Server artifact for this platform at first start;
+# nothing from Beeper is bundled in or redistributed by this file.
+FROM docker.io/library/node:22-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl procps \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g beeper-cli \
+ && useradd --create-home --uid 1000 beeper
+USER beeper
+WORKDIR /home/beeper
+COPY --chown=beeper:beeper entrypoint.sh /home/beeper/entrypoint.sh
+ENTRYPOINT ["/home/beeper/entrypoint.sh"]
