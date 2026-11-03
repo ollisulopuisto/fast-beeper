@@ -179,6 +179,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // On a vibrant window the messages scroll on under the header, as in
     // Messages: the header and any banner go on a layer above them.
     if app.conversation_palette().vibrant() {
+        // Tabs are navigation chrome: they take real space above the header,
+        // never the frosted overlay messages scroll beneath.
+        tab_bar(app, ui);
         let layer = egui::LayerId::new(egui::Order::Middle, ui.id().with("chat-header"));
         let bar = ui
             .scope_builder(egui::UiBuilder::new().layer_id(layer), |ui| {
@@ -186,7 +189,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 // veil of the chat's colour that keeps the title readable.
                 let glass = ui.painter().add(egui::Shape::Noop);
                 let veil = ui.painter().add(egui::Shape::Noop);
-                tab_bar(app, ui);
                 header(app, ui, &chat);
                 beeper_live_warning(app, ui, &chat.id);
                 if theme::chrome_in_headers(ui.ctx()) {
