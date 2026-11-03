@@ -6420,6 +6420,16 @@ mod tests {
     }
 
     #[test]
+    fn tag_free_text_keeps_its_ampersand_entities_as_received() {
+        // Without the raw payload we cannot tell an escaped separator from a
+        // literal value, so tag-free text is never rewritten.
+        let same = |text: &str| assert_eq!(plain_rich_text(text), text, "{text}");
+        same("https://x.test/f?rlkey=k&amp;dl=0");
+        same("https://x.test/?q=a%26amp%3Bb&r=%2B1");
+        same("see (https://x.test/?a=1&amp;b=2). then &amp; more");
+    }
+
+    #[test]
     fn a_reaction_on_the_newest_message_leads_the_list_preview() {
         let preview = |reactions: serde_json::Value| {
             let chat: BeeperChat = serde_json::from_value(serde_json::json!({
