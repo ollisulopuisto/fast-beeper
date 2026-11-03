@@ -24,7 +24,21 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from run_client import validate_endpoint, LOOPBACK
+try:  # in the repo, share the launcher's endpoint rules
+    from run_client import validate_endpoint, LOOPBACK
+except ImportError:  # a lone copy of this file keeps the same rules
+    LOOPBACK = ('localhost', '127.0.0.1', '::1')
+
+    def validate_endpoint(base):
+        parsed = urllib.parse.urlsplit(base)
+        if (not parsed.hostname or parsed.username or parsed.password
+                or parsed.scheme not in ('https', 'http') or parsed.query or parsed.fragment
+                or parsed.path not in ('', '/')):
+            raise ValueError('Use the existing API server root URL.')
+        if parsed.scheme == 'http' and parsed.hostname not in LOOPBACK:
+            raise ValueError('Remote HTTP is refused. Use HTTPS or loopback.')
+        _ = parsed.port
+        return parsed
 
 MAX_HITS = 2
 MAX_QUERIES = 3
