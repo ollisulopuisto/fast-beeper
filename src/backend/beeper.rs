@@ -486,11 +486,6 @@ fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
                 caption,
             },
         ),
-        Command::SendVoice {
-            chat,
-            samples,
-            quoting,
-        } => (chat, quoting, Unsent::Voice(samples)),
         Command::SendLocation {
             chat,
             latitude,
@@ -512,6 +507,15 @@ fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
         unsent,
         reason: Refusal::UnsupportedBackend,
     }))
+}
+
+/// How an uploaded file is sent: the type Beeper picks, a plain document, or
+/// a voice note of this many seconds.
+#[derive(Clone, Copy)]
+enum Attachment {
+    Auto,
+    Document,
+    Voice(u32),
 }
 
 struct StopUploads(std::sync::Arc<std::sync::atomic::AtomicBool>);
@@ -1293,6 +1297,22 @@ impl Api {
         caption: Option<&str>,
         cancel: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<SendAccepted, String> {
+        let kind = if documents {
+            Attachment::Document
+        } else {
+            Attachment::Auto
+        };
+        self.send_attachment(chat, path, kind, caption, cancel)
+    }
+
+    fn send_attachment(
+        &self,
+        chat: &str,
+        path: &std::path::Path,
+        kind: Attachment,
+        caption: Option<&str>,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<SendAccepted, String> {
         if upload_stopped(cancel) {
             return Err("Upload worker stopped; message was not submitted".into());
         }
@@ -1339,8 +1359,13 @@ impl Api {
             );
         }
         let mut attachment = serde_json::json!({"uploadID": id, "fileName": filename});
-        if documents {
-            attachment["type"] = "file".into();
+        match kind {
+            Attachment::Auto => {}
+            Attachment::Document => attachment["type"] = "file".into(),
+            Attachment::Voice(seconds) => {
+                attachment["type"] = "voice-note".into();
+                attachment["duration"] = seconds.into();
+            }
         }
         // The contract's text is an optional string: with no caption the
         // field goes away. An explicit null is not a string, and Beeper
@@ -2145,7 +2170,13 @@ pub fn run(
     let upload_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Drop on every control-worker exit, before queued batches can drain.
     let _stop_uploads = StopUploads(upload_cancel.clone());
-    type UploadBatch = (ChatId, Vec<std::path::PathBuf>, bool, Option<String>);
+    type UploadBatch = (
+        ChatId,
+        Vec<std::path::PathBuf>,
+        bool,
+        Option<String>,
+        Option<u32>,
+    );
     let (upload_tx, upload_rx) = std::sync::mpsc::sync_channel::<UploadBatch>(2);
     let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<(ChatId, String)>();
     let upload_api = api.clone();
@@ -2154,15 +2185,20 @@ pub fn run(
     std::thread::Builder::new()
         .name("beeper-upload".into())
         .spawn(move || {
-            while let Ok((chat, paths, documents, caption)) = upload_rx.recv() {
+            while let Ok((chat, paths, documents, caption, voice)) = upload_rx.recv() {
                 for (index, path) in paths.iter().enumerate() {
                     if upload_stopped(Some(&upload_cancel)) {
                         return;
                     }
-                    match upload_api.send_file_cancellable(
+                    let kind = match (voice, documents) {
+                        (Some(seconds), _) => Attachment::Voice(seconds),
+                        (None, true) => Attachment::Document,
+                        (None, false) => Attachment::Auto,
+                    };
+                    match upload_api.send_attachment(
                         &chat,
                         path,
-                        documents,
+                        kind,
                         if index == 0 { caption.as_deref() } else { None },
                         Some(&upload_cancel),
                     ) {
@@ -2214,6 +2250,9 @@ pub fn run(
                     }),
                     Ok(Command::SendFiles { chat, paths, documents, caption, .. }) => emit(Event::BeeperFilesUncertain {
                         chat, paths, documents, caption, message: "Beeper is not connected yet. Files retained; nothing was sent or queued for automatic retry.".into(),
+                    }),
+                    Ok(Command::SendVoice { chat, samples, quoting }) => emit(Event::SendRefused {
+                        chat, quoting, unsent: crate::backend::Unsent::Voice(samples), reason: crate::backend::Refusal::Offline,
                     }),
                     Ok(command) => match refuse_unsupported_payload(command) {
                         Err(event)=>emit(*event),
@@ -2920,8 +2959,8 @@ pub fn run(
                         emit(Event::BeeperFilesUncertain { chat, paths, documents, caption, message: "Beeper attachment replies, mentions and view-once are not supported; files kept".into() });
                         continue;
                     }
-                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption)) {
-                        let (chat, paths, documents, caption) = match error {
+                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption, None)) {
+                        let (chat, paths, documents, caption, _) = match error {
                             std::sync::mpsc::TrySendError::Full(batch)
                             | std::sync::mpsc::TrySendError::Disconnected(batch) => batch,
                         };
@@ -2932,6 +2971,52 @@ pub fn run(
                             caption,
                             message: "Upload queue is busy; files kept without sending".into(),
                         });
+                    }
+                }
+                Command::SendVoice {
+                    chat,
+                    samples,
+                    quoting,
+                } => {
+                    if quoting.is_some() {
+                        emit(Event::SendRefused {
+                            chat,
+                            quoting,
+                            unsent: crate::backend::Unsent::Voice(samples),
+                            reason: crate::backend::Refusal::UnsupportedBackend,
+                        });
+                        continue;
+                    }
+                    let mut recording = samples.clone();
+                    crate::voice::normalize(&mut recording);
+                    let seconds = (recording.len() as f64 / f64::from(crate::voice::RATE))
+                        .round()
+                        .max(1.0) as u32;
+                    let file = crate::voice::encode(&recording).and_then(|bytes| {
+                        let path = std::env::temp_dir()
+                            .join(format!("voice-note-{}.ogg", crate::util::now()));
+                        std::fs::write(&path, bytes)
+                            .map(|()| path)
+                            .map_err(|error| error.to_string())
+                    });
+                    match file {
+                        Ok(path) => {
+                            let batch = (chat.clone(), vec![path], false, None, Some(seconds));
+                            if upload_tx.try_send(batch).is_err() {
+                                emit(Event::SendRefused {
+                                    chat,
+                                    quoting: None,
+                                    unsent: crate::backend::Unsent::Voice(samples),
+                                    reason: crate::backend::Refusal::Offline,
+                                });
+                            }
+                        }
+                        Err(_) => emit(Event::SendRefused {
+                            chat,
+                            quoting: None,
+                            unsent: crate::backend::Unsent::Voice(samples),
+                            reason: crate::backend::Refusal::UnsupportedBackend,
+                        }),
                     }
                 }
                 Command::Download {
