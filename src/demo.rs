@@ -12662,7 +12662,10 @@ mod tests {
         let turned = preview_frame(&mut app, &ctx, vec![]);
         let before = upright.width() / upright.height();
         let after = turned.width() / turned.height();
-        assert!((before * after - 1.0).abs() < 0.05, "{upright:?} then {turned:?}");
+        assert!(
+            (before * after - 1.0).abs() < 0.05,
+            "{upright:?} then {turned:?}"
+        );
     }
 
     /// Zooming with the wheel keeps the picture point under the pointer in

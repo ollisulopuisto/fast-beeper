@@ -773,7 +773,13 @@ mod rotation_state_tests {
         use crate::model::Action;
         let shift = Modifiers::SHIFT;
         let none = Modifiers::NONE;
-        assert!(matches!(preview_action(Key::R, none), Some(Action::RotateImage(true))));
-        assert!(matches!(preview_action(Key::R, shift), Some(Action::RotateImage(false))));
+        assert!(matches!(
+            preview_action(Key::R, none),
+            Some(Action::RotateImage(true))
+        ));
+        assert!(matches!(
+            preview_action(Key::R, shift),
+            Some(Action::RotateImage(false))
+        ));
     }
 }

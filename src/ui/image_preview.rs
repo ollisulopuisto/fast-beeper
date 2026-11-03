@@ -862,7 +862,10 @@ fn video(
             || vec2(16.0, 9.0),
             |size| vec2(size[0] as f32, size[1] as f32),
         );
-    let turns = app.image_preview.as_ref().map_or(0, |preview| preview.turns());
+    let turns = app
+        .image_preview
+        .as_ref()
+        .map_or(0, |preview| preview.turns());
     let aspect = turned_size(aspect, turns);
     let size = fit(aspect, stage.size());
     let media = Rect::from_center_size(stage.center(), size);
@@ -988,9 +991,19 @@ fn turned_size(size: Vec2, turns: u8) -> Vec2 {
 /// it by the caller's sizing, and only the sampling rotates here.
 fn paint_turned(painter: &egui::Painter, rect: Rect, texture: egui::TextureId, turns: u8) {
     // Top-left, top-right, bottom-right, bottom-left of the texture.
-    let corners = [pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(1.0, 1.0), pos2(0.0, 1.0)];
+    let corners = [
+        pos2(0.0, 0.0),
+        pos2(1.0, 0.0),
+        pos2(1.0, 1.0),
+        pos2(0.0, 1.0),
+    ];
     let shift = usize::from(turns % 4);
-    let targets = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
+    let targets = [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+    ];
     let mut mesh = egui::Mesh::with_texture(texture);
     for (index, pos) in targets.into_iter().enumerate() {
         // A clockwise turn brings the texture's bottom-left to the top-left.
