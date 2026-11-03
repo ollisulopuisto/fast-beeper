@@ -3946,6 +3946,28 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 *SHOT_LINK_PICKER.lock().unwrap() =
                     Some(("ham".into(), vec!["14155550199@s.whatsapp.net".into()]));
             }
+            // Our last five messages, one per receipt state, to see each
+            // tick: unknown, sent, delivered, read by some, read.
+            "receipts" => {
+                use crate::model::Delivery;
+                let states = [
+                    ("Receipt state: unknown", Delivery::Unknown),
+                    ("Receipt state: sent", Delivery::Sent),
+                    ("Receipt state: delivered", Delivery::Delivered),
+                    ("Receipt state: read by some", Delivery::ReadBySome),
+                    ("Receipt state: read", Delivery::Read),
+                ];
+                if let Some(chat) = app.open_chat.clone()
+                    && let Some(conversation) = app.conversations.get_mut(&chat)
+                {
+                    let rows = conversation.messages.iter_mut().rev().take(states.len());
+                    for (row, (text, status)) in rows.zip(states.iter().rev()) {
+                        row.from_me = true;
+                        row.status = *status;
+                        row.content = crate::model::Content::text(*text);
+                    }
+                }
+            }
             "rail-full" => rail_full_sample(app),
             // Deterministic per-account appearance overrides for rendered
             // proof: the open chat's account (wa-personal) draws its

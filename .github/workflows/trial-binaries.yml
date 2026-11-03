@@ -187,6 +187,8 @@ jobs:
           # naming and carrying its source network; the composer pinned at
           # the bottom with the destination control above it.
           shot chat-linked-1180x780 1180x780 chat,linked
+          shot chat-receipts-1180x780 1180x780 chat,receipts
+          shot chat-receipts-dark-1180x780 1180x780 chat,receipts,theme=Catppuccin.json
           shot chat-linked-dark-1180x780 1180x780 chat,linked,theme=Catppuccin.json
           # A chosen primary: the composer is live, "Sending via" shows.
           shot chat-linked-primary-1180x780 1180x780 chat,linked,linked-primary
