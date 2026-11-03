@@ -7,7 +7,9 @@
 //! Serve (environment): BEEPER_BASE_URL, BEEPER_ACCESS_TOKEN or
 //! BEEPER_ACCESS_TOKEN_FILE (the upstream token, never shown to clients),
 //! ZAPFAST_SETTINGS_FILE (optional: the app's settings.json, read-only, for
-//! linked people), ZAPFAST_READER_LISTEN (default 127.0.0.1:23377; non-loopback addresses
+//! linked people), ZAPFAST_READER_ORIGINS (comma list of API base URLs the
+//! app records for chats this reader can serve; default BEEPER_BASE_URL),
+//! ZAPFAST_READER_LISTEN (default 127.0.0.1:23377; non-loopback addresses
 //! are refused), ZAPFAST_READER_CLIENTS (default
 //! ~/.config/zapfast/reader-clients.json, mode 0600).
 //!
@@ -191,6 +193,12 @@ fn main() {
         eprintln!("zapfast-reader: {e}");
         std::process::exit(1);
     }
+    // The app records the API base URL it read each chat from; people whose
+    // members carry other origins stay unreadable here.
+    let origins: Vec<String> = match std::env::var("ZAPFAST_READER_ORIGINS") {
+        Ok(list) => list.split(',').map(|o| o.trim().to_string()).collect(),
+        Err(_) => vec![base_url.clone()],
+    };
     let sender = match ServerSender::new(base_url, &token) {
         Ok(sender) => sender,
         Err(e) => {

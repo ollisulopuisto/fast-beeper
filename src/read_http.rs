@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::merged::Person;
-use crate::read_api::{RateLimiter, Registry, Upstream, handle, hash_token, parse_people};
+use crate::read_api::{
+    PeopleSource, RateLimiter, Registry, Upstream, handle, hash_token, parse_people,
+};
 use crate::scheduler_api::ServerSender;
 
 /// Most connections served at once; extra ones are refused with 429.
@@ -41,6 +43,9 @@ pub struct Shared {
     /// The app's settings file, read-only, for linked people. None leaves
     /// the people endpoints unavailable.
     pub settings: Option<PathBuf>,
+    /// API base URLs this reader serves, as the app records them in a
+    /// person's members.
+    pub origins: Vec<String>,
 }
 
 const MAX_SETTINGS_BYTES: u64 = 4 << 20;
@@ -141,7 +146,10 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
     let (status, body, client, label) = handle(
         &registry,
         &mut *upstream,
-        people.as_deref(),
+        &PeopleSource {
+            people: people.as_deref(),
+            origins: &shared.origins,
+        },
         bearer,
         method,
         target,

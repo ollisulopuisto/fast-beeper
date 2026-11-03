@@ -455,6 +455,12 @@ fn filter_items(value: &Value, allowed: &[String]) -> Option<Value> {
 }
 
 /// Stable, content-derived id for a linked person (settings has none).
+/// What the people endpoints need besides the Server handle.
+pub struct PeopleSource<'a> {
+    pub people: Option<&'a [Person]>,
+    pub origins: &'a [String],
+}
+
 pub fn person_id(person: &Person) -> String {
     let mut parts: Vec<String> = person
         .members
@@ -465,10 +471,12 @@ pub fn person_id(person: &Person) -> String {
     hash_token(&format!("{}\0{}", person.name, parts.join("\0")))[..16].to_string()
 }
 
-/// Only Beeper-origin members are served by the Server; members from the
-/// app's direct network backends live in the app's own storage.
-fn readable(member: &crate::merged::Member) -> bool {
-    member.origin == "beeper"
+/// A member's origin is the API base URL the app read the chat from. Only
+/// origins this reader is configured to serve are readable; others belong
+/// to a backend the reader cannot reach.
+fn readable(member: &crate::merged::Member, origins: &[String]) -> bool {
+    let origin = member.origin.trim_end_matches('/');
+    origins.iter().any(|o| o.trim_end_matches('/') == origin)
 }
 
 /// A restricted client sees a person only if every linked member is in its
@@ -486,24 +494,28 @@ fn visible<'a>(people: &'a [Person], client: &ClientEntry) -> Vec<&'a Person> {
         .collect()
 }
 
-fn member_json(member: &crate::merged::Member) -> Value {
+fn member_json(member: &crate::merged::Member, origins: &[String]) -> Value {
     serde_json::json!({
         "origin": member.origin,
         "account": member.account,
         "chat": member.chat,
-        "readable": readable(member),
+        "readable": readable(member, origins),
     })
 }
 
-fn people_list(people: &[Person], client: &ClientEntry) -> Value {
+fn people_list(people: &[Person], origins: &[String], client: &ClientEntry) -> Value {
     let items: Vec<Value> = visible(people, client)
         .into_iter()
         .map(|p| {
             serde_json::json!({
                 "id": person_id(p),
                 "name": p.name,
-                "primary": p.primary.as_ref().map(member_json),
-                "members": p.members.iter().map(member_json).collect::<Vec<_>>(),
+                "primary": p.primary.as_ref().map(|m| member_json(m, origins)),
+                "members": p
+                    .members
+                    .iter()
+                    .map(|m| member_json(m, origins))
+                    .collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -526,7 +538,7 @@ fn person_messages(upstream: &mut dyn Upstream, person: &Person, limit: u32) -> 
     let mut unavailable: Vec<Value> = Vec::new();
     for (index, member) in person.members.iter().enumerate() {
         let mut skip = |reason: &str| {
-            let mut entry = member_json(member);
+            let mut entry = member_json(member, origins);
             entry["reason"] = reason.into();
             unavailable.push(entry);
         };
@@ -534,8 +546,8 @@ fn person_messages(upstream: &mut dyn Upstream, person: &Person, limit: u32) -> 
             skip("member limit reached");
             continue;
         }
-        if !readable(member) {
-            skip("app-only source, not served by the Server");
+        if !readable(member, origins) {
+            skip("origin not served by this reader");
             continue;
         }
         let chat = encode(&member.chat);
@@ -595,7 +607,7 @@ fn error(status: u16, message: &str) -> (u16, String) {
 pub fn handle(
     registry: &Registry,
     upstream: &mut dyn Upstream,
-    people: Option<&[Person]>,
+    source: &PeopleSource,
     bearer: Option<&str>,
     method: &str,
     target: &str,
@@ -620,7 +632,7 @@ pub fn handle(
     }
     let restricted = !client.accounts.is_empty();
     if matches!(parsed, Route::People | Route::PersonMessages { .. }) {
-        let Some(people) = people else {
+        let Some(people) = source.people else {
             let (s, b) = error(502, "people source unavailable");
             return (s, b, name, label);
         };
@@ -632,10 +644,10 @@ pub fn handle(
                 let (s, b) = error(404, "not found");
                 return (s, b, name, label);
             };
-            let body = person_messages(upstream, person, *limit);
+            let body = person_messages(upstream, person, source.origins, *limit);
             return (200, body.to_string(), name, label);
         }
-        return (200, people_list(people, client).to_string(), name, label);
+        return (200, people_list(people, source.origins, client).to_string(), name, label);
     }
     if let (true, Route::Messages(chat)) = (restricted, &parsed) {
         let probe = format!("/v1/chats/{}", encode(chat));
@@ -719,6 +731,11 @@ impl RateLimiter {
 mod tests {
     use super::*;
 
+    const NONE: PeopleSource = PeopleSource {
+        people: None,
+        origins: &[],
+    };
+
     struct Fake {
         calls: Vec<String>,
     }
@@ -768,7 +785,7 @@ mod tests {
     fn run(registry: &Registry, token: &str, method: &str, target: &str) -> (u16, String) {
         let mut fake = Fake { calls: vec![] };
         let (status, body, _, _) =
-            handle(registry, &mut fake, None, Some(token), method, target, 200);
+            handle(registry, &mut fake, &NONE, Some(token), method, target, 200);
         (status, body)
     }
 
@@ -787,7 +804,7 @@ mod tests {
         assert_eq!(run(&registry, "zfr_nope", "GET", "/v1/chats").0, 401);
         let mut fake = Fake { calls: vec![] };
         assert_eq!(
-            handle(&registry, &mut fake, None, None, "GET", "/v1/chats", 200).0,
+            handle(&registry, &mut fake, &NONE, None, "GET", "/v1/chats", 200).0,
             401
         );
         assert_eq!(run(&registry, &token, "GET", "/v1/chats").0, 200);

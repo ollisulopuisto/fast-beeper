@@ -93,6 +93,7 @@ fn start(base: &str, max: usize) -> Reader {
         source: Box::new(sender),
         limiter: Mutex::new(RateLimiter::default()),
         settings: Some(settings.clone()),
+        origins: vec!["http://app-origin".to_string()],
     });
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -276,12 +277,12 @@ fn loose_registry_permissions_refuse_everything() {
 
 const SETTINGS: &str = r#"{"beeper":{"people":[
   {"name":"Ada Lovelace","members":[
-    {"origin":"beeper","account":"a1","chat":"c-a1"},
-    {"origin":"signal-direct","account":"d9","chat":"c-d9"}],
-   "primary":{"origin":"beeper","account":"a1","chat":"c-a1"}},
+    {"origin":"http://app-origin/","account":"a1","chat":"c-a1"},
+    {"origin":"http://other-backend:8077","account":"d9","chat":"c-d9"}],
+   "primary":{"origin":"http://app-origin/","account":"a1","chat":"c-a1"}},
   {"name":"Linked Across","members":[
-    {"origin":"beeper","account":"a1","chat":"c-a1"},
-    {"origin":"beeper","account":"b2","chat":"c-b2"}]}
+    {"origin":"http://app-origin/","account":"a1","chat":"c-a1"},
+    {"origin":"http://app-origin/","account":"b2","chat":"c-b2"}]}
 ],"local_ai_endpoint":"http://secret.example"}}"#;
 
 fn people_ids(reader: &Reader, token: &str) -> (u16, serde_json::Value) {

@@ -35,10 +35,13 @@ primary destination and members, each marked `readable`. `/v1/people/{id}/messag
 merges the newest messages across the person's readable members (limit
 capped at 100, no paging), adds `chatID`/`accountID` to each item, and lists
 every member it could not read under `unavailable` with `partial: true`.
-- Members from the app's direct network backends (origin other than
-  `beeper`) are stored in the app, not the Server. They are listed as
-  `readable: false` and are NOT in the merged timeline. Reading them needs
-  a separate, app-owned source and is not built.
+- A member's `origin` is the API base URL the app read that chat from
+  (BeeperConfig base URL, e.g. `http://127.0.0.1:23374`). The reader serves
+  members whose origin is in `ZAPFAST_READER_ORIGINS` (comma list; default
+  `BEEPER_BASE_URL`). Compare with what the app records: a tunnel on the
+  laptop and the Server's own URL differ, so set the list to the app's
+  value. Other origins are listed `readable: false`, left out of merged
+  timelines and named in `unavailable`.
 - Each readable member's chat is checked against the Server (it must exist
   and belong to the recorded account) before its messages are read.
 - A restricted client sees a person only if every member is inside its
@@ -77,8 +80,9 @@ Responses come from the Server unchanged for unrestricted clients.
 
 ## Not covered (explicitly)
 
-- Direct-network (non-Beeper) chats, and therefore the direct-network part
-  of any linked person, are not served: they live in the app's own storage.
+- Chats served by a different API backend than this reader's (another
+  origin), and ZapFast's native WhatsApp mode (no Beeper backend; chats
+  have no origin and cannot be linked people), are not served.
   Reading them is the main remaining coverage work; see DIRECT-NETWORKS.md
   for the design (in-app read-only broker, opt-in, nothing persisted).
 - The scheduled queue is not exposed through this API.
@@ -120,6 +124,6 @@ Responses come from the Server unchanged for unrestricted clients.
   alive; age alone never breaks it. Pid reuse after a crash can keep a stale
   lock until it is removed by hand.
 - Live check of Server side effects (see Unverified) and of response shapes.
-- Direct-network chats and their messages: not built (active missing work).
+- Other-origin and native-mode chats: not built (see DIRECT-NETWORKS.md).
 - Linked-person endpoints are tested only against synthetic settings and a
   mock Server.

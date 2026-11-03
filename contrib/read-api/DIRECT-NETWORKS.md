@@ -1,50 +1,41 @@
-# Direct-network chats for the read API: design (not built)
+# Chats the Server does not serve: findings and design (not built)
 
-Status: design only. Nothing here is implemented, enabled or granted.
+Status: findings from the code plus a design. Nothing here is implemented,
+enabled or granted.
 
-## Problem
+## What the code says
 
-`zapfast-reader` serves what the Beeper Server serves. fast-beeper's direct
-network chats (its own WhatsApp/Signal backends, origin other than
-`beeper`) exist only in the running app and its encrypted local archive.
-Linked people that include such chats are therefore listed as
-`readable: false` and left out of merged timelines.
+- In Beeper mode every chat the app shows comes from one Beeper API, and
+  each chat records that API's base URL as `backend_origin`. People links
+  (`beeper.people`) are made only from chats with an origin. So for a user
+  running the app against his Server, `zapfast-reader` plus
+  `ZAPFAST_READER_ORIGINS` set to the app's recorded URL covers the chats
+  AND the linked-person view. No app-owned broker is needed for that.
+- A person can still link chats recorded under two different origins (two
+  API backends, e.g. a Server and a local Desktop API). One reader serves
+  one Server. Serving a second origin means a second upstream in the reader
+  (its own token file, configured by the user); not built.
+- ZapFast's native WhatsApp mode (no Beeper backend) keeps chats in the
+  app's encrypted archive, with no origin, and they cannot be linked
+  people. They are not reachable through any Server API.
 
-## Constraints
+## If native-mode chats ever need serving: opt-in broker in the app
 
-- The companion must not open or decrypt the app archive, and must not get
-  a copy of the archive key.
-- No plaintext message snapshot is written to disk.
-- Same per-app tokens, scopes, account allowlists and revocation as today.
+1. Off by default behind a visible setting; the setting is the user's
+   decision.
+2. When on, a loopback-only (or 0600 unix) listener inside the running app
+   accepts only the reader, authenticated with a fresh random secret in a
+   0600 file (unrelated to the archive key). Delete the file or turn the
+   setting off to revoke.
+3. It answers read-only questions from memory the app already holds. No
+   persistence, no receipts, no sends, bounded like the Server routes.
+4. The reader treats it as another upstream behind the same scopes,
+   allowlists and revocation.
 
-## Proposed route: a read-only broker inside the running app
+Rejected: the companion opening the archive with the app's key (widens the
+key's reach); exporting a plaintext snapshot (persists message content
+outside the encrypted archive).
 
-1. Off by default. A visible setting ("Allow local apps to read direct
-   chats") turns it on; the setting is the user's explicit decision.
-2. When on, the app listens on a loopback-only socket (or a unix socket
-   with 0600 mode) and accepts exactly one caller class: the reader,
-   authenticated with a random secret the app generates into a 0600 file
-   (a new secret, unrelated to the archive key). Revoking = deleting the
-   file or turning the setting off.
-3. The broker answers two read-only questions from memory the app already
-   holds: list chats of a direct account, and the newest N messages of a
-   chat. Nothing is persisted, nothing is sent, no read receipt or
-   read-marker is touched, and requests are bounded like the Server ones.
-4. The reader treats broker members as another source behind the same
-   scopes and allowlists; `people:read` merged timelines then include them,
-   marked by origin, and a missing broker keeps them in `unavailable`.
-5. Reversible: removing the setting and the secret returns to today's
-   behavior, with no data left behind.
-
-## Why it is not built yet
-
-It needs a listener inside the GUI process and message-model plumbing in a
-very large file, and I cannot run or screenshot the app here. The setting
-itself is user-visible product behavior. Unverified until built and tried
-on a real direct account.
-
-## Alternatives rejected for now
-
-- Reader opens the archive with the app's key: widens the key's reach.
-- App exports a plaintext snapshot: persists message content outside the
-  encrypted archive.
+Not built because it needs a listener and a user-visible setting in the GUI
+process, which cannot be run or screenshot in the build environment, and
+because it only matters for native mode, which this deployment does not use.
