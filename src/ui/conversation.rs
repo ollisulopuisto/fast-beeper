@@ -1624,7 +1624,7 @@ pub(crate) fn composer_with_capabilities(
             // field and the panel holding it grow on the keystroke that wraps
             // a line rather than a frame later, which made them jump.
             let wrap_id = id.with("wrap");
-            let text_height = ui
+            let measured_height = ui
                 .ctx()
                 .data(|data| data.get_temp::<f32>(wrap_id))
                 .map(|wrap| {
@@ -1636,8 +1636,11 @@ pub(crate) fn composer_with_capabilities(
                         .y
                 })
                 .or_else(|| ui.ctx().read_response(id).map(|previous| previous.rect.height()))
-                .unwrap_or(line_height)
-                .clamp(line_height, line_height * 6.0);
+                .unwrap_or(line_height);
+            let text_height = measured_height.clamp(line_height, line_height * 6.0);
+            // Only a draft taller than the cap scrolls; below it the field
+            // has grown to fit, so a bar there is rounding, not overflow.
+            let composer_overflows = measured_height > line_height * 6.0 + 0.5;
             let row_height = (text_height + 2.0 * field_margin).max(line);
             let pill = widgets::raised(ui, &palette, composer_pill(&palette), |ui| {
             ui.allocate_ui_with_layout(
@@ -1721,10 +1724,16 @@ pub(crate) fn composer_with_capabilities(
                         // Grow from one to six lines, then scroll. The height
                         // is this frame's draft, measured above, rather than
                         // the scroll area's memory of the last frame.
+                        crate::theme::shot_bars(ui);
                         egui::ScrollArea::vertical()
                             .id_salt("composer-scroll")
                             .max_height(text_height)
                             .min_scrolled_height(text_height)
+                            .scroll_bar_visibility(if composer_overflows {
+                                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
+                            } else {
+                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden
+                            })
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 // Keep emoji in the buffer so character offsets match, then
@@ -2983,6 +2992,7 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
     let key_start = time - f64::from(ui.input(|input| input.stable_dt.min(0.1)));
     let mut pinned = false;
     let mut visible_day = None;
+    crate::theme::shot_bars(ui);
     let output = egui::ScrollArea::vertical()
         .id_salt(("messages", &chat.id))
         .auto_shrink([false, false])

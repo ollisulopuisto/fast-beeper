@@ -496,6 +496,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let timeline = ui
         .available_rect_before_wrap()
         .shrink2(egui::vec2(super::conversation::TIMELINE_SIDE, 0.0));
+    let scroll_rect = egui::Rect::from_min_max(
+        timeline.min,
+        timeline.max + egui::vec2(super::conversation::TIMELINE_SIDE, 0.0),
+    );
     if (cache.width - timeline.width()).abs() > 0.5 {
         cache.width = timeline.width();
         cache.heights.clear();
@@ -509,7 +513,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let mut previous_laid_out = false;
     let mut previous_on_screen = false;
     let output = ui
-        .scope_builder(egui::UiBuilder::new().max_rect(timeline), |ui| {
+        // The scroll area runs to the pane's edge so its overlay bar sits in
+        // the side margin; rows keep the inset width and never sit under it.
+        .scope_builder(egui::UiBuilder::new().max_rect(scroll_rect), |ui| {
+            crate::theme::shot_bars(ui);
             let remaining = ui.available_height().max(100.0);
             egui::ScrollArea::vertical()
                 .id_salt(("person-timeline", &person.members))
@@ -518,6 +525,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 .max_height(remaining)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.set_max_width(timeline.width());
                     let viewport = ui.clip_rect();
                     if visible.is_empty() {
                         ui.label(if filtered {
