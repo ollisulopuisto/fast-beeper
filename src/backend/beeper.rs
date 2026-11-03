@@ -1803,16 +1803,23 @@ fn attachment_content(m: &BeeperMessage) -> Option<Content> {
     })
 }
 
+/// Whether a `seen` receipt says someone read the message: `true`, a read
+/// timestamp, or a per-participant map holding either. `false`, an empty
+/// string and an empty map are the bridge saying "not read" or nothing.
+fn is_seen(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Bool(seen) => *seen,
+        serde_json::Value::String(time) => !time.is_empty(),
+        serde_json::Value::Object(by_participant) => by_participant.values().any(is_seen),
+        _ => false,
+    }
+}
+
 fn delivery_of(m: &BeeperMessage) -> Delivery {
     if !m.is_sender.unwrap_or(false) {
         return Delivery::None;
     }
-    if m.seen.as_ref().is_some_and(|v| {
-        v == &serde_json::Value::Bool(true)
-            || v.as_str().is_some_and(|s| !s.is_empty())
-            || v.as_object()
-                .is_some_and(|o| o.values().any(|v| v == &serde_json::Value::Bool(true)))
-    }) {
+    if m.seen.as_ref().is_some_and(is_seen) {
         return Delivery::Read;
     }
     match m.send_status.as_ref() {
@@ -1950,6 +1957,16 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
     chat
 }
 
+/// The tick beside a chat's last message. A bridge that reports more than
+/// "sent" (pending, delivered, read, failed) is shown as it said; one that
+/// reports nothing keeps the plain sent tick the list has always drawn.
+fn preview_status(p: &BeeperMessage) -> Delivery {
+    match delivery_of(p) {
+        Delivery::Unknown => Delivery::Sent,
+        status => status,
+    }
+}
+
 impl Chat {
     fn last_preview(p: &BeeperMessage, body: String, labelled: bool) -> LastMessage {
         LastMessage {
@@ -1959,11 +1976,7 @@ impl Chat {
             summary: body.lines().next().unwrap_or("").to_string(),
             full: body,
             labelled,
-            status: if p.is_sender.unwrap_or(false) {
-                Delivery::Sent
-            } else {
-                Delivery::None
-            },
+            status: preview_status(p),
         }
     }
 }
@@ -3025,11 +3038,19 @@ pub fn run(
         // open chat's newest page on a slow cadence; the UI merge upserts
         // by id, so scroll position, composer and read state are untouched
         // and no extra notifications fire (no Incoming events here).
-        if let Some(chat) = &open_chat
-            && last_receipt_refresh.elapsed() >= RECEIPT_REFRESH
-        {
+        // A linked person's other chats are watched, not open, and their
+        // ticks stall the same way, so every watched chat is refreshed.
+        if last_receipt_refresh.elapsed() >= RECEIPT_REFRESH {
             last_receipt_refresh = Instant::now();
-            if let Ok(page) = api.list_messages(chat, None, None) {
+            let targets = if watched_chats.is_empty() {
+                open_chat.clone().into_iter().collect()
+            } else {
+                watched_chats.clone()
+            };
+            for chat in &targets {
+                let Ok(page) = api.list_messages(chat, None, None) else {
+                    continue;
+                };
                 let mut messages: Vec<Message> = page
                     .items
                     .iter()
@@ -5607,6 +5628,42 @@ mod tests {
         // The server's message/input values never reach the error.
         assert!(!error.contains("REDACTED-CONTENT"), "{error}");
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn read_receipts_in_every_shape_the_api_sends_count_as_read() {
+        use serde_json::json;
+        for (seen, expected) in [
+            (json!(true), Delivery::Read),
+            (json!("2026-11-03T07:48:00Z"), Delivery::Read),
+            (json!({"a": "2026-11-03T07:48:00Z"}), Delivery::Read),
+            (json!({"a": false, "b": true}), Delivery::Read),
+            (json!(false), Delivery::Sent),
+            (json!(""), Delivery::Sent),
+            (json!({"a": false}), Delivery::Sent),
+            (json!({}), Delivery::Sent),
+        ] {
+            let wire = json!({
+                "id": "x", "isSender": true, "seen": seen.clone(),
+                "sendStatus": {"status": "SUCCESS"}
+            });
+            let m: BeeperMessage = serde_json::from_value(wire).unwrap();
+            assert_eq!(map_message(&m, "chat").status, expected, "{seen}");
+        }
+    }
+
+    #[test]
+    fn a_chat_preview_shows_what_the_bridge_reported_not_always_sent() {
+        let preview = |wire: serde_json::Value| {
+            let m: BeeperMessage = serde_json::from_value(wire).unwrap();
+            preview_status(&m)
+        };
+        let read = serde_json::json!({"id": "x", "isSender": true, "seen": true});
+        assert_eq!(preview(read), Delivery::Read);
+        let bare = serde_json::json!({"id": "x", "isSender": true});
+        assert_eq!(preview(bare), Delivery::Sent);
+        let incoming = serde_json::json!({"id": "x", "isSender": false});
+        assert_eq!(preview(incoming), Delivery::None);
     }
 
     #[test]
