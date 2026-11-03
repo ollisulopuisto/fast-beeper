@@ -9,26 +9,47 @@ struct RowCache {
     width: f32,
     heights: std::collections::HashMap<(String, String), f32>,
 }
-/// "Load older" in progress: it keeps paging the chats whose history starts
-/// after `target` (the oldest message on screen when it was pressed), so the
-/// merged timeline fills in below it instead of leaving gaps for the busy ones.
-#[derive(Clone)]
-struct CatchUp {
-    target: i64,
-    /// The oldest message each chat had when its last request went out.
-    asked: std::collections::HashMap<String, i64>,
-    /// Chats that stopped producing older messages.
-    stuck: std::collections::HashSet<String>,
-}
 #[derive(Clone, Default)]
 struct State {
-    catch_up: Option<CatchUp>,
+    catch_up: Option<crate::merged::CatchUp>,
+    /// Which chats could not load older messages, after the last attempt.
+    older_note: Option<String>,
     destination: Option<Member>,
     reply: Option<(Member, String)>,
     explicit: bool,
     search: String,
     source_filter: Option<Member>,
     search_open: bool,
+}
+/// What "Load older" could not do, once it stopped: the networks whose older
+/// messages did not come, and why. `None` when every chat caught up or ran out.
+fn older_note(app: &App, catch_up: &crate::merged::CatchUp) -> Option<String> {
+    let mut not_now = Vec::new();
+    let mut empty = Vec::new();
+    for (chat, why) in catch_up.stopped() {
+        let source = app.chat(chat).map(network_label).unwrap_or("Chat");
+        let list = match why {
+            crate::merged::Stopped::NotNow => &mut not_now,
+            crate::merged::Stopped::NoProgress => &mut empty,
+        };
+        if !list.contains(&source) {
+            list.push(source);
+        }
+    }
+    let mut parts = Vec::new();
+    if !not_now.is_empty() {
+        parts.push(format!(
+            "{}: older messages can't be requested right now (phone not connected, or waiting after an empty answer). Press Load older to try again.",
+            not_now.join(", ")
+        ));
+    }
+    if !empty.is_empty() {
+        parts.push(format!(
+            "{}: no older messages came back; this may be as far back as it goes.",
+            empty.join(", ")
+        ));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }
 /// Command maps to Cmd on macOS and Ctrl elsewhere, matching the rest of the app.
 pub fn latest_reply_shortcut() -> egui::KeyboardShortcut {
@@ -171,51 +192,35 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     oldest: conversation
                         .and_then(|c| c.messages.first())
                         .map(|message| message.timestamp),
-                    exhausted: catch_up.stuck.contains(&m.chat)
-                        || conversation.is_none_or(|c| c.complete && c.phone_exhausted),
+                    exhausted: conversation.is_none_or(|c| c.complete && c.phone_exhausted),
+                    busy: conversation.is_some_and(|c| c.loading_older || c.fetching_phone),
                 }
             })
             .collect();
-        let behind: Vec<String> = crate::merged::behind_target(&paging, catch_up.target)
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let mut waiting = false;
-        for chat in behind {
-            let busy = |app: &App| {
-                app.conversations
-                    .get(&chat)
-                    .is_some_and(|c| c.loading_older || c.fetching_phone)
-            };
-            if busy(app) {
-                waiting = true;
-                continue;
-            }
+        let (requests, waiting) = catch_up.plan(&paging);
+        for chat in &requests {
             let oldest = app
                 .conversations
-                .get(&chat)
+                .get(chat)
                 .and_then(|c| c.messages.first())
-                .map(|message| message.timestamp);
-            // A request that brought nothing older means this chat is done.
-            if catch_up.asked.get(&chat).is_some_and(|asked| Some(*asked) == oldest) {
-                catch_up.stuck.insert(chat);
-                continue;
-            }
-            app.load_older(&chat, true);
-            if busy(app) {
-                waiting = true;
-                if let Some(oldest) = oldest {
-                    catch_up.asked.insert(chat, oldest);
-                }
+                .map_or(0, |message| message.timestamp);
+            app.load_older(chat, true);
+            let went_out = app
+                .conversations
+                .get(chat)
+                .is_some_and(|c| c.loading_older || c.fetching_phone);
+            if went_out {
+                catch_up.asked(chat, oldest);
             } else {
-                // Nothing went out (a cooling-down or disconnected phone).
-                catch_up.stuck.insert(chat);
+                catch_up.unavailable(chat);
             }
         }
-        if waiting {
+        if waiting || !requests.is_empty() {
             let ctx = ui.ctx().clone();
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
             state.catch_up = Some(catch_up);
+        } else {
+            state.older_note = older_note(app, &catch_up);
         }
     }
     let message_count: usize = valid
@@ -281,11 +286,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 .filter_map(|m| app.conversations.get(&m.chat))
                 .filter_map(|c| c.messages.first().map(|message| message.timestamp))
                 .min();
-            state.catch_up = oldest.map(|target| CatchUp {
-                target,
-                asked: Default::default(),
-                stuck: Default::default(),
-            });
+            state.older_note = None;
+            state.catch_up = oldest.map(crate::merged::CatchUp::new);
         }
         if ui
             .selectable_label(searching, "Search")
@@ -313,6 +315,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     }
     if let Some(error) = routing_error {
         ui.colored_label(egui::Color32::YELLOW, error);
+    }
+    if let Some(note) = &state.older_note {
+        let warning = app.conversation_palette().warning;
+        ui.colored_label(warning, note);
     }
     // One compact line per distinct connection problem, sources combined;
     // the full backend text stays on hover instead of stacking per member.
