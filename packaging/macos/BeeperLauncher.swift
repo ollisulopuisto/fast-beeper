@@ -15,6 +15,24 @@ enum LaunchError: Error { case invalid, ssh, target, tunnel, missingBinary }
 /// process. A Dock click can therefore deliver the reopen/activate here,
 /// where no window exists. Forward every activation to the client so its
 /// window comes forward the same way the client's own reopen handler does.
+/// One short line per Dock/activation event in the profile's
+/// dock-diagnostic.log (no message or token content); cut back past 32 KiB.
+func diag(_ line: String) {
+    let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".zapfast-beeper-prototype/dock-diagnostic.log")
+    if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 32 * 1024 {
+        try? FileManager.default.removeItem(at: url)
+    }
+    let text = "\(Int(Date().timeIntervalSince1970)) launcher \(line)\n"
+    if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile()
+        handle.write(Data(text.utf8))
+        try? handle.close()
+    } else {
+        try? text.write(to: url, atomically: false, encoding: .utf8)
+    }
+}
+
 final class Forwarder: NSObject, NSApplicationDelegate {
     var clientPID: Int32 = 0
     var onClientExit: () -> Void = {}
@@ -26,9 +44,18 @@ final class Forwarder: NSObject, NSApplicationDelegate {
         activateClient()
     }
     func activateClient() {
+        diag("activateClient pid=\(clientPID)")
         guard clientPID > 0,
               let running = NSRunningApplication(processIdentifier: clientPID) else { return }
-        running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        // macOS 14 made activation cooperative: .activateIgnoringOtherApps no
+        // longer has any effect, so the launcher, which the Dock click just
+        // activated, yields activation to the client and asks on its behalf.
+        if #available(macOS 14.0, *) {
+            NSApp.yieldActivation(to: running)
+            _ = running.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+        } else {
+            running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
     }
 }
 let forwarder = Forwarder()
