@@ -19,6 +19,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Search responses are bounded; reconciliation never pages.
 const MAX_BODY_BYTES: usize = 1 << 20;
 
+#[derive(Clone)]
 pub struct ServerSender {
     base_url: String,
     http: Client,
@@ -56,6 +57,7 @@ impl ServerSender {
         headers.insert(AUTHORIZATION, auth);
         let http = Client::builder()
             .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| format!("http client: {e}"))?;
@@ -93,6 +95,20 @@ impl ServerSender {
 }
 
 impl ServerSender {
+    /// One bounded GET for the read-only companion. Returns the status and
+    /// body, or a transport error that carries no response content.
+    pub fn get_bounded(&self, target: &str) -> Result<(u16, String), String> {
+        let url = format!("{}{target}", self.base_url);
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .map_err(|_| "server unreachable".to_string())?;
+        let status = response.status().as_u16();
+        let body = Self::bounded_body(response).map_err(|_| "response unusable".to_string())?;
+        Ok((status, body))
+    }
+
     /// Enqueue-time validation: the chat must exist on the Server and
     /// belong to the stated account, so a mistargeted item fails at
     /// scheduling time rather than sending somewhere wrong at due time.
