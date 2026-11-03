@@ -24,23 +24,14 @@
 //! drive it. The log holds client name, endpoint family and status only:
 //! never query strings, chat ids or message content.
 
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use zapfast::read_api::{RateLimiter, Registry, SCOPES, Upstream, handle};
+use zapfast::read_api::{RateLimiter, Registry, SCOPES};
+use zapfast::read_http::{MAX_CONNECTIONS, Shared, run};
 use zapfast::scheduler_api::ServerSender;
-
-const MAX_REQUEST: usize = 16 * 1024;
-
-struct Server(ServerSender);
-
-impl Upstream for Server {
-    fn get(&mut self, target: &str) -> Result<(u16, String), String> {
-        self.0.get_bounded(target)
-    }
-}
 
 fn now() -> i64 {
     SystemTime::now()
@@ -57,93 +48,18 @@ fn registry_path() -> PathBuf {
     PathBuf::from(home).join(".config/zapfast/reader-clients.json")
 }
 
-fn respond(stream: &mut TcpStream, status: u16, body: &str) {
-    let text = match status {
-        200 => "200 OK",
-        400 => "400 Bad Request",
-        401 => "401 Unauthorized",
-        403 => "403 Forbidden",
-        404 => "404 Not Found",
-        405 => "405 Method Not Allowed",
-        429 => "429 Too Many Requests",
-        _ => "502 Bad Gateway",
-    };
-    let response = format!(
-        "HTTP/1.1 {text}\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let _ = stream.write_all(response.as_bytes());
-}
-
-fn read_head(stream: &mut TcpStream) -> Option<String> {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 2048];
-    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
-    loop {
-        let n = stream.read(&mut chunk).ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-            return Some(String::from_utf8_lossy(&buf).into_owned());
-        }
-        if buf.len() > MAX_REQUEST {
-            return None;
-        }
-    }
-}
-
-fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
-    head.lines().skip(1).find_map(|line| {
-        let (key, value) = line.split_once(':')?;
-        key.eq_ignore_ascii_case(name).then_some(value.trim())
-    })
-}
-
-fn serve_one(
-    stream: &mut TcpStream,
-    path: &std::path::Path,
-    upstream: &mut Server,
-    limiter: &mut RateLimiter,
-) {
-    let Some(head) = read_head(stream) else {
-        return respond(stream, 400, r#"{"error":"bad request"}"#);
-    };
-    if header(&head, "origin").is_some() || header(&head, "referer").is_some() {
-        return respond(stream, 403, r#"{"error":"web-originated request refused"}"#);
-    }
-    let mut parts = head.lines().next().unwrap_or("").split_whitespace();
-    let (Some(method), Some(target)) = (parts.next(), parts.next()) else {
-        return respond(stream, 400, r#"{"error":"bad request"}"#);
-    };
-    let registry = match Registry::load(path) {
-        Ok(registry) => registry,
-        Err(_) => {
-            eprintln!("zapfast-reader: client registry unusable, refusing all requests");
-            return respond(stream, 401, r#"{"error":"unauthorized"}"#);
-        }
-    };
-    let bearer = header(&head, "authorization").and_then(|v| v.strip_prefix("Bearer "));
-    let at = now();
-    // Rate-limit by token hash so unknown tokens cannot flood a real
-    // client's allowance or reach the Server.
-    let key = bearer
-        .map(zapfast::read_api::hash_token)
-        .unwrap_or_default();
-    if !limiter.allow(&key, at) {
-        return respond(stream, 429, r#"{"error":"rate limited"}"#);
-    }
-    let (status, body, client, label) = handle(&registry, upstream, bearer, method, target, at);
-    eprintln!(
-        "zapfast-reader: client={} route={label} status={status}",
-        client.as_deref().unwrap_or("-")
-    );
-    respond(stream, status, &body);
-}
-
 fn token_command(args: &[String]) -> i32 {
     let path = registry_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _lock = match Registry::lock(&path) {
+        Ok(lock) => lock,
+        Err(e) => {
+            eprintln!("zapfast-reader: {e}");
+            return 1;
+        }
+    };
     let mut registry = match Registry::load(&path) {
         Ok(registry) => registry,
         Err(e) => {
@@ -288,9 +204,9 @@ fn main() {
         }
     };
     eprintln!("zapfast-reader: listening on {addr}");
-    let mut upstream = Server(sender);
-    let mut limiter = RateLimiter::default();
-    for mut stream in listener.incoming().flatten() {
-        serve_one(&mut stream, &path, &mut upstream, &mut limiter);
-    }
+    let shared = Arc::new(Mutex::new(Shared {
+        upstream: Box::new(sender),
+        limiter: RateLimiter::default(),
+    }));
+    run(listener, path, shared, MAX_CONNECTIONS);
 }

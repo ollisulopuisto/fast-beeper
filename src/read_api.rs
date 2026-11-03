@@ -51,6 +51,14 @@ pub struct Registry {
     pub clients: Vec<ClientEntry>,
 }
 
+pub struct RegistryLock(std::path::PathBuf);
+
+impl Drop for RegistryLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 pub fn hash_token(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
     let mut out = String::with_capacity(64);
@@ -128,6 +136,20 @@ impl Registry {
         let text =
             std::fs::read_to_string(path).map_err(|e| format!("registry unreadable: {e}"))?;
         Registry::parse(&text)
+    }
+
+    /// Exclusive lock for a load-modify-save cycle across processes.
+    pub fn lock(path: &Path) -> Result<RegistryLock, String> {
+        let lock = path.with_extension("lock");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock)
+            .map_err(|_| {
+                "another token command is running (remove the .lock file if it is stale)"
+                    .to_string()
+            })?;
+        Ok(RegistryLock(lock))
     }
 
     /// Written 0600 from creation, then renamed into place.

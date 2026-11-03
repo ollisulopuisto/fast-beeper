@@ -86,9 +86,13 @@ Responses come from the Server unchanged for unrestricted clients.
 
 ## Open security work before this can be called ready
 
-- Tests run helper functions only; an HTTP-level test (real socket, auth,
-  Origin refusal, mock upstream) is still to be written.
-- Single-threaded, so there is no global connection limit yet.
-- Concurrent `token add/revoke` runs need a lock file.
+- HTTP-level tests (tests/read_api_http.rs) cover auth, Origin/Referer,
+  traversal, probe, redirect, error bodies, revocation, rate limit,
+  connection cap and registry permissions against a mock Server. They have
+  not been run against a real Server.
+- Each connection has its own thread (cap 32), but upstream calls share one
+  lock, so a slow Server delays all clients up to 30 s.
+- `token add/revoke/list` take an exclusive lock file; a crashed command may
+  leave a stale `.lock` to remove by hand.
 - Live check of Server side effects (see Unverified) and of response shapes.
 - Linked/direct-network views: active missing work, not v1 scope.
