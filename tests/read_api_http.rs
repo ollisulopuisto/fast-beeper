@@ -365,3 +365,19 @@ fn people_scope_is_required() {
     registry.save(&reader.path).unwrap();
     assert_eq!(get(&reader, &token, "/v1/people").0, 403);
 }
+
+#[test]
+fn a_restricted_client_with_every_member_allowed_sees_only_its_own_metadata() {
+    let (base, log) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &["a1", "d9"]);
+    std::fs::write(reader.path.with_extension("settings"), SETTINGS).unwrap();
+    let (_, list) = people_ids(&reader, &token);
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    let text = list.to_string();
+    assert!(!text.contains("b2") && !text.contains("Linked Across"));
+    let id = list["items"][0]["id"].as_str().unwrap();
+    let (_, body) = get(&reader, &token, &format!("/v1/people/{id}/messages"));
+    assert!(!body.contains("b2") && !body.contains("c-b2"));
+    assert!(!log.lock().unwrap().join(" ").contains("c-b2"));
+}

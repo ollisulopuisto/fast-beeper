@@ -79,7 +79,8 @@ Responses come from the Server unchanged for unrestricted clients.
 
 - Direct-network (non-Beeper) chats, and therefore the direct-network part
   of any linked person, are not served: they live in the app's own storage.
-  Reading them is the main remaining coverage work.
+  Reading them is the main remaining coverage work; see DIRECT-NETWORKS.md
+  for the design (in-app read-only broker, opt-in, nothing persisted).
 - The scheduled queue is not exposed through this API.
 - No push or websocket: clients poll.
 - No remote access. Reaching it from another machine (SSH tunnel, VPN) is a
@@ -114,8 +115,10 @@ Responses come from the Server unchanged for unrestricted clients.
 - Each connection has its own thread (cap 32) and its own upstream handle,
   so a slow Server call delays only its own connection (up to 30 s per
   call, several calls for a merged timeline).
-- `token add/revoke/list` take an exclusive lock file; a lock older than
-  120 s is treated as a crash and removed.
+- `token add/revoke/list` take an exclusive lock file; a lock is recovered
+  only when the process that wrote it (pid recorded in the file) is no longer
+  alive; age alone never breaks it. Pid reuse after a crash can keep a stale
+  lock until it is removed by hand.
 - Live check of Server side effects (see Unverified) and of response shapes.
 - Direct-network chats and their messages: not built (active missing work).
 - Linked-person endpoints are tested only against synthetic settings and a

@@ -57,6 +57,41 @@ pub struct Registry {
     pub clients: Vec<ClientEntry>,
 }
 
+/// A lock is stale only when the process that wrote it is gone. Age alone
+/// never breaks a lock, so a slow but live command keeps it. A lock with no
+/// readable owner yet is given STALE_LOCK_SECS to be written.
+fn lock_is_stale(lock: &Path) -> bool {
+    let owner = std::fs::read_to_string(lock)
+        .ok()
+        .and_then(|t| t.trim().parse::<u32>().ok());
+    match owner {
+        Some(pid) => !pid_alive(pid),
+        None => std::fs::metadata(lock)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|age| age.as_secs() > STALE_LOCK_SECS)
+            .unwrap_or(false),
+    }
+}
+
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(true)
+}
+
+#[cfg(not(unix))]
+fn pid_alive(_pid: u32) -> bool {
+    true
+}
+
 pub struct RegistryLock(std::path::PathBuf);
 
 impl Drop for RegistryLock {
@@ -146,23 +181,18 @@ impl Registry {
 
     /// Exclusive lock for a load-modify-save cycle across processes.
     pub fn lock(path: &Path) -> Result<RegistryLock, String> {
+        use std::io::Write;
         let lock = path.with_extension("lock");
         for attempt in 0..2 {
             let created = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&lock);
-            if created.is_ok() {
+            if let Ok(mut file) = created {
+                let _ = writeln!(file, "{}", std::process::id());
                 return Ok(RegistryLock(lock));
             }
-            // Token commands take milliseconds: an old lock is a crash.
-            let stale = std::fs::metadata(&lock)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .map(|age| age.as_secs() > STALE_LOCK_SECS)
-                .unwrap_or(false);
-            if attempt == 0 && stale {
+            if attempt == 0 && lock_is_stale(&lock) {
                 let _ = std::fs::remove_file(&lock);
             }
         }
@@ -915,6 +945,21 @@ mod tests {
         );
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(Registry::load(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_is_kept_for_a_live_owner_and_recovered_from_a_dead_one() {
+        let dir = std::env::temp_dir().join(format!("zf-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("clients.json");
+        let held = Registry::lock(&path).unwrap();
+        assert!(Registry::lock(&path).is_err(), "live owner keeps it");
+        drop(held);
+        // A pid that cannot exist stands for a crashed command.
+        std::fs::write(path.with_extension("lock"), "4194999\n").unwrap();
+        assert!(Registry::lock(&path).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
