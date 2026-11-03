@@ -108,6 +108,7 @@ fn add_client(reader: &Reader, name: &str, accounts: &[&str]) -> String {
         "chats:read",
         "messages:read",
         "search:read",
+        "people:read",
     ];
     let token = registry
         .add(
