@@ -3556,6 +3556,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.typing.clear();
                 app.scroll_to_bottom = true;
             }
+            "draft-one" => {
+                app.composer = "asdsa".into();
+                app.focus_composer = true;
+            }
+            "draft-three" => {
+                app.composer = "line 1\nline 2\nline 3".into();
+                app.focus_composer = true;
+            }
             "typing" => {
                 app.composer = (1..=9)
                     .map(|line| format!("line {line}"))
