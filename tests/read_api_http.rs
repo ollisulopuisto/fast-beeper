@@ -15,8 +15,16 @@ use zapfast::scheduler_api::ServerSender;
 type Log = Arc<Mutex<Vec<String>>>;
 
 const ROUTES: &[(&str, u16, &str)] = &[
-    ("/v1/accounts", 200, r#"[{"accountID":"a1"},{"accountID":"b2"}]"#),
-    ("/v1/chats/c-a1/messages", 200, r#"{"items":[{"text":"hi"}]}"#),
+    (
+        "/v1/accounts",
+        200,
+        r#"[{"accountID":"a1"},{"accountID":"b2"}]"#,
+    ),
+    (
+        "/v1/chats/c-a1/messages",
+        200,
+        r#"{"items":[{"text":"hi"}]}"#,
+    ),
     ("/v1/chats/c-a1", 200, r#"{"accountID":"a1"}"#),
     ("/v1/chats/c-b2", 200, r#"{"accountID":"b2"}"#),
     ("/v1/chats/boom", 500, "SECRET-DETAIL"),
@@ -42,13 +50,16 @@ fn mock_server(redirect_accounts: bool) -> (String, Log) {
                 .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
                 .unwrap_or("")
                 .to_string();
-            seen.lock().unwrap().push(format!("{method} {target}|{auth}"));
+            seen.lock()
+                .unwrap()
+                .push(format!("{method} {target}|{auth}"));
             let (status, extra, body) = if redirect_accounts && target == "/v1/accounts" {
                 (302, "location: http://127.0.0.1:1/elsewhere\r\n", "")
             } else {
                 match ROUTES
                     .iter()
-                    .find(|(p, _, _)| target.split('?').next() == Some(*p)) {
+                    .find(|(p, _, _)| target.split('?').next() == Some(*p))
+                {
                     Some((_, s, b)) => (*s, "", *b),
                     None => (404, "", "{}"),
                 }
@@ -90,7 +101,12 @@ fn start(base: &str, max: usize) -> Reader {
 
 fn add_client(reader: &Reader, name: &str, accounts: &[&str]) -> String {
     let mut registry = Registry::load(&reader.path).unwrap();
-    let scopes = ["accounts:read", "chats:read", "messages:read", "search:read"];
+    let scopes = [
+        "accounts:read",
+        "chats:read",
+        "messages:read",
+        "search:read",
+    ];
     let token = registry
         .add(
             name,
@@ -137,14 +153,28 @@ fn auth_origin_method_and_upstream_credential_handling() {
     assert_eq!(request(&reader.addr, "GET", "/v1/chats", &[]).0, 401);
     assert_eq!(get(&reader, "zfr_wrong", "/v1/chats").0, 401);
     let auth = format!("Authorization: Bearer {token}");
-    let origin = request(&reader.addr, "GET", "/v1/chats", &[&auth, "Origin: http://evil.example"]);
+    let origin = request(
+        &reader.addr,
+        "GET",
+        "/v1/chats",
+        &[&auth, "Origin: http://evil.example"],
+    );
     assert_eq!(origin.0, 403);
-    let referer = request(&reader.addr, "GET", "/v1/chats", &[&auth, "Referer: http://evil.example/"]);
+    let referer = request(
+        &reader.addr,
+        "GET",
+        "/v1/chats",
+        &[&auth, "Referer: http://evil.example/"],
+    );
     assert_eq!(referer.0, 403);
     assert_eq!(request(&reader.addr, "POST", "/v1/chats", &[&auth]).0, 405);
     assert_eq!(get(&reader, &token, "/v1/chats").0, 200);
     let seen = log.lock().unwrap().clone();
-    assert_eq!(seen.len(), 1, "only the one valid GET reached the Server: {seen:?}");
+    assert_eq!(
+        seen.len(),
+        1,
+        "only the one valid GET reached the Server: {seen:?}"
+    );
     assert!(seen[0].starts_with("GET /v1/chats?"));
     assert!(seen[0].contains("UPSTREAM-SECRET"));
     assert!(!seen[0].contains(&token));
