@@ -313,16 +313,29 @@ fn merged_timeline_lists_what_it_could_not_read() {
     std::fs::write(reader.path.with_extension("settings"), SETTINGS).unwrap();
     let (_, list) = people_ids(&reader, &token);
     let id = list["items"][0]["id"].as_str().unwrap().to_string();
-    let (status, body) = get(&reader, &token, &format!("/v1/people/{id}/messages?limit=5"));
+    let (status, body) = get(
+        &reader,
+        &token,
+        &format!("/v1/people/{id}/messages?limit=5"),
+    );
     assert_eq!(status, 200);
     let timeline: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(timeline["partial"], true);
     assert_eq!(timeline["unavailable"].as_array().unwrap().len(), 1);
     assert_eq!(timeline["items"][0]["chatID"], "c-a1");
     let seen = log.lock().unwrap().join("\n");
-    assert!(!seen.contains("c-d9"), "app-only members never reach the Server");
-    assert_eq!(get(&reader, &token, "/v1/people/zzzzzzzzzzzzzzzz/messages").0, 400);
-    assert_eq!(get(&reader, &token, "/v1/people/0000000000000000/messages").0, 404);
+    assert!(
+        !seen.contains("c-d9"),
+        "app-only members never reach the Server"
+    );
+    assert_eq!(
+        get(&reader, &token, "/v1/people/zzzzzzzzzzzzzzzz/messages").0,
+        400
+    );
+    assert_eq!(
+        get(&reader, &token, "/v1/people/0000000000000000/messages").0,
+        404
+    );
 }
 
 #[test]

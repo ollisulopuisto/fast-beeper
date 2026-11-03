@@ -386,9 +386,7 @@ pub fn route(method: &str, target: &str) -> Result<(Route, String), u16> {
     }
     if let Route::PersonMessages { limit, .. } = &mut parsed {
         let given = pairs.iter().find(|(k, _)| k == "limit");
-        *limit = given
-            .and_then(|(_, v)| v.parse().ok())
-            .unwrap_or(MAX_LIMIT);
+        *limit = given.and_then(|(_, v)| v.parse().ok()).unwrap_or(MAX_LIMIT);
     }
     let mut full = upstream;
     for (i, (key, value)) in pairs.iter().enumerate() {
@@ -450,7 +448,9 @@ fn visible<'a>(people: &'a [Person], client: &ClientEntry) -> Vec<&'a Person> {
         .filter(|p| {
             !p.members.is_empty()
                 && (client.accounts.is_empty()
-                    || p.members.iter().all(|m| client.accounts.contains(&m.account)))
+                    || p.members
+                        .iter()
+                        .all(|m| client.accounts.contains(&m.account)))
         })
         .collect()
 }
@@ -490,11 +490,7 @@ fn timestamp_of(item: &Value) -> i64 {
 /// Merged timeline of one person's Beeper-origin chats: the newest `limit`
 /// messages across members, no paging. Members that cannot be read are
 /// listed, never silently dropped.
-fn person_messages(
-    upstream: &mut dyn Upstream,
-    person: &Person,
-    limit: u32,
-) -> Value {
+fn person_messages(upstream: &mut dyn Upstream, person: &Person, limit: u32) -> Value {
     let mut items: Vec<Value> = Vec::new();
     let mut unavailable: Vec<Value> = Vec::new();
     for (index, member) in person.members.iter().enumerate() {
@@ -553,8 +549,9 @@ pub fn parse_people(settings_json: &str) -> Result<Vec<Person>, String> {
         serde_json::from_str(settings_json).map_err(|e| format!("settings unreadable: {e}"))?;
     match value.get("beeper").and_then(|b| b.get("people")) {
         None => Ok(Vec::new()),
-        Some(people) => serde_json::from_value(people.clone())
-            .map_err(|e| format!("people unreadable: {e}")),
+        Some(people) => {
+            serde_json::from_value(people.clone()).map_err(|e| format!("people unreadable: {e}"))
+        }
     }
 }
 
@@ -739,7 +736,8 @@ mod tests {
 
     fn run(registry: &Registry, token: &str, method: &str, target: &str) -> (u16, String) {
         let mut fake = Fake { calls: vec![] };
-        let (status, body, _, _) = handle(registry, &mut fake, None, Some(token), method, target, 200);
+        let (status, body, _, _) =
+            handle(registry, &mut fake, None, Some(token), method, target, 200);
         (status, body)
     }
 

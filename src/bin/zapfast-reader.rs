@@ -209,7 +209,9 @@ fn main() {
     let shared = Arc::new(Shared {
         source: Box::new(sender),
         limiter: Mutex::new(RateLimiter::default()),
-        settings: std::env::var("ZAPFAST_SETTINGS_FILE").ok().map(PathBuf::from),
+        settings: std::env::var("ZAPFAST_SETTINGS_FILE")
+            .ok()
+            .map(PathBuf::from),
     });
     run(listener, path, shared, MAX_CONNECTIONS);
 }
