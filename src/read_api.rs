@@ -548,7 +548,12 @@ fn timestamp_of(item: &Value) -> i64 {
 /// Merged timeline of one person's Beeper-origin chats: the newest `limit`
 /// messages across members, no paging. Members that cannot be read are
 /// listed, never silently dropped.
-fn person_messages(upstream: &mut dyn Upstream, person: &Person, limit: u32) -> Value {
+fn person_messages(
+    upstream: &mut dyn Upstream,
+    person: &Person,
+    origins: &[String],
+    limit: u32,
+) -> Value {
     let mut items: Vec<Value> = Vec::new();
     let mut unavailable: Vec<Value> = Vec::new();
     for (index, member) in person.members.iter().enumerate() {
