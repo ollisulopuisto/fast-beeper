@@ -1564,17 +1564,23 @@ fn decode_entities(text: &str) -> String {
 }
 
 /// Plain text can arrive with an HTML-escaped link ("...?a=1&amp;b=2"). Only
-/// the links are decoded, so a typed "&amp;" elsewhere stays as written.
+/// "&amp;" inside a link is decoded, once: other entity-like text in a query
+/// ("&lt;", "&copy=1"), percent-encoding and text outside links stay as
+/// written, and "&amp;amp;" becomes "&amp;", not "&".
 fn decode_link_entities(raw: &str) -> String {
     if !raw.contains("&amp;") {
         return raw.to_owned();
     }
     raw.split_inclusive(char::is_whitespace)
         .map(|word| {
-            if word.starts_with("http://") || word.starts_with("https://") {
-                decode_entities(word)
-            } else {
-                word.to_owned()
+            let lower = word.to_ascii_lowercase();
+            let start = ["http://", "https://", "www."]
+                .iter()
+                .filter_map(|scheme| lower.find(scheme))
+                .min();
+            match start {
+                Some(at) => format!("{}{}", &word[..at], word[at..].replace("&amp;", "&")),
+                None => word.to_owned(),
             }
         })
         .collect()
@@ -6089,17 +6095,35 @@ mod tests {
     #[test]
     fn escaped_ampersands_in_plain_text_links_are_decoded() {
         let url = "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&amp;dl=0";
+        let fixed = "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&dl=0";
+        assert_eq!(plain_rich_text(url), fixed);
+        // The link a click opens or copy takes is the corrected text.
+        assert_eq!(crate::markup::links(&plain_rich_text(url)), [fixed]);
         assert_eq!(
-            plain_rich_text(url),
-            "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&dl=0"
-        );
-        assert_eq!(
-            plain_rich_text(&format!("see {url}\nthen &amp; more")),
-            "see https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&dl=0\nthen &amp; more"
+            plain_rich_text(&format!("see ({url}).\nthen &amp; more")),
+            format!("see ({fixed}).\nthen &amp; more")
         );
         assert_eq!(
             plain_rich_text("a&b https://x.test/?q=1&r=2"),
             "a&b https://x.test/?q=1&r=2"
+        );
+    }
+
+    #[test]
+    fn link_decoding_keeps_encoded_and_literal_query_data() {
+        let same = |text: &str| assert_eq!(plain_rich_text(text), text, "{text}");
+        // Percent-encoding and other entity-like values are data.
+        same("https://x.test/?q=a%26amp%3Bb&r=%2B1");
+        same("https://x.test/?q=a&lt;b&copy=1&#38;z=2");
+        same("https://x.test/?q=1&r=2");
+        // Signed query: one level decoded, percent data kept, no double decode.
+        assert_eq!(
+            plain_rich_text("https://s.test/f?X-Sig=ab%2Bc%3D&amp;X-Date=1&amp;amp;t=2"),
+            "https://s.test/f?X-Sig=ab%2Bc%3D&X-Date=1&amp;t=2"
+        );
+        assert_eq!(
+            plain_rich_text("www.x.test/?a=1&amp;b=2 &amp; plain"),
+            "www.x.test/?a=1&b=2 &amp; plain"
         );
     }
 
