@@ -116,6 +116,7 @@ fn main() {
             name: "Empty".into(),
             network: "Telegram".into(),
             status: "disconnected".into(),
+            own_user_id: None,
         }],
     );
     app.chats[0].pinned = true;
