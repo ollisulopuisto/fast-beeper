@@ -180,6 +180,13 @@ unsafe extern "C-unwind" fn reopen(
     // by a launcher rather than by LaunchServices itself.
     #[allow(deprecated, reason = "its replacement needs macOS 14")]
     app.activateIgnoringOtherApps(true);
+    // activateIgnoringOtherApps has no effect on macOS 14+ (activation is
+    // cooperative), so also order the app's own windows front directly.
+    for window in app.windows().iter() {
+        if window.isVisible() {
+            window.orderFrontRegardless();
+        }
+    }
     if has_visible_windows.as_bool() {
         return objc2::runtime::Bool::YES;
     }

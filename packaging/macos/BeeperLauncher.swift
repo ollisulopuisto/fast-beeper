@@ -28,7 +28,15 @@ final class Forwarder: NSObject, NSApplicationDelegate {
     func activateClient() {
         guard clientPID > 0,
               let running = NSRunningApplication(processIdentifier: clientPID) else { return }
-        running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        // macOS 14 made activation cooperative: .activateIgnoringOtherApps no
+        // longer has any effect, so the launcher, which the Dock click just
+        // activated, yields activation to the client and asks on its behalf.
+        if #available(macOS 14.0, *) {
+            NSApp.yieldActivation(to: running)
+            _ = running.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+        } else {
+            running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
     }
 }
 let forwarder = Forwarder()
