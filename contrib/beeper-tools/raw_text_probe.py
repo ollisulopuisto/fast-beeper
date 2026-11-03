@@ -3,9 +3,11 @@
 
 Diagnoses whether a link in a message's `text` holds a bare ampersand or an
 escaped one (U+0026 followed by a, m, p, semicolon). It searches with the
-documented GET /v1/messages/search, tries up to three phrases that identify one reported
+documented GET /v1/messages/search (including low-priority messages, which the
+API excludes by default), tries up to three phrases that identify one reported
 link until one hits, and keeps at most two hits. For each hit it prints only a structural
-summary of the links: scheme and host, path segment lengths, each query
+summary of the links found in the text, plus the structure of the payload's own
+link-preview urls when present: scheme and host, path segment lengths, each query
 parameter's name (only rlkey and dl are named, others are masked), the dl value
 when it is 0 or 1, and the exact separator bytes between parameters. It also prints the payload
 field names, the message type, whether the mapper's HTML branch would be taken
@@ -98,6 +100,17 @@ def link_shape(url):
 def describe(item, phrase_number):
     text = item.get('text') or ''
     bare = len(re.findall(r'&(?!(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)', text))
+    # The payload's `links` are link PREVIEWS per the API reference (title,
+    # url, favicon, img...), present only when the bridge made a preview card.
+    # Their url shape is reported beside the text-derived links so the two
+    # sources can be compared; titles and image URLs are never printed.
+    previews = []
+    for entry in item.get('links') or []:
+        if isinstance(entry, dict):
+            url = entry.get('url')
+            previews.append({'fields': sorted(k for k in entry.keys() if isinstance(k, str)),
+                             'has_title': bool(entry.get('title')),
+                             'url': link_shape(url) if isinstance(url, str) and url else None})
     return {'matched_phrase_number': phrase_number,
             'payload_fields': sorted(k for k in item.keys() if isinstance(k, str)),
             'type': item.get('type') or '',
@@ -105,7 +118,8 @@ def describe(item, phrase_number):
             'text_length': len(text),
             'bare_ampersands_in_text': bare,
             'entity_ampersands_in_text': len(ENTITY.findall(text)),
-            'links': [link_shape(url) for url in URL.findall(text)]}
+            'links_from_text': [link_shape(url) for url in URL.findall(text)],
+            'payload_link_previews': previews}
 
 
 def probe(search, phrases=DEFAULT_PHRASES):
@@ -145,7 +159,7 @@ def main():
         opener = urllib.request.build_opener(*handlers)
 
         def search(query):
-            url = args.base_url.rstrip('/') + '/v1/messages/search?' + urllib.parse.urlencode({'query': query, 'limit': 20})
+            url = args.base_url.rstrip('/') + '/v1/messages/search?' + urllib.parse.urlencode({'query': query, 'limit': 20, 'excludeLowPriority': 'false'})
             request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token})
             with opener.open(request, timeout=20) as response:
                 body = response.read(8 * 1024 * 1024 + 1)
