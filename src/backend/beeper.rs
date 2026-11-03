@@ -3048,7 +3048,9 @@ pub fn run(
         if last_receipt_refresh.elapsed() >= RECEIPT_REFRESH {
             last_receipt_refresh = Instant::now();
             let mut targets = watched_chats.clone();
-            for open in open_chat.iter().filter(|c| !targets.contains(c)) {
+            if let Some(open) = &open_chat
+                && !targets.contains(open)
+            {
                 targets.push(open.clone());
             }
             for chat in &targets {
