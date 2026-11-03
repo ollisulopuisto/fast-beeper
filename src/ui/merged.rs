@@ -1130,7 +1130,7 @@ fn picker(
             .hint_text("Search chats")
             .desired_width(f32::INFINITY),
     );
-// The action stays visible at the top; a long candidate list
+    // The action stays visible at the top; a long candidate list
     // must not scroll it out of reach.
     let room = 8_usize.saturating_sub(already);
     let over = state.selected.len() > room;
