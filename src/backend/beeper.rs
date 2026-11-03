@@ -1803,18 +1803,20 @@ fn attachment_content(m: &BeeperMessage) -> Option<Content> {
     })
 }
 
-/// Whether a `seen` receipt says someone read the message: `true`, a read
-/// timestamp, or a per-participant map holding either. `false`, an empty
-/// string and an empty map are the bridge saying "not read" or nothing.
-fn is_seen(value: &serde_json::Value, own: &str) -> bool {
+/// What a `seen` receipt establishes. `true` or a read timestamp is the
+/// bridge's per-message read claim. A per-participant map only lists some
+/// participants and carries no member count, so another reader there is
+/// "read by some", never all. The sender's own entry never counts. `false`,
+/// an empty string and an empty map say nothing.
+fn read_state(value: &serde_json::Value, own: &str) -> Option<Delivery> {
     match value {
-        serde_json::Value::Bool(seen) => *seen,
-        serde_json::Value::String(time) => !time.is_empty(),
-        // The sender's own entry never counts as someone else reading.
+        serde_json::Value::Bool(true) => Some(Delivery::Read),
+        serde_json::Value::String(time) if !time.is_empty() => Some(Delivery::Read),
         serde_json::Value::Object(by) => by
             .iter()
-            .any(|(who, v)| who != own && is_seen(v, own)),
-        _ => false,
+            .any(|(who, v)| who != own && read_state(v, own).is_some())
+            .then_some(Delivery::ReadBySome),
+        _ => None,
     }
 }
 
@@ -1822,8 +1824,8 @@ fn delivery_of(m: &BeeperMessage) -> Delivery {
     if !m.is_sender.unwrap_or(false) {
         return Delivery::None;
     }
-    if m.seen.as_ref().is_some_and(|v| is_seen(v, &m.sender_id)) {
-        return Delivery::Read;
+    if let Some(read) = m.seen.as_ref().and_then(|v| read_state(v, &m.sender_id)) {
+        return read;
     }
     match m.send_status.as_ref() {
         Some(s) if s.status.starts_with("FAIL_") => Delivery::Failed,
@@ -3045,11 +3047,10 @@ pub fn run(
         // ticks stall the same way, so every watched chat is refreshed.
         if last_receipt_refresh.elapsed() >= RECEIPT_REFRESH {
             last_receipt_refresh = Instant::now();
-            let targets = if watched_chats.is_empty() {
-                open_chat.clone().into_iter().collect()
-            } else {
-                watched_chats.clone()
-            };
+            let mut targets = watched_chats.clone();
+            for open in open_chat.iter().filter(|c| !targets.contains(c)) {
+                targets.push(open.clone());
+            }
             for chat in &targets {
                 let Ok(page) = api.list_messages(chat, None, None) else {
                     continue;
@@ -5639,8 +5640,8 @@ mod tests {
         for (seen, expected) in [
             (json!(true), Delivery::Read),
             (json!("2026-11-03T07:48:00Z"), Delivery::Read),
-            (json!({"a": "2026-11-03T07:48:00Z"}), Delivery::Read),
-            (json!({"a": false, "b": true}), Delivery::Read),
+            (json!({"a": "2026-11-03T07:48:00Z"}), Delivery::ReadBySome),
+            (json!({"a": false, "b": true}), Delivery::ReadBySome),
             (json!(false), Delivery::Sent),
             (json!(""), Delivery::Sent),
             (json!({"a": false}), Delivery::Sent),

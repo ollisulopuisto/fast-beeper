@@ -424,18 +424,23 @@ pub fn ticks_in(ui: &Ui, palette: &Palette, rect: Rect, status: Delivery, plain:
     };
     let color = match status {
         Delivery::Read | Delivery::Played => palette.read,
+        Delivery::ReadBySome => palette.read.gamma_multiply(0.5),
         Delivery::Failed => palette.danger,
         _ => plain,
     };
     theme::paint_icon(ui, icon, rect, rect.height(), color);
-    if status == Delivery::Unknown {
+    if matches!(status, Delivery::Unknown | Delivery::ReadBySome) {
         let response = ui.interact(
             rect,
             ui.id()
                 .with(("delivery-ticks", rect.min.x.to_bits(), rect.min.y.to_bits())),
             Sense::hover(),
         );
-        response.on_hover_text("Delivery status unavailable");
+        response.on_hover_text(if status == Delivery::Unknown {
+            "Delivery status unavailable"
+        } else {
+            "Read by at least one person, not necessarily everyone"
+        });
     }
 }
 
@@ -447,7 +452,9 @@ pub fn tick_icon(status: Delivery) -> Option<Icon> {
         Delivery::Unknown => Icon::Minus,
         Delivery::Pending => Icon::Clock,
         Delivery::Sent => Icon::DeliveryTick,
-        Delivery::Delivered | Delivery::Read | Delivery::Played => Icon::DeliveryTicks,
+        Delivery::Delivered | Delivery::ReadBySome | Delivery::Read | Delivery::Played => {
+            Icon::DeliveryTicks
+        },
         Delivery::Failed => Icon::CircleAlert,
     })
 }

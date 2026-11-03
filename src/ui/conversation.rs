@@ -10727,6 +10727,7 @@ fn status_label(status: Delivery) -> &'static str {
         Delivery::Pending => "sending",
         Delivery::Sent => "sent",
         Delivery::Delivered => "delivered",
+        Delivery::ReadBySome => "read by at least one person",
         Delivery::Read => "read",
         Delivery::Played => "played",
         Delivery::Failed => "failed",
