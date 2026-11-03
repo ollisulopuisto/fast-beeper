@@ -423,19 +423,33 @@ pub fn ticks_in(ui: &Ui, palette: &Palette, rect: Rect, status: Delivery, plain:
         return;
     };
     let color = match status {
-        Delivery::Read | Delivery::Played => palette.read,
+        Delivery::Read | Delivery::ReadBySome | Delivery::Played => palette.read,
         Delivery::Failed => palette.danger,
         _ => plain,
     };
     theme::paint_icon(ui, icon, rect, rect.height(), color);
-    if status == Delivery::Unknown {
+    if status == Delivery::ReadBySome {
+        // A bold plus after the ticks: some, not all, have read it.
+        ui.painter().text(
+            rect.right_center() + vec2(2.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            "+",
+            theme::semibold(15.0),
+            palette.read,
+        );
+    }
+    if matches!(status, Delivery::Unknown | Delivery::ReadBySome) {
         let response = ui.interact(
             rect,
             ui.id()
                 .with(("delivery-ticks", rect.min.x.to_bits(), rect.min.y.to_bits())),
             Sense::hover(),
         );
-        response.on_hover_text("Delivery status unavailable");
+        response.on_hover_text(if status == Delivery::Unknown {
+            "Delivery status unavailable"
+        } else {
+            "Read by at least one person, not necessarily everyone"
+        });
     }
 }
 
@@ -447,7 +461,9 @@ pub fn tick_icon(status: Delivery) -> Option<Icon> {
         Delivery::Unknown => Icon::Minus,
         Delivery::Pending => Icon::Clock,
         Delivery::Sent => Icon::DeliveryTick,
-        Delivery::Delivered | Delivery::Read | Delivery::Played => Icon::DeliveryTicks,
+        Delivery::Delivered | Delivery::ReadBySome | Delivery::Read | Delivery::Played => {
+            Icon::DeliveryTicks
+        }
         Delivery::Failed => Icon::CircleAlert,
     })
 }
@@ -2125,6 +2141,7 @@ mod tests {
     fn delivery_ticks_are_our_own_equal_height_glyphs() {
         assert_eq!(tick_icon(Delivery::Unknown), Some(Icon::Minus));
         assert_eq!(tick_icon(Delivery::Sent), Some(Icon::DeliveryTick));
+        assert_eq!(tick_icon(Delivery::ReadBySome), Some(Icon::DeliveryTicks));
         for status in [Delivery::Delivered, Delivery::Read, Delivery::Played] {
             assert_eq!(tick_icon(status), Some(Icon::DeliveryTicks));
         }
