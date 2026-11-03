@@ -2,9 +2,26 @@
 
 use std::path::Path;
 
+/// Reject percent-encoded ASCII control characters (`%00`..=`%1F`, `%7F`), e.g.
+/// null bytes (`%00`) or CRLF (`%0D%0A`) that could inject arguments or terminate strings.
+fn has_encoded_control(value: &str) -> bool {
+    value.as_bytes().windows(3).any(|w| {
+        if w[0] != b'%' {
+            return false;
+        }
+        let Some(h1) = (w[1] as char).to_digit(16) else {
+            return false;
+        };
+        let Some(h2) = (w[2] as char).to_digit(16) else {
+            return false;
+        };
+        matches!((h1 << 4) | h2, 0..=0x1f | 0x7f)
+    })
+}
+
 /// Preview metadata may supply a bare host, but never a desktop URI scheme.
 pub fn preview_url(value: &str) -> Option<String> {
-    if value.chars().any(char::is_control) || value.contains('\\') {
+    if value.chars().any(char::is_control) || value.contains('\\') || has_encoded_control(value) {
         return None;
     }
     let value = value.trim();
@@ -17,9 +34,10 @@ pub fn preview_url(value: &str) -> Option<String> {
 
 /// Check again at the action boundary, including previews already in archives.
 pub fn external_url(value: &str) -> Option<String> {
-    if value.chars().any(char::is_control) || value.contains('\\') {
+    if value.chars().any(char::is_control) || value.contains('\\') || has_encoded_control(value) {
         return None;
     }
+    let value = value.trim();
     let url = reqwest::Url::parse(value).ok()?;
     match url.scheme() {
         "http" | "https" if url.host_str().is_some() => Some(url.to_string()),
@@ -287,6 +305,27 @@ mod tests {
         assert_eq!(
             external_url("mailto:test@example.com"),
             Some("mailto:test@example.com".into())
+        );
+        assert_eq!(
+            external_url("  https://example.com/trimmed  "),
+            Some("https://example.com/trimmed".into())
+        );
+
+        // Percent-encoded control characters are rejected; valid percent encodings are kept
+        for bad in [
+            "https://example.com/%00evil",
+            "https://example.com/%0d%0ainjection",
+            "https://example.com/%1b]0;cmd%07",
+            "https://example.com/%7f",
+            "mailto:user@example.com%00payload",
+            "mailto:user@example.com%0D%0Acc:admin@example.com",
+        ] {
+            assert_eq!(preview_url(bad), None, "{bad}");
+            assert_eq!(external_url(bad), None, "{bad}");
+        }
+        assert_eq!(
+            external_url("https://example.com/hello%20world"),
+            Some("https://example.com/hello%20world".into())
         );
     }
 
