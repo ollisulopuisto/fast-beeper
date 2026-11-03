@@ -915,8 +915,7 @@ fn destination_extras(
     let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(hint);
-    egui::Popup::menu(&response)
-        .show(|ui| destination_entries(app, ui, state, valid, person));
+    egui::Popup::menu(&response).show(|ui| destination_entries(app, ui, state, valid, person));
 }
 
 /// The account's own name from the Beeper inventory, for "Sending via":
