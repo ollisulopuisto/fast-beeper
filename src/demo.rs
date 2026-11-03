@@ -2194,6 +2194,7 @@ fn networks_sample(app: &mut App) {
         name: name.into(),
         network: network.into(),
         status: "connected".into(),
+        own_user_id: None,
     };
     app.beeper_accounts.insert(
         ORIGIN.into(),

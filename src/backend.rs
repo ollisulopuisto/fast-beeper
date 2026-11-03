@@ -1147,6 +1147,10 @@ pub struct BeeperAccountInfo {
     pub name: String,
     pub network: String,
     pub status: String,
+    /// The account's own user id from /v1/accounts, when the Server
+    /// supplies it: the account-identifier contract that proves a listed
+    /// direct chat is the chat with ourselves.
+    pub own_user_id: Option<String>,
 }
 
 #[derive(Debug)]

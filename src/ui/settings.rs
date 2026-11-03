@@ -2415,6 +2415,7 @@ mod tests {
                 name: "Personal".into(),
                 network: "WhatsApp".into(),
                 status: "connected".into(),
+                own_user_id: None,
             }],
         );
         app.settings_search = "Accounts".into();
@@ -2535,6 +2536,7 @@ mod tests {
                     name: "Work".into(),
                     network: "Signal".into(),
                     status: "disconnected".into(),
+                    own_user_id: None,
                 }],
             );
         }
