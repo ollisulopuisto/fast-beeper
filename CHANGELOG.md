@@ -10,6 +10,7 @@ version in Cargo.toml is bumped.
 ## Unreleased
 
 - Settings: clearer spacing between sections, consistent row rhythm, and each Beeper account's technical details (account ID, backend, bridge status) grouped under an Advanced heading inside the account panel instead of crowding its title.
+- Links whose separators arrive entity-escaped from Beeper Server (Dropbox share links among them) now render and open with a plain `&` instead of a literal `&amp;`. The repair is scoped to link addresses - one level - and text outside links keeps its entities byte-for-byte. Diagnosed from a live payload probe.
 
 ## v0.22.0
 

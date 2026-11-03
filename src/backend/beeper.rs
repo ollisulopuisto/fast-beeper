@@ -1649,6 +1649,15 @@ fn decode_entities(text: &str) -> String {
     decoded
 }
 
+/// The ampersand entities a Server-escaped link separator can arrive as.
+/// Single level by construction: "&amp;amp;" repairs to "&amp;".
+fn decode_link_ampersands(link: &str) -> String {
+    link.replace("&amp;", "&")
+        .replace("&#38;", "&")
+        .replace("&#x26;", "&")
+        .replace("&#X26;", "&")
+}
+
 fn plain_rich_text(raw: &str) -> String {
     let lower = raw.to_ascii_lowercase();
     let known = [
@@ -1687,7 +1696,25 @@ fn plain_rich_text(raw: &str) -> String {
         })
     });
     if !looks_html {
-        return raw.to_owned();
+        // Server can entity-escape the & separators inside a plain TEXT
+        // payload's links: the 2026-11-03 live probe of the reported Dropbox
+        // message showed the separator on the wire as hex 26 61 6d 70 3b
+        // ("&amp;"), with zero bare ampersands in the whole text. Repair
+        // ampersand entities inside detected link addresses only, one level,
+        // so the address opens and reads as sent. Everything outside a link,
+        // including a hand-typed "&amp;", stays byte-for-byte as received.
+        let mut repaired = raw.to_owned();
+        let mut links = crate::markup::links(raw);
+        // A shorter address can be a prefix of a longer one in the same
+        // message; repair the longest first so its span stays intact.
+        links.sort_by(|a, b| b.len().cmp(&a.len()));
+        for link in links {
+            let fixed = decode_link_ampersands(&link);
+            if fixed != link {
+                repaired = repaired.replace(&link, &fixed);
+            }
+        }
+        return repaired;
     }
     let mut out = String::new();
     let mut rest = raw;
@@ -6530,13 +6557,42 @@ mod tests {
     }
 
     #[test]
-    fn tag_free_text_keeps_its_ampersand_entities_as_received() {
-        // Without the raw payload we cannot tell an escaped separator from a
-        // literal value, so tag-free text is never rewritten.
-        let same = |text: &str| assert_eq!(plain_rich_text(text), text, "{text}");
-        same("https://x.test/f?rlkey=k&amp;dl=0");
-        same("https://x.test/?q=a%26amp%3Bb&r=%2B1");
-        same("see (https://x.test/?a=1&amp;b=2). then &amp; more");
+    fn tag_free_text_repairs_escaped_link_separators_only() {
+        // Live-payload evidence (2026-11-03 probe of the reported Dropbox
+        // message): the Server sends a TEXT payload with the link separator
+        // already entity-escaped - wire bytes 26 61 6d 70 3b ("&amp;"), zero
+        // bare ampersands in the 113-char text, no HTML branch. The repair is
+        // scoped to detected link addresses.
+        assert_eq!(
+            plain_rich_text(
+                "https://www.dropbox.com/scl/fi/aaa/bbb/hh_uunista_ulos.mp4?rlkey=k&amp;dl=0"
+            ),
+            "https://www.dropbox.com/scl/fi/aaa/bbb/hh_uunista_ulos.mp4?rlkey=k&dl=0"
+        );
+        assert_eq!(
+            plain_rich_text("see (https://x.test/?a=1&amp;b=2). then &amp; more"),
+            "see (https://x.test/?a=1&b=2). then &amp; more"
+        );
+        // One level only, inside the link: a hand-typed "&amp;" arrives
+        // double-escaped and a single repair restores the literal.
+        assert_eq!(
+            plain_rich_text("https://x.test/?q=1&amp;amp;r=2"),
+            "https://x.test/?q=1&amp;r=2"
+        );
+        // Everything else in tag-free text stays byte-for-byte as received:
+        // entities outside links, bare ampersands, percent-encoded text.
+        assert_eq!(
+            plain_rich_text("wrote &amp; by hand, see a & b"),
+            "wrote &amp; by hand, see a & b"
+        );
+        assert_eq!(
+            plain_rich_text("https://x.test/?q=a%26amp%3Bb&r=%2B1"),
+            "https://x.test/?q=a%26amp%3Bb&r=%2B1"
+        );
+        assert_eq!(
+            plain_rich_text("https://x.test/?a=1&#38;b=2 and https://x.test/?a=1&#x26;b=2"),
+            "https://x.test/?a=1&b=2 and https://x.test/?a=1&b=2"
+        );
     }
 
     #[test]
