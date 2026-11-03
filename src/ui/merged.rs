@@ -608,6 +608,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.set_max_width(timeline.width());
+                    // The same tight row rhythm as an ordinary chat's transcript.
+                    ui.spacing_mut().item_spacing.y = 3.0;
                     let viewport = ui.clip_rect();
                     if visible.is_empty() {
                         ui.label(if filtered {
