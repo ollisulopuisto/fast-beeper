@@ -1017,10 +1017,11 @@ pub fn setting_row(
                 ui.set_width(ui.available_width());
                 rich_text(ui, label, theme::medium(14.0), palette.text);
                 if !description.is_empty() {
+                    ui.add_space(2.0);
                     let description = line(
                         ui,
                         description,
-                        theme::regular(12.5),
+                        theme::regular(13.0),
                         palette.secondary,
                         ui.available_width(),
                         usize::MAX,
@@ -1033,7 +1034,7 @@ pub fn setting_row(
             });
         });
     });
-    ui.add_space(10.0);
+    ui.add_space(14.0);
 }
 
 pub fn paint_vertical_gradient(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {

@@ -9,6 +9,8 @@ version in Cargo.toml is bumped.
 
 ## Unreleased
 
+- Settings: clearer spacing between sections, consistent row rhythm, and each Beeper account's technical details (account ID, backend, bridge status) grouped under an Advanced heading inside the account panel instead of crowding its title.
+
 ## v0.22.0
 
 - Link a person's chats from Contact info: a searchable picker suggests name matches across networks, and the linked conversation shows who sent each message and on which network.
