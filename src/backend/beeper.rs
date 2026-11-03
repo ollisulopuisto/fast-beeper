@@ -2995,7 +2995,8 @@ pub fn run(
                         emit(Event::BeeperFilesUncertain { chat, paths, documents, caption, message: "Beeper attachment replies, mentions and view-once are not supported; files kept".into() });
                         continue;
                     }
-                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption, None)) {
+                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption, None))
+                    {
                         let (chat, paths, documents, caption, _) = match error {
                             std::sync::mpsc::TrySendError::Full(batch)
                             | std::sync::mpsc::TrySendError::Disconnected(batch) => batch,
@@ -4165,14 +4166,8 @@ mod tests {
         .unwrap();
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), b"ogg").unwrap();
-        let result = api.send_attachment(
-            "chat",
-            file.path(),
-            Attachment::Voice(7),
-            None,
-            reply,
-            None,
-        );
+        let result =
+            api.send_attachment("chat", file.path(), Attachment::Voice(7), None, reply, None);
         (result, worker.join().unwrap())
     }
 
@@ -4189,7 +4184,10 @@ mod tests {
     fn voice_reply_carries_the_quoted_message_id() {
         let (result, request) = capture_voice_send(Some("msg-42"));
         assert!(result.is_ok());
-        assert!(request.contains(r#""replyToMessageID":"msg-42""#), "{request}");
+        assert!(
+            request.contains(r#""replyToMessageID":"msg-42""#),
+            "{request}"
+        );
     }
 
     #[test]
