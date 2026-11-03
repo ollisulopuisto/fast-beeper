@@ -1739,6 +1739,31 @@ fn plain_rich_text(raw: &str) -> String {
 
 /// A message with nothing to show: no text, no attachment, and a type that
 /// carries no content of its own. Reactions reach the chat list this way.
+/// A message's emoji reactions as one run, each distinct emoji once in the
+/// order first seen, with a count when several people used it: "🤝 👍2".
+/// Reactions that are not emoji (custom stickers) are left out.
+fn reaction_run(reactions: &[BeeperReaction]) -> String {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for reaction in reactions.iter().filter(|r| r.emoji) {
+        let key = reaction.reaction_key.as_str();
+        match counts.iter_mut().find(|entry| entry.0 == key) {
+            Some(entry) => entry.1 += 1,
+            None => counts.push((key, 1)),
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(key, count)| {
+            if count > 1 {
+                format!("{key}{count}")
+            } else {
+                key.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn is_empty_preview(m: &BeeperMessage) -> bool {
     m.text.as_deref().is_none_or(str::is_empty)
         && m.attachments.is_empty()
@@ -2017,12 +2042,23 @@ fn preview_status(p: &BeeperMessage) -> Delivery {
 
 impl Chat {
     fn last_preview(p: &BeeperMessage, body: String, labelled: bool) -> LastMessage {
+        // Emoji reactions on the newest message lead the row's text, so a
+        // reaction is visible without opening the chat.
+        let reactions = reaction_run(&p.reactions);
+        let (summary, full) = if reactions.is_empty() {
+            (body.lines().next().unwrap_or("").to_string(), body)
+        } else {
+            (
+                format!("{reactions} {}", body.lines().next().unwrap_or("")),
+                format!("{reactions} {body}"),
+            )
+        };
         LastMessage {
             from_me: p.is_sender.unwrap_or(false),
             sender: p.sender_id.clone(),
             sender_name: readable_name(&p.sender_name),
-            summary: body.lines().next().unwrap_or("").to_string(),
-            full: body,
+            summary,
+            full,
             labelled,
             status: preview_status(p),
         }
@@ -6381,6 +6417,34 @@ mod tests {
                 .summary,
             "no panic"
         );
+    }
+
+    #[test]
+    fn a_reaction_on_the_newest_message_leads_the_list_preview() {
+        let preview = |reactions: serde_json::Value| {
+            let chat: BeeperChat = serde_json::from_value(serde_json::json!({
+                "id":"c1", "accountID":"a1", "network":"WhatsApp",
+                "preview":{"id":"m1","senderID":"s","sortKey":"1","timestamp":"2026-11-03T09:47:00Z","isSender":true,"text":"joo, kunhan saan sen rakennettua","type":"TEXT","reactions":reactions}
+            }))
+            .unwrap();
+            map_chat(&chat, &|c| c.network.clone()).last.unwrap()
+        };
+        let one = preview(serde_json::json!([
+            {"participantID":"p","reactionKey":"🤝","emoji":true}
+        ]));
+        assert_eq!(one.summary, "🤝 joo, kunhan saan sen rakennettua");
+        assert_eq!(one.full, one.summary);
+        assert!(one.from_me, "the sent message keeps its ownership");
+        let many = preview(serde_json::json!([
+            {"participantID":"p","reactionKey":"👍","emoji":true},
+            {"participantID":"q","reactionKey":"🤝","emoji":true},
+            {"participantID":"r","reactionKey":"👍","emoji":true},
+            {"participantID":"s","reactionKey":"sticker-id","emoji":false}
+        ]));
+        assert_eq!(many.summary, "👍2 🤝 joo, kunhan saan sen rakennettua");
+        // A removed reaction leaves the plain text again.
+        let none = preview(serde_json::json!([]));
+        assert_eq!(none.summary, "joo, kunhan saan sen rakennettua");
     }
 
     #[test]
