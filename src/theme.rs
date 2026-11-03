@@ -998,6 +998,18 @@ fastframe_icons::icons! {
 
 /// The icon standing for a chat network; unknown networks get the
 /// generic chat glyph rather than a wrong vendor's mark.
+/// A network's icon. Signal's glyph is a thin outline that reads as a blob at
+/// badge sizes, so it is drawn white on a disc of its blue, as its own logo is.
+pub fn paint_network_mark(ui: &egui::Ui, icon: Icon, rect: egui::Rect, size: f32, tint: Color32) {
+    if matches!(icon, Icon::NetworkSignal) {
+        ui.painter()
+            .circle_filled(rect.center(), rect.width() * 0.5, tint);
+        paint_icon(ui, icon, rect, size * 0.78, Color32::WHITE);
+    } else {
+        paint_icon(ui, icon, rect, size, tint);
+    }
+}
+
 pub fn network_icon(network: &str) -> Icon {
     let name = network.to_lowercase().replace([' ', '-', '_'], "");
     if name.contains("whatsapp") {

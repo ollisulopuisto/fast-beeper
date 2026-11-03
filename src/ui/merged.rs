@@ -645,7 +645,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     egui::Vec2::splat(20.0),
                                     egui::Sense::hover(),
                                 );
-                                crate::theme::paint_icon(ui, icon, rect, 20.0, tint);
+                                crate::theme::paint_network_mark(ui, icon, rect, 20.0, tint);
                                 response.on_hover_text(&meta);
                             };
                             let before = actions.len();
@@ -1107,6 +1107,71 @@ fn picker(
     Vec::new()
 }
 
+/// The local display name: the linked person's name, or this chat's own.
+/// Nothing is sent to the network or to other people.
+fn rename_field(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    chat: &Chat,
+    person: Option<&Person>,
+    palette: &crate::theme::Palette,
+) {
+    ui.label(egui::RichText::new("Display name").strong());
+    let mut name = match person {
+        Some(person) => person.name.clone(),
+        None => app
+            .settings
+            .beeper
+            .chat_names
+            .get(&chat.id)
+            .cloned()
+            .unwrap_or_default(),
+    };
+    let before = name.clone();
+    let response = ui.add(
+        egui::TextEdit::singleline(&mut name)
+            .hint_text(chat.name.as_str())
+            .desired_width(f32::INFINITY),
+    );
+    let focus = egui::Id::new("rename-focus");
+    let wanted = ui
+        .ctx()
+        .data(|d| d.get_temp::<String>(focus))
+        .is_some_and(|id| id == chat.id);
+    if wanted {
+        response.request_focus();
+        ui.ctx().data_mut(|d| d.remove::<String>(focus));
+    }
+    if name != before {
+        match person {
+            Some(person) => {
+                if let Some(stored) = app
+                    .settings
+                    .beeper
+                    .people
+                    .iter_mut()
+                    .find(|p| p.members == person.members)
+                {
+                    stored.name = name;
+                }
+            }
+            None if name.trim().is_empty() => {
+                app.settings.beeper.chat_names.remove(&chat.id);
+            }
+            None => {
+                app.settings.beeper.chat_names.insert(chat.id.clone(), name);
+            }
+        }
+        app.mark_settings_dirty();
+    }
+    bounded_note(
+        ui,
+        palette,
+        "Local name only. Nothing changes for other people or on the network.",
+        false,
+    );
+}
+
 /// The Contact info section owning person links: the explanation, primary
 /// destination, unlinking, and the searchable picker. Returns false when
 /// the chat is not a linkable Beeper direct chat.
@@ -1126,6 +1191,8 @@ pub(crate) fn sidebar(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         .find(|p| p.members.iter().any(|m| Some(m) == current.as_ref()))
         .cloned();
     let palette = app.palette;
+    ui.add_space(4.0);
+    rename_field(app, ui, chat, person.as_ref(), &palette);
     ui.add_space(4.0);
     ui.label(egui::RichText::new("Linked person").strong());
     let key = egui::Id::new(("link-picker", &chat.id));

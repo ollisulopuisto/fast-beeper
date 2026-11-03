@@ -2828,8 +2828,18 @@ impl App {
             .people
             .iter()
             .find(|p| p.members.iter().any(|m| m.matches(chat)))
+            .filter(|p| !p.name.trim().is_empty())
         {
             return format!("{} · linked", person.name);
+        }
+        if let Some(name) = self
+            .settings
+            .beeper
+            .chat_names
+            .get(&chat.id)
+            .filter(|name| !name.trim().is_empty())
+        {
+            return name.clone();
         }
         if chat.is_group()
             && (chat.name.trim().is_empty() || (chat.name == "Group" && !chat.group_subject_known))

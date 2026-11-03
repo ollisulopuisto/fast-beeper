@@ -623,6 +623,43 @@ fn macos_header(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
+/// Small network icons on a chat's avatar: the chat's own network, or every
+/// distinct network of a linked person's chats. The unread, mute and
+/// disappearing marks keep their places; the first badge shifts left of the
+/// disappearing-timer mark when one is drawn.
+fn network_badges(app: &App, ui: &egui::Ui, palette: &Palette, avatar: Rect, chat: &Chat) {
+    let members = app
+        .settings
+        .beeper
+        .people
+        .iter()
+        .find(|p| p.members.iter().any(|m| m.matches(chat)))
+        .map(|p| p.members.clone());
+    let mut networks: Vec<String> = Vec::new();
+    let mut note = |c: &Chat| {
+        if let Some(n) = c.backend_network.as_deref().or(c.network.as_deref())
+            && !networks.iter().any(|known| known == n)
+        {
+            networks.push(n.to_owned());
+        }
+    };
+    match members {
+        Some(members) => {
+            for member in &members {
+                if let Some(c) = app.chat(&member.chat) {
+                    note(c);
+                }
+            }
+        }
+        None if chat.backend_account.is_some() => note(chat),
+        None => {}
+    }
+    let first = usize::from(chat.disappearing_timer().is_some());
+    for (slot, network) in networks.iter().take(2).enumerate() {
+        widgets::paint_network_badge(ui, palette, avatar, network, first + slot);
+    }
+}
+
 /// Stable main-list row id used by interaction tests.
 pub fn chat_row_id(chat: &str) -> egui::Id {
     egui::Id::new(("chat-row", chat))
@@ -1221,6 +1258,7 @@ fn favorite_chip(
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
+        network_badges(app, ui, &palette, avatar_rect, chat);
         if selected {
             // A short accent bar stands in for the selected row's background.
             ui.painter().rect_filled(
@@ -2001,6 +2039,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
+        network_badges(app, ui, &palette, avatar_rect, chat);
 
         let left = rect.left() + 76.0;
         let right = rect.right() - 14.0;
@@ -2520,6 +2559,7 @@ fn compact_row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response 
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
+        network_badges(app, ui, &palette, avatar_rect, chat);
         if selected {
             // A short accent bar stands in for the selected row's background.
             ui.painter().rect_filled(
@@ -2693,6 +2733,15 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
     }
     if chat.backend_account.is_some() {
         widgets::menu_separator(ui, palette);
+        if chat.kind == crate::model::ChatKind::Direct
+            && widgets::menu_item(ui, palette, Some(Icon::Pencil), "Rename…")
+        {
+            // A local name, edited in Contact info, which opens focused on it.
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(egui::Id::new("rename-focus"), chat.id.clone()));
+            app.actions.push(Action::OpenChat(chat.id.clone()));
+            app.actions.push(Action::OpenInfo(chat.id.clone()));
+        }
         if widgets::menu_item(ui, palette, Some(Icon::Info), "Info") {
             app.actions.push(Action::OpenChat(chat.id.clone()));
             app.actions.push(Action::OpenInfo(chat.id.clone()));
