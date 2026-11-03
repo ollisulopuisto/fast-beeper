@@ -325,6 +325,7 @@ fn account_inventory(accounts: &[BeeperAccount]) -> Vec<super::BeeperAccountInfo
                 .unwrap_or_else(|| a.account_id.clone()),
             network: a.navigation_network(),
             status: a.status.clone().unwrap_or_else(|| "Not supplied".into()),
+            own_user_id: a.user.as_ref().map(|u| u.id.clone()),
         })
         .collect()
 }
@@ -355,6 +356,48 @@ fn encode_segment(s: &str) -> String {
         }
     }
     out
+}
+
+/// Whether a Beeper API error is the Server reporting it has no such
+/// resource (HTTP 404): permanent for this id, not worth retrying.
+fn not_found(error: &str) -> bool {
+    error.contains("returned 404") || error.contains("refused: 404")
+}
+
+/// Live-poll copy and whether the failure is terminal for this chat. A
+/// chat the Server does not list 404s forever, so the poll stops instead
+/// of "retrying automatically".
+fn live_error_copy(error: &str) -> (String, bool) {
+    if not_found(error) {
+        (
+            "Live updates ended: this chat does not exist on the Beeper Server".into(),
+            true,
+        )
+    } else {
+        (format!("Live updates unavailable: {error}"), false)
+    }
+}
+
+/// History copy: a 404 means the chat id is not a Server chat at all
+/// (a local placeholder, say), not a temporary failure.
+fn history_error_copy(error: &str) -> String {
+    if not_found(error) {
+        "This chat does not exist on the Beeper Server; history cannot be loaded".into()
+    } else {
+        format!("Beeper history failed: {error}")
+    }
+}
+
+/// Send copy: a 404 means the text went nowhere and retrying the same
+/// chat cannot help.
+fn send_error_copy(error: &str) -> String {
+    if not_found(error) {
+        format!(
+            "{error}. The chat does not exist on the Beeper Server. Text restored; the message was not sent."
+        )
+    } else {
+        format!("{error}. Text restored; check history before retrying.")
+    }
 }
 
 /// Only our disposable files are eligible. Never follow links or recurse into
@@ -2413,6 +2456,9 @@ pub fn run(
     let mut chat_cursors: HashMap<ChatId, ChatCursors> = HashMap::new();
     let mut open_chat: Option<ChatId> = None;
     let mut watched_chats: Vec<ChatId> = Vec::new();
+    // Chats the Server answered 404 for: permanent per id, so polling and
+    // history stop instead of retrying forever.
+    let mut dead_chats: HashSet<ChatId> = HashSet::new();
     let mut last_chat_refresh = Instant::now() - CHAT_REFRESH;
     let mut last_msg_poll = Instant::now();
     let mut last_receipt_refresh = Instant::now();
@@ -2544,9 +2590,13 @@ pub fn run(
                             });
                         }
                         Err(e) => {
+                            if not_found(&e) {
+                                dead_chats.insert(chat.clone());
+                            }
+                            let copy = history_error_copy(&e);
                             emit(Event::BeeperHistoryState {
                                 chat: chat.clone(),
-                                error: Some(e.clone()),
+                                error: Some(copy.clone()),
                             });
                             emit(Event::Messages {
                                 chat,
@@ -2554,7 +2604,7 @@ pub fn run(
                                 older,
                                 complete: false,
                             });
-                            emit(Event::Error(format!("Beeper history failed: {e}")));
+                            emit(Event::Error(copy));
                         }
                     }
                 }
@@ -2664,14 +2714,21 @@ pub fn run(
                             };
                             pending_sends.push((target, accepted.pending_id, Instant::now()));
                         }
-                        Err(e) => emit(Event::BeeperSendUncertain {
-                            chat: chat.clone(),
-                            text,
-                            message: format!("{e}. Text restored; check history before retrying."),
-                        }),
+                        Err(e) => {
+                            if not_found(&e) {
+                                dead_chats.insert(chat.clone());
+                            }
+                            emit(Event::BeeperSendUncertain {
+                                chat: chat.clone(),
+                                text,
+                                message: send_error_copy(&e),
+                            })
+                        }
                     }
                     // Pull the echo (and anything else new) straight away.
-                    poll_newer(&api, &chat, &mut chat_cursors, &emit);
+                    if poll_newer(&api, &chat, &mut chat_cursors, &emit) {
+                        dead_chats.insert(chat.clone());
+                    }
                 }
                 Command::ResolveQuotes { chat, refs } => {
                     for (message_id, quoted_id) in refs {
@@ -3196,7 +3253,12 @@ pub fn run(
                 watched_chats.clone()
             };
             for chat in targets {
-                poll_newer(&api, &chat, &mut chat_cursors, &emit);
+                if dead_chats.contains(&chat) {
+                    continue;
+                }
+                if poll_newer(&api, &chat, &mut chat_cursors, &emit) {
+                    dead_chats.insert(chat);
+                }
             }
             pending_sends.retain(|(chat, pending_id, started)| {
                 poll_pending_send(&api, chat, pending_id, started.elapsed(), &emit)
@@ -3424,12 +3486,14 @@ fn poll_pending_send(
     }
 }
 
+/// Returns true when the Server answered 404 for this chat: terminal,
+/// the caller marks it dead instead of polling again.
 fn poll_newer(
     api: &Api,
     chat: &ChatId,
     cursors: &mut HashMap<ChatId, ChatCursors>,
     emit: &dyn Fn(Event),
-) {
+) -> bool {
     // Empty chats may have no cursor. Keep polling the newest page until one exists.
     let mut newest = cursors.get(chat).and_then(|c| c.newest.clone());
     let mut seen = HashSet::new();
@@ -3516,14 +3580,19 @@ fn poll_newer(
                 newest = Some(next);
             }
             Err(e) => {
+                let (copy, terminal) = live_error_copy(&e);
                 emit(Event::BeeperLiveState {
                     chat: chat.clone(),
-                    error: Some(format!("Live updates unavailable: {e}")),
+                    error: Some(copy),
                 });
+                if terminal {
+                    return true;
+                }
                 break;
             }
         }
     }
+    false
 }
 
 #[cfg(test)]
@@ -4697,6 +4766,47 @@ mod tests {
         assert!(!error.contains("secret-response-value"));
         assert!(!error.contains("private-account-path"));
         server.join().unwrap();
+    }
+
+    #[test]
+    fn account_inventory_carries_own_user_ids() {
+        let accounts: Vec<BeeperAccount> = serde_json::from_str(
+            r#"[{"accountID":"work","network":"WhatsApp","user":{"id":"@me:beeper.local","fullName":"Me"}},{"accountID":"empty"}]"#,
+        )
+        .unwrap();
+        let inventory = account_inventory(&accounts);
+        assert_eq!(
+            inventory[0].own_user_id.as_deref(),
+            Some("@me:beeper.local")
+        );
+        assert_eq!(inventory[1].own_user_id, None);
+    }
+
+    #[test]
+    fn not_found_copy_marks_404_terminal_and_keeps_text() {
+        assert!(not_found("Beeper API GET returned 404 Not Found"));
+        assert!(not_found("Beeper API POST returned 404 Not Found"));
+        assert!(not_found("Beeper change refused: 404 Not Found"));
+        assert!(!not_found(
+            "Beeper API GET returned 500 Internal Server Error"
+        ));
+        assert!(!not_found("Beeper read failed: connection refused"));
+        let (live, terminal) = live_error_copy("Beeper API GET returned 404 Not Found");
+        assert!(terminal);
+        assert!(live.contains("does not exist"));
+        let (_, terminal) = live_error_copy("Beeper API GET returned 500 Internal Server Error");
+        assert!(!terminal);
+        assert!(
+            history_error_copy("Beeper API GET returned 404 Not Found").contains("does not exist")
+        );
+        assert!(
+            history_error_copy("Beeper API GET returned 500 Internal Server Error")
+                .contains("Beeper history failed")
+        );
+        assert!(send_error_copy("Beeper send returned 404 Not Found").contains("was not sent"));
+        assert!(
+            send_error_copy("Beeper API POST returned 502 Bad Gateway").contains("check history")
+        );
     }
 
     #[test]

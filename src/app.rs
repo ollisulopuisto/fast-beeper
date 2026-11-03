@@ -2883,6 +2883,26 @@ impl App {
         }
     }
 
+    /// The Server's chat with ourselves, when it lists one: a direct chat
+    /// whose only participant is the own user id of ITS account (the
+    /// /v1/accounts account-identifier contract). Anything looser could
+    /// open a stranger, and inventing an id 404s every per-chat call.
+    fn beeper_self_chat(&self) -> Option<&Chat> {
+        self.chats.iter().find(|chat| {
+            chat.kind == crate::model::ChatKind::Direct
+                && chat.backend_origin.is_some()
+                && chat.participants.len() == 1
+                && chat.backend_account.as_deref().is_some_and(|account| {
+                    self.beeper_accounts
+                        .values()
+                        .flatten()
+                        .find(|a| a.id == account)
+                        .and_then(|a| a.own_user_id.as_deref())
+                        .is_some_and(|own| chat.participants[0] == own)
+                })
+        })
+    }
+
     /// Whether a contact search for `needle`, already a search key, should
     /// offer the chat with ourselves: by our name, our number, "You" or
     /// "Message yourself", in English or the interface language.
@@ -2890,8 +2910,18 @@ impl App {
         let Some(me) = self.me.as_deref() else {
             return false;
         };
-        // A locked chat stays out of every list but the locked one.
-        if self.chat(me).is_some_and(|chat| chat.locked) {
+        if !self.beeper_accounts.is_empty() {
+            // Beeper: offer the self-chat only when the Server lists one.
+            // The legacy "message yourself" flow would open a placeholder
+            // whose history, live updates and sends all 404.
+            let Some(chat) = self.beeper_self_chat() else {
+                return false;
+            };
+            if chat.locked {
+                return false;
+            }
+        } else if self.chat(me).is_some_and(|chat| chat.locked) {
+            // A locked chat stays out of every list but the locked one.
             return false;
         }
         if needle.is_empty() {
@@ -7855,20 +7885,35 @@ impl App {
                 }
             }
             Action::MessageYourself => {
-                if let Some(id) = self.me.clone() {
-                    if self.chat(&id).is_some_and(|chat| chat.locked) && !self.locked_folder_open()
-                    {
-                        self.apply(Action::OpenLockedFolder, ctx);
-                    } else {
-                        self.apply(
-                            Action::StartChat {
-                                id,
-                                name: "You".to_owned(),
-                                dismiss_dialog: true,
-                            },
-                            ctx,
-                        );
+                // Under Beeper only a Server-listed self-chat (the
+                // account-identifier contract) may open: fail closed
+                // instead of a placeholder that 404s every call.
+                let beeper = !self.beeper_accounts.is_empty();
+                let target = if beeper {
+                    self.beeper_self_chat().map(|chat| chat.id.clone())
+                } else {
+                    self.me.clone()
+                };
+                let Some(id) = target else {
+                    if beeper {
+                        self.toast(crate::i18n::gettext(
+                            self.locale,
+                            "This Beeper Server lists no chat with yourself",
+                        ));
                     }
+                    return;
+                };
+                if self.chat(&id).is_some_and(|chat| chat.locked) && !self.locked_folder_open() {
+                    self.apply(Action::OpenLockedFolder, ctx);
+                } else {
+                    self.apply(
+                        Action::StartChat {
+                            id,
+                            name: "You".to_owned(),
+                            dismiss_dialog: true,
+                        },
+                        ctx,
+                    );
                 }
             }
             Action::OpenMessage { chat, message } => {
@@ -23945,6 +23990,64 @@ mod tests {
             !app.offers_self(""),
             "a locked chat stays in the locked list"
         );
+    }
+
+    #[test]
+    fn beeper_self_chat_needs_the_account_identifier_contract() {
+        let mut app = app();
+        app.me = Some("@me-work:beeper.local".into());
+        app.me_name = Some("Carmine".into());
+        app.beeper_accounts.insert(
+            "http://127.0.0.1:23374".into(),
+            vec![crate::backend::BeeperAccountInfo {
+                id: "work".into(),
+                name: "Work".into(),
+                network: "WhatsApp".into(),
+                status: "connected".into(),
+                own_user_id: Some("@me-work:beeper.local".into()),
+            }],
+        );
+        // The Server lists no self-chat: never offered, so no placeholder
+        // can be opened to 404 on.
+        assert!(!app.offers_self(""));
+        assert!(!app.offers_self("you"));
+        // A stranger's direct chat is not the self-chat, however few
+        // participants it has.
+        let mut ada = Chat::new("!ada:beeper.local".into(), "Ada".into());
+        ada.backend_origin = Some("http://127.0.0.1:23374".into());
+        ada.backend_account = Some("work".into());
+        ada.participants = vec!["@ada:beeper.local".into()];
+        app.chats = vec![ada];
+        assert!(
+            !app.offers_self(""),
+            "a single participant without the account identifier is not enough"
+        );
+        // A direct chat whose only participant is the own user id of its
+        // account is the self-chat.
+        let mut own = Chat::new("!self:beeper.local".into(), "Carmine (You)".into());
+        own.backend_origin = Some("http://127.0.0.1:23374".into());
+        own.backend_account = Some("work".into());
+        own.participants = vec!["@me-work:beeper.local".into()];
+        app.chats = vec![own];
+        assert!(app.offers_self(""));
+        assert_eq!(
+            app.beeper_self_chat().map(|chat| chat.id.as_str()),
+            Some("!self:beeper.local"),
+            "MessageYourself opens the Server's real chat id"
+        );
+        // An account whose own id the Server did not supply cannot prove
+        // the contract.
+        app.beeper_accounts.insert(
+            "http://127.0.0.1:23374".into(),
+            vec![crate::backend::BeeperAccountInfo {
+                id: "work".into(),
+                name: "Work".into(),
+                network: "WhatsApp".into(),
+                status: "connected".into(),
+                own_user_id: None,
+            }],
+        );
+        assert!(!app.offers_self(""), "no account identifier, no offer");
     }
 
     #[test]
