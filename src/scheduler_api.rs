@@ -19,6 +19,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Search responses are bounded; reconciliation never pages.
 const MAX_BODY_BYTES: usize = 1 << 20;
 
+#[derive(Clone)]
 pub struct ServerSender {
     base_url: String,
     http: Client,

@@ -24,6 +24,27 @@ is installed, deployed, or granted to any app.
 | `chats:read` | `GET /v1/chats` |
 | `messages:read` | `GET /v1/chats/{id}/messages` |
 | `search:read` | `GET /v1/messages/search?query=` |
+| `people:read` | `GET /v1/people`, `GET /v1/people/{id}/messages?limit=` |
+
+## Linked people (fast-beeper's own view)
+
+Set `ZAPFAST_SETTINGS_FILE` to the app's `settings.json` (read-only; only
+`beeper.people` is read, nothing else in the file is parsed into a
+response). `/v1/people` lists linked persons: a content-derived `id`, name,
+primary destination and members, each marked `readable`. `/v1/people/{id}/messages`
+merges the newest messages across the person's readable members (limit
+capped at 100, no paging), adds `chatID`/`accountID` to each item, and lists
+every member it could not read under `unavailable` with `partial: true`.
+- Members from the app's direct network backends (origin other than
+  `beeper`) are stored in the app, not the Server. They are listed as
+  `readable: false` and are NOT in the merged timeline. Reading them needs
+  a separate, app-owned source and is not built.
+- Each readable member's chat is checked against the Server (it must exist
+  and belong to the recorded account) before its messages are read.
+- A restricted client sees a person only if every member is inside its
+  account allowlist, so a cross-account link is never revealed.
+- Without `ZAPFAST_SETTINGS_FILE`, or if the file is unreadable or over
+  4 MiB, people endpoints return 502.
 
 Query keys are limited to `cursor`, `direction` (before/after), `limit`
 (capped at 100) and, for search, `query`. Anything else is refused with 400.
@@ -56,9 +77,9 @@ Responses come from the Server unchanged for unrestricted clients.
 
 ## Not covered (explicitly)
 
-- Linked persons, merged timelines and primary destinations live in the app
-  settings, not on the Server, so they are not served. Upstream coverage is
-  per network account only.
+- Direct-network (non-Beeper) chats, and therefore the direct-network part
+  of any linked person, are not served: they live in the app's own storage.
+  Reading them is the main remaining coverage work.
 - The scheduled queue is not exposed through this API.
 - No push or websocket: clients poll.
 - No remote access. Reaching it from another machine (SSH tunnel, VPN) is a
@@ -90,9 +111,12 @@ Responses come from the Server unchanged for unrestricted clients.
   traversal, probe, redirect, error bodies, revocation, rate limit,
   connection cap and registry permissions against a mock Server. They have
   not been run against a real Server.
-- Each connection has its own thread (cap 32), but upstream calls share one
-  lock, so a slow Server delays all clients up to 30 s.
-- `token add/revoke/list` take an exclusive lock file; a crashed command may
-  leave a stale `.lock` to remove by hand.
+- Each connection has its own thread (cap 32) and its own upstream handle,
+  so a slow Server call delays only its own connection (up to 30 s per
+  call, several calls for a merged timeline).
+- `token add/revoke/list` take an exclusive lock file; a lock older than
+  120 s is treated as a crash and removed.
 - Live check of Server side effects (see Unverified) and of response shapes.
-- Linked/direct-network views: active missing work, not v1 scope.
+- Direct-network chats and their messages: not built (active missing work).
+- Linked-person endpoints are tested only against synthetic settings and a
+  mock Server.

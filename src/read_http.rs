@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::read_api::{RateLimiter, Registry, Upstream, handle, hash_token};
+use crate::merged::Person;
+use crate::read_api::{RateLimiter, Registry, Upstream, handle, hash_token, parse_people};
 use crate::scheduler_api::ServerSender;
 
 /// Most connections served at once; extra ones are refused with 429.
@@ -22,9 +23,35 @@ impl Upstream for ServerSender {
     }
 }
 
+/// Hands each request its own upstream handle, so a slow Server call
+/// delays only the connection that made it.
+pub trait UpstreamSource: Send + Sync {
+    fn open(&self) -> Box<dyn Upstream>;
+}
+
+impl UpstreamSource for ServerSender {
+    fn open(&self) -> Box<dyn Upstream> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct Shared {
-    pub upstream: Box<dyn Upstream + Send>,
-    pub limiter: RateLimiter,
+    pub source: Box<dyn UpstreamSource>,
+    pub limiter: Mutex<RateLimiter>,
+    /// The app's settings file, read-only, for linked people. None leaves
+    /// the people endpoints unavailable.
+    pub settings: Option<PathBuf>,
+}
+
+const MAX_SETTINGS_BYTES: u64 = 4 << 20;
+
+fn load_people(path: &Option<PathBuf>) -> Option<Vec<Person>> {
+    let path = path.as_ref()?;
+    if std::fs::metadata(path).ok()?.len() > MAX_SETTINGS_BYTES {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    parse_people(&text).ok()
 }
 
 fn now() -> i64 {
@@ -78,7 +105,7 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
     })
 }
 
-pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Mutex<Shared>) {
+pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
     let Some(head) = read_head(stream) else {
         return respond(stream, 400, r#"{"error":"bad request"}"#);
     };
@@ -98,14 +125,28 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Mutex<Shar
     // Keyed by token hash, so unknown tokens cannot use a real client's
     // allowance or reach the Server.
     let key = bearer.map(hash_token).unwrap_or_default();
-    let mut guard = shared.lock().unwrap_or_else(|e| e.into_inner());
-    if !guard.limiter.allow(&key, at) {
-        drop(guard);
+    let allowed = {
+        let mut limiter = shared.limiter.lock().unwrap_or_else(|e| e.into_inner());
+        limiter.allow(&key, at)
+    };
+    if !allowed {
         return respond(stream, 429, r#"{"error":"rate limited"}"#);
     }
-    let (status, body, client, label) =
-        handle(&registry, &mut *guard.upstream, bearer, method, target, at);
-    drop(guard);
+    let people = if target.starts_with("/v1/people") {
+        load_people(&shared.settings)
+    } else {
+        None
+    };
+    let mut upstream = shared.source.open();
+    let (status, body, client, label) = handle(
+        &registry,
+        &mut *upstream,
+        people.as_deref(),
+        bearer,
+        method,
+        target,
+        at,
+    );
     eprintln!(
         "zapfast-reader: client={} route={label} status={status}",
         client.as_deref().unwrap_or("-")
@@ -115,7 +156,7 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Mutex<Shar
 
 /// Serves until the listener fails. Each connection gets a thread, so a
 /// slow client holds only its own slot; the cap bounds the total.
-pub fn run(listener: TcpListener, path: PathBuf, shared: Arc<Mutex<Shared>>, max: usize) {
+pub fn run(listener: TcpListener, path: PathBuf, shared: Arc<Shared>, max: usize) {
     let active = Arc::new(AtomicUsize::new(0));
     for mut stream in listener.incoming().flatten() {
         if active.fetch_add(1, Ordering::SeqCst) >= max {

@@ -21,6 +21,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::merged::Person;
+
 pub const SCOPES: [&str; 4] = [
     "accounts:read",
     "chats:read",
@@ -29,6 +31,9 @@ pub const SCOPES: [&str; 4] = [
 ];
 const MAX_LIMIT: u32 = 100;
 pub const RATE_PER_MINUTE: u32 = 120;
+const STALE_LOCK_SECS: u64 = 120;
+/// Most linked members one merged timeline will read.
+const MAX_MEMBERS: usize = 16;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -141,15 +146,26 @@ impl Registry {
     /// Exclusive lock for a load-modify-save cycle across processes.
     pub fn lock(path: &Path) -> Result<RegistryLock, String> {
         let lock = path.with_extension("lock");
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock)
-            .map_err(|_| {
-                "another token command is running (remove the .lock file if it is stale)"
-                    .to_string()
-            })?;
-        Ok(RegistryLock(lock))
+        for attempt in 0..2 {
+            let created = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock);
+            if created.is_ok() {
+                return Ok(RegistryLock(lock));
+            }
+            // Token commands take milliseconds: an old lock is a crash.
+            let stale = std::fs::metadata(&lock)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .map(|age| age.as_secs() > STALE_LOCK_SECS)
+                .unwrap_or(false);
+            if attempt == 0 && stale {
+                let _ = std::fs::remove_file(&lock);
+            }
+        }
+        Err("another token command is running".to_string())
     }
 
     /// Written 0600 from creation, then renamed into place.
@@ -235,6 +251,8 @@ pub enum Route {
     Chats,
     Messages(String),
     Search,
+    People,
+    PersonMessages { id: String, limit: u32 },
 }
 
 impl Route {
@@ -244,6 +262,7 @@ impl Route {
             Route::Chats => "chats:read",
             Route::Messages(_) => "messages:read",
             Route::Search => "search:read",
+            Route::People | Route::PersonMessages { .. } => "people:read",
         }
     }
 
@@ -253,6 +272,8 @@ impl Route {
             Route::Chats => "chats",
             Route::Messages(_) => "messages",
             Route::Search => "search",
+            Route::People => "people",
+            Route::PersonMessages { .. } => "people-messages",
         }
     }
 }
@@ -326,8 +347,20 @@ pub fn route(method: &str, target: &str) -> Result<(Route, String), u16> {
             "/v1/messages/search".into(),
             &["query", "cursor", "direction", "limit"],
         ),
+        ["v1", "people"] => (Route::People, String::new(), &[]),
+        ["v1", "people", id, "messages"] => {
+            if id.len() != 16 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(400);
+            }
+            let route = Route::PersonMessages {
+                id: id.to_ascii_lowercase(),
+                limit: MAX_LIMIT,
+            };
+            (route, String::new(), &["limit"])
+        }
         _ => return Err(404),
     };
+    let mut parsed = parsed;
     let mut pairs: Vec<(String, String)> = Vec::new();
     for part in query.split('&').filter(|p| !p.is_empty()) {
         let (key, value) = part.split_once('=').ok_or(400u16)?;
@@ -350,6 +383,12 @@ pub fn route(method: &str, target: &str) -> Result<(Route, String), u16> {
     }
     if !pairs.iter().any(|(k, _)| k == "limit") && !keys.is_empty() {
         pairs.push(("limit".into(), MAX_LIMIT.to_string()));
+    }
+    if let Route::PersonMessages { limit, .. } = &mut parsed {
+        let given = pairs.iter().find(|(k, _)| k == "limit");
+        *limit = given
+            .and_then(|(_, v)| v.parse().ok())
+            .unwrap_or(MAX_LIMIT);
     }
     let mut full = upstream;
     for (i, (key, value)) in pairs.iter().enumerate() {
@@ -386,6 +425,139 @@ fn filter_items(value: &Value, allowed: &[String]) -> Option<Value> {
     Some(serde_json::json!({ "items": kept }))
 }
 
+/// Stable, content-derived id for a linked person (settings has none).
+pub fn person_id(person: &Person) -> String {
+    let mut parts: Vec<String> = person
+        .members
+        .iter()
+        .map(|m| format!("{}|{}|{}", m.origin, m.account, m.chat))
+        .collect();
+    parts.sort();
+    hash_token(&format!("{}\0{}", person.name, parts.join("\0")))[..16].to_string()
+}
+
+/// Only Beeper-origin members are served by the Server; members from the
+/// app's direct network backends live in the app's own storage.
+fn readable(member: &crate::merged::Member) -> bool {
+    member.origin == "beeper"
+}
+
+/// A restricted client sees a person only if every linked member is in its
+/// allowlist, so the existence of a link across accounts never leaks.
+fn visible<'a>(people: &'a [Person], client: &ClientEntry) -> Vec<&'a Person> {
+    people
+        .iter()
+        .filter(|p| {
+            !p.members.is_empty()
+                && (client.accounts.is_empty()
+                    || p.members.iter().all(|m| client.accounts.contains(&m.account)))
+        })
+        .collect()
+}
+
+fn member_json(member: &crate::merged::Member) -> Value {
+    serde_json::json!({
+        "origin": member.origin,
+        "account": member.account,
+        "chat": member.chat,
+        "readable": readable(member),
+    })
+}
+
+fn people_list(people: &[Person], client: &ClientEntry) -> Value {
+    let items: Vec<Value> = visible(people, client)
+        .into_iter()
+        .map(|p| {
+            serde_json::json!({
+                "id": person_id(p),
+                "name": p.name,
+                "primary": p.primary.as_ref().map(member_json),
+                "members": p.members.iter().map(member_json).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    serde_json::json!({ "items": items })
+}
+
+fn timestamp_of(item: &Value) -> i64 {
+    item.get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(|t| t.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_second())
+        .unwrap_or(0)
+}
+
+/// Merged timeline of one person's Beeper-origin chats: the newest `limit`
+/// messages across members, no paging. Members that cannot be read are
+/// listed, never silently dropped.
+fn person_messages(
+    upstream: &mut dyn Upstream,
+    person: &Person,
+    limit: u32,
+) -> Value {
+    let mut items: Vec<Value> = Vec::new();
+    let mut unavailable: Vec<Value> = Vec::new();
+    for (index, member) in person.members.iter().enumerate() {
+        let mut skip = |reason: &str| {
+            let mut entry = member_json(member);
+            entry["reason"] = reason.into();
+            unavailable.push(entry);
+        };
+        if index >= MAX_MEMBERS {
+            skip("member limit reached");
+            continue;
+        }
+        if !readable(member) {
+            skip("app-only source, not served by the Server");
+            continue;
+        }
+        let chat = encode(&member.chat);
+        let owner = match upstream.get(&format!("/v1/chats/{chat}")) {
+            Ok((200, body)) => serde_json::from_str::<Value>(&body).ok(),
+            _ => None,
+        };
+        if owner.as_ref().and_then(account_of) != Some(member.account.as_str()) {
+            skip("chat not found on that account");
+            continue;
+        }
+        let target = format!("/v1/chats/{chat}/messages?limit={limit}");
+        let page = match upstream.get(&target) {
+            Ok((200, body)) => serde_json::from_str::<Value>(&body).ok(),
+            _ => None,
+        };
+        let Some(Value::Array(list)) = page.and_then(|mut v| v.get_mut("items").map(Value::take))
+        else {
+            skip("messages unreadable");
+            continue;
+        };
+        for mut item in list {
+            if let Some(object) = item.as_object_mut() {
+                object.insert("chatID".into(), member.chat.clone().into());
+                object.insert("accountID".into(), member.account.clone().into());
+                items.push(item);
+            }
+        }
+    }
+    items.sort_by_key(|i| std::cmp::Reverse(timestamp_of(i)));
+    items.truncate(limit as usize);
+    serde_json::json!({
+        "items": items,
+        "partial": !unavailable.is_empty(),
+        "unavailable": unavailable,
+    })
+}
+
+/// The `beeper.people` list from the app's settings file, nothing else.
+pub fn parse_people(settings_json: &str) -> Result<Vec<Person>, String> {
+    let value: Value =
+        serde_json::from_str(settings_json).map_err(|e| format!("settings unreadable: {e}"))?;
+    match value.get("beeper").and_then(|b| b.get("people")) {
+        None => Ok(Vec::new()),
+        Some(people) => serde_json::from_value(people.clone())
+            .map_err(|e| format!("people unreadable: {e}")),
+    }
+}
+
 fn error(status: u16, message: &str) -> (u16, String) {
     (status, serde_json::json!({ "error": message }).to_string())
 }
@@ -395,6 +567,7 @@ fn error(status: u16, message: &str) -> (u16, String) {
 pub fn handle(
     registry: &Registry,
     upstream: &mut dyn Upstream,
+    people: Option<&[Person]>,
     bearer: Option<&str>,
     method: &str,
     target: &str,
@@ -418,6 +591,24 @@ pub fn handle(
         return (s, b, name, label);
     }
     let restricted = !client.accounts.is_empty();
+    if matches!(parsed, Route::People | Route::PersonMessages { .. }) {
+        let Some(people) = people else {
+            let (s, b) = error(502, "people source unavailable");
+            return (s, b, name, label);
+        };
+        if let Route::PersonMessages { id, limit } = &parsed {
+            let person = visible(people, client)
+                .into_iter()
+                .find(|p| person_id(p) == *id);
+            let Some(person) = person else {
+                let (s, b) = error(404, "not found");
+                return (s, b, name, label);
+            };
+            let body = person_messages(upstream, person, *limit);
+            return (200, body.to_string(), name, label);
+        }
+        return (200, people_list(people, client).to_string(), name, label);
+    }
     if let (true, Route::Messages(chat)) = (restricted, &parsed) {
         let probe = format!("/v1/chats/{}", encode(chat));
         let owner = match upstream.get(&probe) {
@@ -548,7 +739,7 @@ mod tests {
 
     fn run(registry: &Registry, token: &str, method: &str, target: &str) -> (u16, String) {
         let mut fake = Fake { calls: vec![] };
-        let (status, body, _, _) = handle(registry, &mut fake, Some(token), method, target, 200);
+        let (status, body, _, _) = handle(registry, &mut fake, None, Some(token), method, target, 200);
         (status, body)
     }
 
@@ -567,7 +758,7 @@ mod tests {
         assert_eq!(run(&registry, "zfr_nope", "GET", "/v1/chats").0, 401);
         let mut fake = Fake { calls: vec![] };
         assert_eq!(
-            handle(&registry, &mut fake, None, "GET", "/v1/chats", 200).0,
+            handle(&registry, &mut fake, None, None, "GET", "/v1/chats", 200).0,
             401
         );
         assert_eq!(run(&registry, &token, "GET", "/v1/chats").0, 200);

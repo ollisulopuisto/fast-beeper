@@ -87,11 +87,13 @@ fn start(base: &str, max: usize) -> Reader {
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::SeqCst)
     ));
+    let settings = path.with_extension("settings");
     let sender = ServerSender::new(base.to_string(), "UPSTREAM-SECRET").unwrap();
-    let shared = Arc::new(Mutex::new(Shared {
-        upstream: Box::new(sender),
-        limiter: RateLimiter::default(),
-    }));
+    let shared = Arc::new(Shared {
+        source: Box::new(sender),
+        limiter: Mutex::new(RateLimiter::default()),
+        settings: Some(settings.clone()),
+    });
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     let serve_path = path.clone();
@@ -269,4 +271,83 @@ fn loose_registry_permissions_refuse_everything() {
     }
     #[cfg(not(unix))]
     let _ = token;
+}
+
+const SETTINGS: &str = r#"{"beeper":{"people":[
+  {"name":"Ada Lovelace","members":[
+    {"origin":"beeper","account":"a1","chat":"c-a1"},
+    {"origin":"signal-direct","account":"d9","chat":"c-d9"}],
+   "primary":{"origin":"beeper","account":"a1","chat":"c-a1"}},
+  {"name":"Linked Across","members":[
+    {"origin":"beeper","account":"a1","chat":"c-a1"},
+    {"origin":"beeper","account":"b2","chat":"c-b2"}]}
+],"local_ai_endpoint":"http://secret.example"}}"#;
+
+fn people_ids(reader: &Reader, token: &str) -> (u16, serde_json::Value) {
+    let (status, body) = get(reader, token, "/v1/people");
+    (status, serde_json::from_str(&body).unwrap_or_default())
+}
+
+#[test]
+fn people_are_listed_with_unreadable_members_marked_and_nothing_else_leaked() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &[]);
+    assert_eq!(get(&reader, &token, "/v1/people").0, 502, "no settings yet");
+    std::fs::write(reader.path.with_extension("settings"), SETTINGS).unwrap();
+    let (status, list) = people_ids(&reader, &token);
+    assert_eq!(status, 200);
+    assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    let text = list.to_string();
+    assert!(!text.contains("secret.example"));
+    let ada = &list["items"][0];
+    assert_eq!(ada["members"][0]["readable"], true);
+    assert_eq!(ada["members"][1]["readable"], false);
+}
+
+#[test]
+fn merged_timeline_lists_what_it_could_not_read() {
+    let (base, log) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &[]);
+    std::fs::write(reader.path.with_extension("settings"), SETTINGS).unwrap();
+    let (_, list) = people_ids(&reader, &token);
+    let id = list["items"][0]["id"].as_str().unwrap().to_string();
+    let (status, body) = get(&reader, &token, &format!("/v1/people/{id}/messages?limit=5"));
+    assert_eq!(status, 200);
+    let timeline: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(timeline["partial"], true);
+    assert_eq!(timeline["unavailable"].as_array().unwrap().len(), 1);
+    assert_eq!(timeline["items"][0]["chatID"], "c-a1");
+    let seen = log.lock().unwrap().join("\n");
+    assert!(!seen.contains("c-d9"), "app-only members never reach the Server");
+    assert_eq!(get(&reader, &token, "/v1/people/zzzzzzzzzzzzzzzz/messages").0, 400);
+    assert_eq!(get(&reader, &token, "/v1/people/0000000000000000/messages").0, 404);
+}
+
+#[test]
+fn restricted_clients_never_see_a_link_that_crosses_their_allowlist() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &["a1"]);
+    std::fs::write(reader.path.with_extension("settings"), SETTINGS).unwrap();
+    let (_, list) = people_ids(&reader, &token);
+    assert_eq!(list["items"].as_array().unwrap().len(), 0);
+    let all = add_client(&reader, "all", &[]);
+    let (_, full) = people_ids(&reader, &all);
+    let id = full["items"][1]["id"].as_str().unwrap();
+    let target = format!("/v1/people/{id}/messages");
+    assert_eq!(get(&reader, &token, &target).0, 404);
+}
+
+#[test]
+fn people_scope_is_required() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let mut registry = Registry::load(&reader.path).unwrap();
+    let token = registry
+        .add("narrow", vec!["chats:read".into()], vec![], None, 0)
+        .unwrap();
+    registry.save(&reader.path).unwrap();
+    assert_eq!(get(&reader, &token, "/v1/people").0, 403);
 }

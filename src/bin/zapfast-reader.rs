@@ -6,7 +6,8 @@
 //!
 //! Serve (environment): BEEPER_BASE_URL, BEEPER_ACCESS_TOKEN or
 //! BEEPER_ACCESS_TOKEN_FILE (the upstream token, never shown to clients),
-//! ZAPFAST_READER_LISTEN (default 127.0.0.1:23377; non-loopback addresses
+//! ZAPFAST_SETTINGS_FILE (optional: the app's settings.json, read-only, for
+//! linked people), ZAPFAST_READER_LISTEN (default 127.0.0.1:23377; non-loopback addresses
 //! are refused), ZAPFAST_READER_CLIENTS (default
 //! ~/.config/zapfast/reader-clients.json, mode 0600).
 //!
@@ -18,7 +19,8 @@
 //! stored anywhere in clear.
 //!
 //! Endpoints (all GET): /v1/accounts, /v1/chats,
-//! /v1/chats/{id}/messages, /v1/messages/search?query=
+//! /v1/chats/{id}/messages, /v1/messages/search?query=, /v1/people and
+//! /v1/people/{id}/messages (needs ZAPFAST_SETTINGS_FILE)
 //!
 //! Requests carrying Origin or Referer are refused, so web pages cannot
 //! drive it. The log holds client name, endpoint family and status only:
@@ -204,9 +206,10 @@ fn main() {
         }
     };
     eprintln!("zapfast-reader: listening on {addr}");
-    let shared = Arc::new(Mutex::new(Shared {
-        upstream: Box::new(sender),
-        limiter: RateLimiter::default(),
-    }));
+    let shared = Arc::new(Shared {
+        source: Box::new(sender),
+        limiter: Mutex::new(RateLimiter::default()),
+        settings: std::env::var("ZAPFAST_SETTINGS_FILE").ok().map(PathBuf::from),
+    });
     run(listener, path, shared, MAX_CONNECTIONS);
 }
