@@ -3838,6 +3838,12 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     "preview-1".to_owned(),
                 ));
             }
+            // The open viewer turned a quarter clockwise, after `preview`.
+            "rotate-view" => {
+                if let Some(preview) = &mut app.image_preview {
+                    preview.rotate(true);
+                }
+            }
             "compose-emoji" => {
                 app.composer = "Andiamo 😊 con due 👍🏽 e poi testo normale".to_owned();
             }
@@ -12642,6 +12648,21 @@ mod tests {
         let preview = app.image_preview.as_ref().unwrap();
         assert!(!preview.is_fit());
         assert_eq!(preview.zoom(), 1.0);
+    }
+
+    /// A quarter turn in the viewer swaps the picture's sides on screen.
+    #[test]
+    fn rotating_the_viewer_swaps_the_pictures_sides() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        open_sample_preview(&mut app, &ctx);
+        let upright = preview_frame(&mut app, &ctx, vec![]);
+        app.actions.push(crate::model::Action::RotateImage(true));
+        render(&mut app, &ctx);
+        let turned = preview_frame(&mut app, &ctx, vec![]);
+        let before = upright.width() / upright.height();
+        let after = turned.width() / turned.height();
+        assert!((before * after - 1.0).abs() < 0.05, "{upright:?} then {turned:?}");
     }
 
     /// Zooming with the wheel keeps the picture point under the pointer in

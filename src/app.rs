@@ -8146,6 +8146,11 @@ impl App {
                     preview.zoom_by(factor);
                 }
             }
+            Action::RotateImage(clockwise) => {
+                if let Some(preview) = &mut self.image_preview {
+                    preview.rotate(clockwise);
+                }
+            }
             Action::ZoomImageIn => {
                 if let Some(preview) = &mut self.image_preview {
                     preview.zoom_in();

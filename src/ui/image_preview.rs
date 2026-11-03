@@ -337,6 +337,33 @@ fn header(
                     actions.push(Action::ZoomImageOut);
                 }
             }
+            // Turning is for a picture and a clip alike; it changes the view
+            // only, never the file.
+            ui.add_space(8.0);
+            if theme::icon_button(
+                ui,
+                Icon::RotateRight,
+                18.0,
+                palette.secondary,
+                palette.text,
+                crate::i18n::gettext(app.locale, "Rotate right (R)").as_ref(),
+            )
+            .clicked()
+            {
+                actions.push(Action::RotateImage(true));
+            }
+            if theme::icon_button(
+                ui,
+                Icon::RotateLeft,
+                18.0,
+                palette.secondary,
+                palette.text,
+                crate::i18n::gettext(app.locale, "Rotate left (Shift+R)").as_ref(),
+            )
+            .clicked()
+            {
+                actions.push(Action::RotateImage(false));
+            }
             // What the message itself can do, when the viewer knows which one
             // it is. A picture opened on its own has nothing to act on.
             if has_message {
@@ -554,9 +581,12 @@ fn still(
     let image = crate::ui::widgets::file_image(ui, path);
     match image.load_for_size(ui.ctx(), canvas) {
         Ok(egui::load::TexturePoll::Ready { texture }) => {
-            let size = display_size(texture.size, canvas, preview.is_fit(), preview.zoom());
-            if preview.is_fit() && texture.size.x > 0.0 {
-                preview.set_fit_scale(size.x / texture.size.x);
+            let turns = preview.turns();
+            // A quarter turn swaps the picture's sides before it is fitted.
+            let natural = turned_size(texture.size, turns);
+            let size = display_size(natural, canvas, preview.is_fit(), preview.zoom());
+            if preview.is_fit() && natural.x > 0.0 {
+                preview.set_fit_scale(size.x / natural.x);
             }
             let scroll_id = ui.make_persistent_id(egui::IdSalt::new("image-preview-scroll"));
             let trackpad = app.scrolling.from_trackpad();
@@ -565,7 +595,7 @@ fn still(
             // so the next frame lays out the new size.
             let zoom = zoom_input(ui, stage, trackpad).map(|(factor, pointer)| {
                 preview.zoom_by(factor);
-                let zoomed = display_size(texture.size, canvas, preview.is_fit(), preview.zoom());
+                let zoomed = display_size(natural, canvas, preview.is_fit(), preview.zoom());
                 (pointer, zoomed)
             });
             let output = egui::ScrollArea::both()
@@ -583,8 +613,16 @@ fn still(
                         canvas.max(size),
                         Layout::centered_and_justified(egui::Direction::TopDown),
                         |ui| {
-                            let image_response =
-                                ui.add(image.fit_to_exact_size(size).sense(egui::Sense::click()));
+                            let image_response = if turns == 0 {
+                                ui.add(image.fit_to_exact_size(size).sense(egui::Sense::click()))
+                            } else {
+                                let (rect, response) =
+                                    ui.allocate_exact_size(size, egui::Sense::click());
+                                if ui.is_rect_visible(rect) {
+                                    paint_turned(ui.painter(), rect, texture.id, turns);
+                                }
+                                response
+                            };
                             // The same three actions the header offers, on the
                             // picture itself: copy it, save it, or hand it to
                             // another app.
@@ -672,7 +710,7 @@ fn still(
                     scroll.offset = crate::image_preview::anchored_offset(
                         canvas,
                         size,
-                        texture.size,
+                        natural,
                         output.state.offset,
                         pos - stage.min,
                         canvas / 2.0,
@@ -824,20 +862,15 @@ fn video(
             || vec2(16.0, 9.0),
             |size| vec2(size[0] as f32, size[1] as f32),
         );
+    let turns = app.image_preview.as_ref().map_or(0, |preview| preview.turns());
+    let aspect = turned_size(aspect, turns);
     let size = fit(aspect, stage.size());
     let media = Rect::from_center_size(stage.center(), size);
     // The player pauses a clip it has not been told about for 1.5 s, so the
     // viewer has to say it is still on screen, as the chat renderer does.
     app.video.saw(message);
     match status.as_ref().and_then(|status| status.frame.clone()) {
-        Some(frame) => {
-            ui.painter().image(
-                frame.id(),
-                media,
-                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                egui::Color32::WHITE,
-            );
-        }
+        Some(frame) => paint_turned(ui.painter(), media, frame.id(), turns),
         None => {
             ui.painter().rect_filled(media, 8.0, palette.shadow);
             if let Some(bytes) = thumbnail {
@@ -939,6 +972,36 @@ fn video(
         }
     }
     Some(media)
+}
+
+/// `size` as it lies after `turns` quarter turns.
+fn turned_size(size: Vec2, turns: u8) -> Vec2 {
+    if turns % 2 == 1 {
+        vec2(size.y, size.x)
+    } else {
+        size
+    }
+}
+
+/// Paints a texture filling `rect`, turned `turns` quarter turns clockwise.
+/// `rect` is the turned picture's box: the texture's sides are swapped inside
+/// it by the caller's sizing, and only the sampling rotates here.
+fn paint_turned(painter: &egui::Painter, rect: Rect, texture: egui::TextureId, turns: u8) {
+    // Top-left, top-right, bottom-right, bottom-left of the texture.
+    let corners = [pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(1.0, 1.0), pos2(0.0, 1.0)];
+    let shift = usize::from(turns % 4);
+    let targets = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
+    let mut mesh = egui::Mesh::with_texture(texture);
+    for (index, pos) in targets.into_iter().enumerate() {
+        // A clockwise turn brings the texture's bottom-left to the top-left.
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos,
+            uv: corners[(index + 4 - shift) % 4],
+            color: egui::Color32::WHITE,
+        });
+    }
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 /// The album along the bottom: a thumbnail per item, the current one ringed.
@@ -1494,5 +1557,19 @@ mod tests {
         // because the row is wider than the strip.
         assert_eq!(pad(40), 0.0);
         assert!(row(40) > inner.width());
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    #[test]
+    fn a_quarter_turn_swaps_the_sides_and_two_do_not() {
+        let size = vec2(400.0, 300.0);
+        assert_eq!(turned_size(size, 0), size);
+        assert_eq!(turned_size(size, 1), vec2(300.0, 400.0));
+        assert_eq!(turned_size(size, 2), size);
+        assert_eq!(turned_size(size, 3), vec2(300.0, 400.0));
     }
 }

@@ -56,6 +56,10 @@ pub fn preview_action(key: Key, modifiers: Modifiers) -> Option<crate::model::Ac
         }
         (false, Key::Minus) if !modifiers.any() => Some(crate::model::Action::ZoomImageOut),
         (false, Key::Num0) if !modifiers.any() => Some(crate::model::Action::FitImage),
+        (false, Key::R) if modifiers.shift && !modifiers.command && !modifiers.alt => {
+            Some(crate::model::Action::RotateImage(false))
+        }
+        (false, Key::R) if !modifiers.any() => Some(crate::model::Action::RotateImage(true)),
         // A clip on the stage takes the arrows first, to jump five seconds;
         // otherwise they step through the album.
         (false, Key::ArrowLeft) if !modifiers.any() => Some(crate::model::Action::ViewerStep(-1)),
@@ -157,6 +161,9 @@ pub struct PreviewState {
     clip: bool,
     /// A motion photo's clip, playing over its photo, when one is.
     motion: Option<PathBuf>,
+    /// Quarter turns clockwise the viewer shows the item at. A view only: the
+    /// file is never rewritten, and the next item starts upright.
+    turns: u8,
 }
 
 impl PreviewState {
@@ -175,6 +182,7 @@ impl PreviewState {
             fit_scale: 1.0,
             clip: false,
             motion: None,
+            turns: 0,
         }
     }
 
@@ -258,6 +266,7 @@ impl PreviewState {
         self.message = message;
         self.card = card;
         self.clip = false;
+        self.turns = 0;
         self.motion = None;
         self.fit = true;
         self.zoom = 1.0;
@@ -270,6 +279,18 @@ impl PreviewState {
 
     pub fn zoom(&self) -> f32 {
         self.zoom
+    }
+
+    /// Quarter turns clockwise the item is shown at, 0 to 3.
+    pub fn turns(&self) -> u8 {
+        self.turns
+    }
+
+    /// Turns the view a quarter, clockwise or back, and refits the picture.
+    pub fn rotate(&mut self, clockwise: bool) {
+        self.turns = (self.turns + if clockwise { 1 } else { 3 }) % 4;
+        self.fit = true;
+        self.zoom = 1.0;
     }
 
     pub fn is_fit(&self) -> bool {
@@ -726,5 +747,33 @@ mod tests {
             vec2(10.0, 20.0),
         );
         assert_eq!(offset, Vec2::ZERO);
+    }
+}
+
+#[cfg(test)]
+mod rotation_state_tests {
+    use super::*;
+
+    #[test]
+    fn turning_wraps_both_ways_and_the_next_item_starts_upright() {
+        let mut preview = PreviewState::new(None, ChatId::default(), "m".into());
+        preview.rotate(true);
+        preview.rotate(true);
+        assert_eq!(preview.turns(), 2);
+        preview.rotate(false);
+        preview.rotate(false);
+        preview.rotate(false);
+        assert_eq!(preview.turns(), 3);
+        preview.show_item(None, "n".into());
+        assert_eq!(preview.turns(), 0);
+    }
+
+    #[test]
+    fn r_turns_right_and_shift_r_turns_back() {
+        use crate::model::Action;
+        let shift = Modifiers::SHIFT;
+        let none = Modifiers::NONE;
+        assert!(matches!(preview_action(Key::R, none), Some(Action::RotateImage(true))));
+        assert!(matches!(preview_action(Key::R, shift), Some(Action::RotateImage(false))));
     }
 }
