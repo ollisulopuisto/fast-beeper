@@ -4775,7 +4775,10 @@ mod tests {
         )
         .unwrap();
         let inventory = account_inventory(&accounts);
-        assert_eq!(inventory[0].own_user_id.as_deref(), Some("@me:beeper.local"));
+        assert_eq!(
+            inventory[0].own_user_id.as_deref(),
+            Some("@me:beeper.local")
+        );
         assert_eq!(inventory[1].own_user_id, None);
     }
 
@@ -4784,18 +4787,26 @@ mod tests {
         assert!(not_found("Beeper API GET returned 404 Not Found"));
         assert!(not_found("Beeper API POST returned 404 Not Found"));
         assert!(not_found("Beeper change refused: 404 Not Found"));
-        assert!(!not_found("Beeper API GET returned 500 Internal Server Error"));
+        assert!(!not_found(
+            "Beeper API GET returned 500 Internal Server Error"
+        ));
         assert!(!not_found("Beeper read failed: connection refused"));
         let (live, terminal) = live_error_copy("Beeper API GET returned 404 Not Found");
         assert!(terminal);
         assert!(live.contains("does not exist"));
         let (_, terminal) = live_error_copy("Beeper API GET returned 500 Internal Server Error");
         assert!(!terminal);
-        assert!(history_error_copy("Beeper API GET returned 404 Not Found").contains("does not exist"));
-        assert!(history_error_copy("Beeper API GET returned 500 Internal Server Error")
-            .contains("Beeper history failed"));
+        assert!(
+            history_error_copy("Beeper API GET returned 404 Not Found").contains("does not exist")
+        );
+        assert!(
+            history_error_copy("Beeper API GET returned 500 Internal Server Error")
+                .contains("Beeper history failed")
+        );
         assert!(send_error_copy("Beeper send returned 404 Not Found").contains("was not sent"));
-        assert!(send_error_copy("Beeper API POST returned 502 Bad Gateway").contains("check history"));
+        assert!(
+            send_error_copy("Beeper API POST returned 502 Bad Gateway").contains("check history")
+        );
     }
 
     #[test]
