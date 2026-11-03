@@ -34,22 +34,37 @@ unit) and `loginctl enable-linger <user>`.
 ## B. Rootless Podman (experimental)
 
 1. As the dedicated user: `contrib/linux-server/run-rootless.sh`.
-2. First time only: `podman exec -it zapfast-beeper-server beeper setup --server --install`
-   and sign in as in A. Then `podman restart zapfast-beeper-server`.
+2. First time only: `podman exec -it zapfast-beeper-server beeper targets add server --port 23374`, then
+   `beeper setup --server --install` the same way, and sign in as in A. The app only accepts port 23374. Then `podman restart zapfast-beeper-server`.
 3. The script installs `~/.local/bin/zapfast-beeper-target`; the app's Connect
    runs it over SSH (fixed command, loopback 23374 only).
 
-Untested assumptions: the CLI can start and supervise the Server inside a
-container without systemd, and the Server binds loopback inside the host
-network namespace. If either fails, use A.
+Network: the container uses a private rootless network and publishes only
+`127.0.0.1:23374`. The CLI documents a port flag but no bind address, and
+reports `http://127.0.0.1:<port>`, so the Server is assumed to listen on
+loopback inside the container. pasta forwards host loopback to container
+loopback only with `--host-lo-to-ns-lo`; the script sets it. Host networking
+is deliberately not used. If the forward does not work on your Podman, host
+networking would be the only workaround: it puts the Server in the host's
+network namespace (still loopback-bound, but other host users can reach the
+port, which the token alone guards). Prefer option A over that.
+
+Untested assumptions: the pasta forward works as described, and the CLI can
+start and supervise the Server inside a container without systemd. If either
+fails, use A.
 
 ## Mac app
 
 Connect with the VPS's Tailscale name and the dedicated SSH user, as for the
 Mac Studio. The launcher accepts a Linux host. Send Later is not offered
-in-app for Linux; install it on the host with
-`contrib/send-later/install_linux.sh` (needs `cargo`, or `SCHEDULER_BINARY=`
-pointing to a Linux build).
+in-app for Linux (the DMG bundles only a macOS scheduler). Install it on the
+host with `contrib/send-later/install_linux.sh` (needs `cargo`, or
+`SCHEDULER_BINARY=` pointing to a Linux build). It listens on 127.0.0.1:23376
+and writes its control token to `~/.config/zapfast/scheduler-token`. The app's
+Connect already forwards 23376 and reads the token from that path, so no
+launcher change is needed for it. The trial workflow now builds the scheduler
+and runs the stub-Server end-to-end test for x86_64 Linux. arm64 Linux builds
+from source on the host.
 
 ## Limits
 
