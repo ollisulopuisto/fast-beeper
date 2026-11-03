@@ -515,19 +515,30 @@ pub mod fixed_clock {
 /// Case- and accent-insensitive matching without changing displayed names.
 pub fn search_key(text: &str) -> String {
     use icu_normalizer::DecomposingNormalizerBorrowed;
-    use icu_properties::{CodePointMapData, props::GeneralCategory};
+    use icu_properties::{CodePointMapDataBorrowed, props::GeneralCategory};
+    use std::sync::OnceLock;
 
     if text.is_ascii() {
         return text.to_ascii_lowercase();
     }
-    // Performance optimization: Instantiate `CodePointMapData` once outside
-    // the iterator filter closure instead of constructing it per character,
-    // and pre-allocate the output string with `text.len()` bytes.
-    let categories = CodePointMapData::<GeneralCategory>::new();
+    // Performance optimization:
+    // 1. In Unicode, GeneralCategory::NonspacingMark characters (accents/diacritics)
+    //    begin above ASCII (U+0300 Combining Diacritical Marks). Fast-path check
+    //    `c.is_ascii()` inside the iterator filter to avoid table lookups for ASCII
+    //    characters produced during NFD decomposition.
+    // 2. Cache the static `CodePointMapDataBorrowed` and `DecomposingNormalizerBorrowed`
+    //    via `OnceLock` instead of constructing owned ICU tables and structures
+    //    on every call.
+    static CATEGORIES: OnceLock<CodePointMapDataBorrowed<'static, GeneralCategory>> =
+        OnceLock::new();
+    let categories = CATEGORIES.get_or_init(CodePointMapDataBorrowed::<GeneralCategory>::new);
+    const NORMALIZER: DecomposingNormalizerBorrowed<'static> =
+        DecomposingNormalizerBorrowed::new_nfd();
+
     let mut key = String::with_capacity(text.len());
-    let filtered_chars = DecomposingNormalizerBorrowed::new_nfd()
+    let filtered_chars = NORMALIZER
         .normalize_iter(text.chars())
-        .filter(|c| categories.get(*c) != GeneralCategory::NonspacingMark)
+        .filter(|c| c.is_ascii() || categories.get(*c) != GeneralCategory::NonspacingMark)
         .flat_map(char::to_lowercase);
     key.extend(filtered_chars);
     key
