@@ -1563,6 +1563,23 @@ fn decode_entities(text: &str) -> String {
     decoded
 }
 
+/// Plain text can arrive with an HTML-escaped link ("...?a=1&amp;b=2"). Only
+/// the links are decoded, so a typed "&amp;" elsewhere stays as written.
+fn decode_link_entities(raw: &str) -> String {
+    if !raw.contains("&amp;") {
+        return raw.to_owned();
+    }
+    raw.split_inclusive(char::is_whitespace)
+        .map(|word| {
+            if word.starts_with("http://") || word.starts_with("https://") {
+                decode_entities(word)
+            } else {
+                word.to_owned()
+            }
+        })
+        .collect()
+}
+
 fn plain_rich_text(raw: &str) -> String {
     let lower = raw.to_ascii_lowercase();
     let known = [
@@ -1601,7 +1618,7 @@ fn plain_rich_text(raw: &str) -> String {
         })
     });
     if !looks_html {
-        return raw.to_owned();
+        return decode_link_entities(raw);
     }
     let mut out = String::new();
     let mut rest = raw;
@@ -6066,6 +6083,23 @@ mod tests {
                 .unwrap()
                 .summary,
             "no panic"
+        );
+    }
+
+    #[test]
+    fn escaped_ampersands_in_plain_text_links_are_decoded() {
+        let url = "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&amp;dl=0";
+        assert_eq!(
+            plain_rich_text(url),
+            "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&dl=0"
+        );
+        assert_eq!(
+            plain_rich_text(&format!("see {url}\nthen &amp; more")),
+            "see https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&dl=0\nthen &amp; more"
+        );
+        assert_eq!(
+            plain_rich_text("a&b https://x.test/?q=1&r=2"),
+            "a&b https://x.test/?q=1&r=2"
         );
     }
 
