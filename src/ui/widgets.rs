@@ -464,7 +464,7 @@ pub fn tick_icon(status: Delivery) -> Option<Icon> {
         Delivery::Sent => Icon::DeliveryTick,
         Delivery::Delivered | Delivery::ReadBySome | Delivery::Read | Delivery::Played => {
             Icon::DeliveryTicks
-        },
+        }
         Delivery::Failed => Icon::CircleAlert,
     })
 }
@@ -2142,10 +2142,7 @@ mod tests {
     fn delivery_ticks_are_our_own_equal_height_glyphs() {
         assert_eq!(tick_icon(Delivery::Unknown), Some(Icon::Minus));
         assert_eq!(tick_icon(Delivery::Sent), Some(Icon::DeliveryTick));
-        assert_eq!(
-            tick_icon(Delivery::ReadBySome),
-            Some(Icon::DeliveryTicks)
-        );
+        assert_eq!(tick_icon(Delivery::ReadBySome), Some(Icon::DeliveryTicks));
         for status in [Delivery::Delivered, Delivery::Read, Delivery::Played] {
             assert_eq!(tick_icon(status), Some(Icon::DeliveryTicks));
         }
