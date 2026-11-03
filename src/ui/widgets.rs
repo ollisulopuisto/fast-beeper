@@ -429,6 +429,16 @@ pub fn ticks_in(ui: &Ui, palette: &Palette, rect: Rect, status: Delivery, plain:
         _ => plain,
     };
     theme::paint_icon(ui, icon, rect, rect.height(), color);
+    if status == Delivery::ReadBySome {
+        // A plus after the ticks: some, not all, have read it.
+        ui.painter().text(
+            rect.right_top() + vec2(1.0, -1.0),
+            egui::Align2::LEFT_TOP,
+            "+",
+            theme::semibold(10.0),
+            palette.read,
+        );
+    }
     if matches!(status, Delivery::Unknown | Delivery::ReadBySome) {
         let response = ui.interact(
             rect,
@@ -2132,6 +2142,10 @@ mod tests {
     fn delivery_ticks_are_our_own_equal_height_glyphs() {
         assert_eq!(tick_icon(Delivery::Unknown), Some(Icon::Minus));
         assert_eq!(tick_icon(Delivery::Sent), Some(Icon::DeliveryTick));
+        assert_eq!(
+            tick_icon(Delivery::ReadBySome),
+            Some(Icon::DeliveryTicks)
+        );
         for status in [Delivery::Delivered, Delivery::Read, Delivery::Played] {
             assert_eq!(tick_icon(status), Some(Icon::DeliveryTicks));
         }
