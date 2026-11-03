@@ -3,11 +3,11 @@
 
 Diagnoses whether a link in a message's `text` holds a bare ampersand or an
 escaped one (U+0026 followed by a, m, p, semicolon). It searches with the
-documented GET /v1/messages/search, tries up to five phrases in order until one
-hits, and keeps at most six hits. For each hit it prints only a structural
+documented GET /v1/messages/search, tries up to three phrases that identify one reported
+link until one hits, and keeps at most two hits. For each hit it prints only a structural
 summary of the links: scheme and host, path segment lengths, each query
-parameter's name, its value length (values of one or two characters are shown),
-and the exact separator bytes between parameters. It also prints the payload
+parameter's name (only rlkey and dl are named, others are masked), the dl value
+when it is 0 or 1, and the exact separator bytes between parameters. It also prints the payload
 field names, the message type, whether the mapper's HTML branch would be taken
 (same tag rule as plain_rich_text in src/backend/beeper.rs), and counts of bare
 versus entity ampersands in the whole text. It never prints keys, file names,
@@ -26,10 +26,11 @@ import urllib.parse
 import urllib.request
 from run_client import validate_endpoint, LOOPBACK
 
-MAX_HITS = 6
-MAX_QUERIES = 5
+MAX_HITS = 2
+MAX_QUERIES = 3
 # Phrases that identify the reported message without printing anything of it.
-DEFAULT_PHRASES = ('hh_uunista_ulos.mp4', 'dropbox.com/scl/fi/s2blo6', 'uunista_ulos', 'dropbox.com/scl/fi', 'rlkey=')
+DEFAULT_PHRASES = ('hh_uunista_ulos.mp4', 'dropbox.com/scl/fi/s2blo6', 'uunista_ulos')
+KNOWN_PARAMS = ('rlkey', 'dl')
 # The tag names plain_rich_text treats as markup (src/backend/beeper.rs).
 KNOWN_TAGS = ('p', 'div', 'br', 'html', 'span', 'a', 'strong', 'b', 'ul', 'ol', 'li', 'blockquote', 'script',
               'style', 'iframe', 'object', 'em', 'i', 'img', 'h1', 'h2', 'h3', 'tr')
@@ -58,10 +59,6 @@ def looks_html(text):
     return False
 
 
-def shown(value):
-    return value if len(value) <= 2 else '<%d chars>' % len(value)
-
-
 def link_shape(url):
     """Structure of one link with every private value masked."""
     if not re.match(r'https?://', url, re.I):
@@ -74,9 +71,9 @@ def link_shape(url):
         for index in range(0, len(parts), 2):
             name, _, value = parts[index].partition('=')
             separator = parts[index + 1] if index + 1 < len(parts) else ''
-            params.append({'name_length': len(name),
-                           'name': name if re.fullmatch(r'[A-Za-z_]{1,12}', name) else '<masked>',
-                           'value': shown(value),
+            known = name in KNOWN_PARAMS
+            params.append({'name': name if known else '<masked>',
+                           'dl_value': value if name == 'dl' and value in ('0', '1') else None,
                            'separator_after': json.dumps(separator),
                            'separator_after_hex': separator.encode('utf-8').hex(' ')})
     return {'scheme_host': scheme_host if len(scheme_host) <= 40 else '<masked>',
@@ -120,11 +117,11 @@ def probe(search, phrases=DEFAULT_PHRASES):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base-url', default='http://127.0.0.1:23373')
-    parser.add_argument('--phrase', action='append', help='Replace the built-in phrases (8+ characters each, at most five)')
+    parser.add_argument('--phrase', action='append', help='Replace the built-in phrases (5+ characters each, at most three)')
     args = parser.parse_args()
     phrases = tuple(args.phrase) if args.phrase else DEFAULT_PHRASES
     if len(phrases) > MAX_QUERIES or any(len(p) < 5 for p in phrases):
-        parser.error('Use up to five phrases of at least 5 characters')
+        parser.error('Use up to three phrases of at least 5 characters')
     try:
         parsed = validate_endpoint(args.base_url)
         token = os.environ.get('BEEPER_ACCESS_TOKEN') or getpass.getpass('Beeper API token (local terminal only): ')
