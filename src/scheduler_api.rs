@@ -56,6 +56,7 @@ impl ServerSender {
         headers.insert(AUTHORIZATION, auth);
         let http = Client::builder()
             .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| format!("http client: {e}"))?;

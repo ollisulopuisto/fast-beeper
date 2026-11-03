@@ -1,4 +1,4 @@
-# fast-beeper read API (experimental, local only)
+# fast-beeper read API (EXPERIMENTAL, local only, not ready)
 
 `zapfast-reader` lets other apps on the same machine read messages through
 fast-beeper with their own revocable credentials. It runs beside the Beeper
@@ -39,7 +39,9 @@ Responses come from the Server unchanged for unrestricted clients.
   removes the entry. The file is re-read per request, so revocation is
   immediate, no restart.
 - `--accounts` restricts a client to those Beeper account ids. Listings and
-  search are filtered by account; nested lookup maps are dropped; a chat's
+  search are filtered by account; everything except the filtered `items`
+  (counts, cursors, hasMore, lookup maps) is dropped, so restricted clients
+  get one page and no paging; a chat's
   messages are served only if the chat belongs to an allowed account, and
   otherwise look like 404. An unexpected response shape fails closed (502).
   Chat-level allowlists are not supported: a registry entry with unknown
@@ -81,3 +83,12 @@ Responses come from the Server unchanged for unrestricted clients.
     zapfast-reader token add dashboard --scopes chats:read,messages:read
     zapfast-reader                       # serves 127.0.0.1:23377
     curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:23377/v1/chats
+
+## Open security work before this can be called ready
+
+- Tests run helper functions only; an HTTP-level test (real socket, auth,
+  Origin refusal, mock upstream) is still to be written.
+- Single-threaded, so there is no global connection limit yet.
+- Concurrent `token add/revoke` runs need a lock file.
+- Live check of Server side effects (see Unverified) and of response shapes.
+- Linked/direct-network views: active missing work, not v1 scope.

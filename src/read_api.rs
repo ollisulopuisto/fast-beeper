@@ -346,18 +346,12 @@ fn account_of(value: &Value) -> Option<&str> {
     value.get("accountID").and_then(Value::as_str)
 }
 
-/// Keeps scalar paging fields and only the items inside the allowlist.
-/// Nested objects other than items (lookup maps of chats or users) are
-/// dropped, since they could describe accounts outside the allowlist.
+/// Keeps only the items inside the allowlist. Counts, cursors, flags and
+/// nested lookup maps are all dropped: they are computed over the
+/// unfiltered result and could reveal accounts outside the allowlist, so
+/// a restricted client sees one filtered page and no paging.
 fn filter_items(value: &Value, allowed: &[String]) -> Option<Value> {
-    let object = value.as_object()?;
-    let items = object.get("items")?.as_array()?;
-    let mut out = serde_json::Map::new();
-    for (key, field) in object {
-        if matches!(field, Value::String(_) | Value::Bool(_) | Value::Number(_)) {
-            out.insert(key.clone(), field.clone());
-        }
-    }
+    let items = value.as_object()?.get("items")?.as_array()?;
     let kept: Vec<Value> = items
         .iter()
         .filter(|i| {
@@ -367,8 +361,7 @@ fn filter_items(value: &Value, allowed: &[String]) -> Option<Value> {
         })
         .cloned()
         .collect();
-    out.insert("items".into(), Value::Array(kept));
-    Some(Value::Object(out))
+    Some(serde_json::json!({ "items": kept }))
 }
 
 fn error(status: u16, message: &str) -> (u16, String) {
@@ -637,7 +630,8 @@ mod tests {
         let chats: Value =
             serde_json::from_str(&run(&registry, &token, "GET", "/v1/chats").1).unwrap();
         assert_eq!(chats["items"].as_array().unwrap().len(), 1);
-        assert_eq!(chats["hasMore"], true);
+        assert!(chats.get("hasMore").is_none());
+        assert_eq!(chats.as_object().unwrap().len(), 1);
         assert!(chats.get("users").is_none());
         let found = run(&registry, &token, "GET", "/v1/messages/search?query=x").1;
         assert!(!found.contains("secret") && !found.contains("no account"));
