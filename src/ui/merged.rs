@@ -1159,10 +1159,7 @@ fn rename_field(
                 app.settings.beeper.chat_names.remove(&chat.id);
             }
             None => {
-                app.settings
-                    .beeper
-                    .chat_names
-                    .insert(chat.id.clone(), name);
+                app.settings.beeper.chat_names.insert(chat.id.clone(), name);
             }
         }
         app.mark_settings_dirty();
