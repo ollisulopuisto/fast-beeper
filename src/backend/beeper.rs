@@ -1806,11 +1806,14 @@ fn attachment_content(m: &BeeperMessage) -> Option<Content> {
 /// Whether a `seen` receipt says someone read the message: `true`, a read
 /// timestamp, or a per-participant map holding either. `false`, an empty
 /// string and an empty map are the bridge saying "not read" or nothing.
-fn is_seen(value: &serde_json::Value) -> bool {
+fn is_seen(value: &serde_json::Value, own: &str) -> bool {
     match value {
         serde_json::Value::Bool(seen) => *seen,
         serde_json::Value::String(time) => !time.is_empty(),
-        serde_json::Value::Object(by_participant) => by_participant.values().any(is_seen),
+        // The sender's own entry never counts as someone else reading.
+        serde_json::Value::Object(by) => by
+            .iter()
+            .any(|(who, v)| who != own && is_seen(v, own)),
         _ => false,
     }
 }
@@ -1819,7 +1822,7 @@ fn delivery_of(m: &BeeperMessage) -> Delivery {
     if !m.is_sender.unwrap_or(false) {
         return Delivery::None;
     }
-    if m.seen.as_ref().is_some_and(is_seen) {
+    if m.seen.as_ref().is_some_and(|v| is_seen(v, &m.sender_id)) {
         return Delivery::Read;
     }
     match m.send_status.as_ref() {
@@ -5642,9 +5645,11 @@ mod tests {
             (json!(""), Delivery::Sent),
             (json!({"a": false}), Delivery::Sent),
             (json!({}), Delivery::Sent),
+            (json!({"@me": "2026-11-03T07:48:00Z"}), Delivery::Sent),
         ] {
             let wire = json!({
-                "id": "x", "isSender": true, "seen": seen.clone(),
+                "id": "x", "isSender": true, "senderID": "@me",
+                "seen": seen.clone(),
                 "sendStatus": {"status": "SUCCESS"}
             });
             let m: BeeperMessage = serde_json::from_value(wire).unwrap();
