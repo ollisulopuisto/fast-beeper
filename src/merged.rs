@@ -172,7 +172,7 @@ impl CatchUp {
     }
 }
 
-fn pair((chat, why): (&String, &Stopped)) -> (&str, Stopped) {
+fn pair<'a>((chat, why): (&'a String, &'a Stopped)) -> (&'a str, Stopped) {
     (chat.as_str(), *why)
 }
 
