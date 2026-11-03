@@ -45,6 +45,7 @@ pub mod opener;
 pub mod paths;
 pub mod privacy;
 pub mod proxy;
+pub mod read_api;
 pub mod qr;
 pub mod safety;
 pub mod scheduler;

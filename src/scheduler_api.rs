@@ -93,6 +93,20 @@ impl ServerSender {
 }
 
 impl ServerSender {
+    /// One bounded GET for the read-only companion. Returns the status and
+    /// body, or a transport error that carries no response content.
+    pub fn get_bounded(&self, target: &str) -> Result<(u16, String), String> {
+        let url = format!("{}{target}", self.base_url);
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .map_err(|_| "server unreachable".to_string())?;
+        let status = response.status().as_u16();
+        let body = Self::bounded_body(response).map_err(|_| "response unusable".to_string())?;
+        Ok((status, body))
+    }
+
     /// Enqueue-time validation: the chat must exist on the Server and
     /// belong to the stated account, so a mistargeted item fails at
     /// scheduling time rather than sending somewhere wrong at due time.
