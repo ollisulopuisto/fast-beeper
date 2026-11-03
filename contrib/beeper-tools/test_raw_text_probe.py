@@ -22,7 +22,7 @@ class ProbeTests(unittest.TestCase):
         dumped = json.dumps(out)
         for leak in ('SECRETNAME', KEY, 'private tail', '!room', '@a', 'hh_uunista', 'abcdef'):
             self.assertNotIn(leak, dumped)
-        params = out['hits'][0]['links'][0]['params']
+        params = out['hits'][0]['links_from_text'][0]['params']
         self.assertEqual([p['name'] for p in params], ['rlkey', 'dl', '<masked>'])
         self.assertEqual(params[0]['separator_after_hex'], '26 61 6d 70 3b')
         self.assertEqual(params[1]['dl_value'], '0')
@@ -34,7 +34,7 @@ class ProbeTests(unittest.TestCase):
     def test_bare_separator_is_distinguished(self):
         out = m.probe(search_of({'text': BARE, 'type': 'TEXT'}))
         hit = out['hits'][0]
-        self.assertEqual(hit['links'][0]['params'][0]['separator_after_hex'], '26')
+        self.assertEqual(hit['links_from_text'][0]['params'][0]['separator_after_hex'], '26')
         self.assertEqual((hit['bare_ampersands_in_text'], hit['entity_ampersands_in_text']), (1, 0))
 
     def test_html_branch_uses_the_mappers_tag_rule(self):
@@ -57,6 +57,24 @@ class ProbeTests(unittest.TestCase):
         out = m.probe(lambda q: {'items': []}, tuple('phrase%d' % i for i in range(9)))
         self.assertEqual(out['queries_tried'], 3)
         self.assertEqual(out['hit_count'], 0)
+
+    def test_payload_link_previews_are_structured_and_masked(self):
+        item = {'text': ESCAPED, 'type': 'TEXT',
+                'links': [{'title': 'hh_uunista_ulos.mp4 secret name',
+                           'url': BARE + '&SECRETNAME=1',
+                           'img': 'https://img.test/SECRETKEY123456'}]}
+        out = m.probe(search_of(item))
+        dumped = json.dumps(out)
+        for leak in ('SECRETNAME', KEY, 'secret name', 'hh_uunista', 'img.test'):
+            self.assertNotIn(leak, dumped)
+        previews = out['hits'][0]['payload_link_previews']
+        self.assertEqual(len(previews), 1)
+        self.assertTrue(previews[0]['has_title'])
+        self.assertIn('url', previews[0]['fields'])
+        # The preview url shows its own separator bytes: bare here, so the two
+        # sources are distinguishable in one output.
+        self.assertEqual(previews[0]['url']['params'][0]['separator_after_hex'], '26')
+        self.assertEqual([p['name'] for p in previews[0]['url']['params']], ['rlkey', 'dl', '<masked>'])
 
     def test_odd_payloads_do_not_raise(self):
         self.assertEqual(m.probe(lambda q: [])['hit_count'], 0)
