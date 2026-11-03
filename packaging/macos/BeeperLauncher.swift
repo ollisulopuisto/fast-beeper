@@ -134,7 +134,10 @@ let schedulerHealthScript = (try? String(contentsOf:
 func launch(_ connection: Connection) throws {
     // Read one named target using the user's pre-existing SSH trust. Fixed command only.
     let query = ssh(connection, extra: [])
-    query.arguments! += ["PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin /opt/homebrew/bin/beeper targets show server --json"]
+    // One fixed command for a macOS or Linux Server host. A Linux host may
+    // install the target reader helper from contrib/linux-server (rootless
+    // Podman); otherwise the official CLI is found on the usual paths.
+    query.arguments! += ["PATH=\"$HOME/.local/bin:$HOME/.npm-global/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\"; export PATH; if [ -x \"$HOME/.local/bin/zapfast-beeper-target\" ]; then exec \"$HOME/.local/bin/zapfast-beeper-target\"; fi; exec beeper targets show server --json"]
     let output = Pipe()
     query.standardOutput = output
     try query.run()
@@ -173,6 +176,13 @@ func launch(_ connection: Connection) throws {
         let reconfigure = CommandLine.arguments.contains("--reconfigure")
             || NSEvent.modifierFlags.contains(.option)
         guard reconfigure || !manager.fileExists(atPath: declined.path) else { return }
+        // The bundled scheduler is a macOS binary and this installer writes a
+        // launchd agent. A Linux host installs it on the host with
+        // contrib/send-later/install_linux.sh; do not offer what cannot work.
+        let host = remote(connection, "uname -s")
+        guard host.0 == 0,
+              String(decoding: host.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "Darwin"
+        else { return }
         let check = ssh(connection, extra: [])
         check.arguments! += [schedulerHealthScript + " && echo HEALTHY || true"]
         let checkOut = Pipe()

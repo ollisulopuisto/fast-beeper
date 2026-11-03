@@ -1,0 +1,6 @@
+#!/bin/sh
+# Prints the Beeper Server target as JSON for the Mac app's Connect, which
+# reads it over SSH. Install as ~/.local/bin/zapfast-beeper-target for the
+# dedicated user that runs the Server container. The app runs it as a fixed
+# command and accepts only a loopback endpoint on port 23374.
+exec podman exec zapfast-beeper-server beeper targets show server --json
