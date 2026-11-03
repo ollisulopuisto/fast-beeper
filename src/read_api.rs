@@ -60,6 +60,12 @@ pub fn hash_token(token: &str) -> String {
     out
 }
 
+/// Compares every byte; the hashes are fixed-length, so a length
+/// difference is not secret.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 40
@@ -191,11 +197,8 @@ impl Registry {
         let presented = hash_token(token);
         let mut found = None;
         for client in &self.clients {
-            let same = ring::constant_time::verify_slices_are_equal(
-                presented.as_bytes(),
-                client.token_sha256.to_ascii_lowercase().as_bytes(),
-            )
-            .is_ok();
+            let stored = client.token_sha256.to_ascii_lowercase();
+            let same = ct_eq(presented.as_bytes(), stored.as_bytes());
             if same {
                 found = Some(client);
             }
