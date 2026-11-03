@@ -1302,7 +1302,7 @@ impl Api {
         } else {
             Attachment::Auto
         };
-        self.send_attachment(chat, path, kind, caption, cancel)
+        self.send_attachment(chat, path, kind, caption, None, cancel)
     }
 
     fn send_attachment(
@@ -1311,6 +1311,7 @@ impl Api {
         path: &std::path::Path,
         kind: Attachment,
         caption: Option<&str>,
+        reply: Option<&str>,
         cancel: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<SendAccepted, String> {
         if upload_stopped(cancel) {
@@ -1373,6 +1374,9 @@ impl Api {
         let mut message = serde_json::json!({ "attachment": attachment });
         if let Some(caption) = caption {
             message["text"] = caption.into();
+        }
+        if let Some(reply) = reply {
+            message["replyToMessageID"] = reply.into();
         }
         let response = self
             .http
@@ -2175,7 +2179,7 @@ pub fn run(
         Vec<std::path::PathBuf>,
         bool,
         Option<String>,
-        Option<u32>,
+        Option<(u32, Option<String>)>,
     );
     let (upload_tx, upload_rx) = std::sync::mpsc::sync_channel::<UploadBatch>(2);
     let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<(ChatId, String)>();
@@ -2190,19 +2194,26 @@ pub fn run(
                     if upload_stopped(Some(&upload_cancel)) {
                         return;
                     }
-                    let kind = match (voice, documents) {
-                        (Some(seconds), _) => Attachment::Voice(seconds),
+                    let kind = match (&voice, documents) {
+                        (Some((seconds, _)), _) => Attachment::Voice(*seconds),
                         (None, true) => Attachment::Document,
                         (None, false) => Attachment::Auto,
                     };
+                    let reply = voice.as_ref().and_then(|(_, reply)| reply.as_deref());
                     match upload_api.send_attachment(
                         &chat,
                         path,
                         kind,
                         if index == 0 { caption.as_deref() } else { None },
+                        reply,
                         Some(&upload_cancel),
                     ) {
                         Ok(accepted) => {
+                            // A sent recording is no longer needed; a failed
+                            // one stays on disk and returns to the composer.
+                            if voice.is_some() {
+                                let _ = std::fs::remove_file(path);
+                            }
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
                             } else {
@@ -2978,15 +2989,19 @@ pub fn run(
                     samples,
                     quoting,
                 } => {
-                    if quoting.is_some() {
+                    if quoting
+                        .as_ref()
+                        .is_some_and(|q| q.source_chat(&chat) != chat)
+                    {
                         emit(Event::SendRefused {
                             chat,
                             quoting,
                             unsent: crate::backend::Unsent::Voice(samples),
-                            reason: crate::backend::Refusal::UnsupportedBackend,
+                            reason: crate::backend::Refusal::QuoteUnavailable,
                         });
                         continue;
                     }
+                    let reply = quoting.as_ref().map(|q| q.id.clone());
                     let mut recording = samples.clone();
                     crate::voice::normalize(&mut recording);
                     let seconds = (recording.len() as f64 / f64::from(crate::voice::RATE))
@@ -3001,11 +3016,12 @@ pub fn run(
                     });
                     match file {
                         Ok(path) => {
-                            let batch = (chat.clone(), vec![path], false, None, Some(seconds));
+                            let voice = Some((seconds, reply));
+                            let batch = (chat.clone(), vec![path], false, None, voice);
                             if upload_tx.try_send(batch).is_err() {
                                 emit(Event::SendRefused {
                                     chat,
-                                    quoting: None,
+                                    quoting,
                                     unsent: crate::backend::Unsent::Voice(samples),
                                     reason: crate::backend::Refusal::Offline,
                                 });
@@ -3013,7 +3029,7 @@ pub fn run(
                         }
                         Err(_) => emit(Event::SendRefused {
                             chat,
-                            quoting: None,
+                            quoting,
                             unsent: crate::backend::Unsent::Voice(samples),
                             reason: crate::backend::Refusal::UnsupportedBackend,
                         }),
