@@ -2808,6 +2808,9 @@ pub enum Action {
         card: Option<usize>,
     },
     ZoomImageIn,
+    /// Turns the viewer's picture or clip a quarter, clockwise when true.
+    /// A view only; the file is untouched.
+    RotateImage(bool),
     /// Scales the previewed image by a factor, as the wheel or a pinch asks.
     ZoomImageBy(f32),
     /// Shows the previewed image at its original size.

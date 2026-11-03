@@ -214,6 +214,10 @@ jobs:
           shot bars-chat-1180x780 1180x780 chat,bars
           shot bars-composer-one-1180x780 1180x780 chat,draft-one,bars
           shot bars-composer-max-1180x780 1180x780 chat,typing,bars
+          # The viewer upright and turned a quarter clockwise.
+          shot viewer-1180x780 1180x780 chat,preview
+          shot viewer-rotated-1180x780 1180x780 chat,preview,rotate-view
+          shot viewer-rotated-dark-1180x780 1180x780 chat,preview,rotate-view,theme=Catppuccin.json
           # Per-account appearance: the open chat's account draws its
           # conversation with its own theme, then its own background,
           # while the window keeps the global theme.
