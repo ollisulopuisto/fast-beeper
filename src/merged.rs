@@ -86,6 +86,31 @@ pub fn latest_replyable<'a>(messages: &[&'a Message]) -> Option<&'a Message> {
         .copied()
         .find(|message| !matches!(message.content, crate::model::Content::Revoked))
 }
+/// One linked chat's paging, as the catch-up needs it.
+pub struct Paging {
+    pub chat: String,
+    /// Timestamp of the oldest loaded message, if any is loaded.
+    pub oldest: Option<i64>,
+    /// No further history can be fetched for this chat.
+    pub exhausted: bool,
+}
+
+/// The chats that still hold the merged timeline back from `target`: those
+/// whose loaded history starts after it and that have more to give. Each
+/// member pages by count, so a busy chat reaches back less far than a quiet
+/// one, and the merged view only shows a gap-free stretch back to the newest
+/// of their starts.
+pub fn behind_target(members: &[Paging], target: i64) -> Vec<&str> {
+    let mut behind = Vec::new();
+    for member in members {
+        let starts_after = member.oldest.is_some_and(|oldest| oldest > target);
+        if starts_after && !member.exhausted {
+            behind.push(member.chat.as_str());
+        }
+    }
+    behind
+}
+
 /// Sort pointer-sized references, not message text/media payloads, on every frame.
 pub fn ordered_refs(mut messages: Vec<&Message>) -> Vec<&Message> {
     messages.sort_unstable_by(|a, b| {
@@ -306,5 +331,30 @@ mod tests {
         chat.backend_origin = Some("one".into());
         chat.backend_account = Some("personal".into());
         assert!(!member.matches(&chat));
+    }
+}
+
+#[cfg(test)]
+mod catch_up_tests {
+    use super::*;
+
+    fn member(chat: &str, oldest: Option<i64>, exhausted: bool) -> Paging {
+        Paging {
+            chat: chat.to_owned(),
+            oldest,
+            exhausted,
+        }
+    }
+
+    #[test]
+    fn only_members_starting_after_the_target_that_can_page_are_behind() {
+        let members = [
+            member("quiet", Some(100), false),
+            member("busy", Some(900), false),
+            member("done", Some(800), true),
+            member("empty", None, false),
+        ];
+        assert_eq!(behind_target(&members, 100), ["busy"]);
+        assert!(behind_target(&members, 1000).is_empty());
     }
 }

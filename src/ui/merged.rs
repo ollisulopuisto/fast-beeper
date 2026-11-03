@@ -9,8 +9,20 @@ struct RowCache {
     width: f32,
     heights: std::collections::HashMap<(String, String), f32>,
 }
+/// "Load older" in progress: it keeps paging the chats whose history starts
+/// after `target` (the oldest message on screen when it was pressed), so the
+/// merged timeline fills in below it instead of leaving gaps for the busy ones.
+#[derive(Clone)]
+struct CatchUp {
+    target: i64,
+    /// The oldest message each chat had when its last request went out.
+    asked: std::collections::HashMap<String, i64>,
+    /// Chats that stopped producing older messages.
+    stuck: std::collections::HashSet<String>,
+}
 #[derive(Clone, Default)]
 struct State {
+    catch_up: Option<CatchUp>,
     destination: Option<Member>,
     reply: Option<(Member, String)>,
     explicit: bool,
@@ -149,6 +161,63 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             Err(error) => routing_error = Some(error),
         }
     }
+    if let Some(mut catch_up) = state.catch_up.take() {
+        let paging: Vec<_> = valid
+            .iter()
+            .map(|m| {
+                let conversation = app.conversations.get(&m.chat);
+                crate::merged::Paging {
+                    chat: m.chat.clone(),
+                    oldest: conversation
+                        .and_then(|c| c.messages.first())
+                        .map(|message| message.timestamp),
+                    exhausted: catch_up.stuck.contains(&m.chat)
+                        || conversation.is_none_or(|c| c.complete && c.phone_exhausted),
+                }
+            })
+            .collect();
+        let behind: Vec<String> = crate::merged::behind_target(&paging, catch_up.target)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut waiting = false;
+        for chat in behind {
+            let busy = |app: &App| {
+                app.conversations
+                    .get(&chat)
+                    .is_some_and(|c| c.loading_older || c.fetching_phone)
+            };
+            if busy(app) {
+                waiting = true;
+                continue;
+            }
+            let oldest = app
+                .conversations
+                .get(&chat)
+                .and_then(|c| c.messages.first())
+                .map(|message| message.timestamp);
+            // A request that brought nothing older means this chat is done.
+            if catch_up.asked.get(&chat).is_some_and(|asked| Some(*asked) == oldest) {
+                catch_up.stuck.insert(chat);
+                continue;
+            }
+            app.load_older(&chat, true);
+            if busy(app) {
+                waiting = true;
+                if let Some(oldest) = oldest {
+                    catch_up.asked.insert(chat, oldest);
+                }
+            } else {
+                // Nothing went out (a cooling-down or disconnected phone).
+                catch_up.stuck.insert(chat);
+            }
+        }
+        if waiting {
+            let ctx = ui.ctx().clone();
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            state.catch_up = Some(catch_up);
+        }
+    }
     let message_count: usize = valid
         .iter()
         .map(|m| {
@@ -207,9 +276,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             ))
             .clicked()
         {
-            for member in &valid {
-                app.load_older(&member.chat, true);
-            }
+            let oldest = valid
+                .iter()
+                .filter_map(|m| app.conversations.get(&m.chat))
+                .filter_map(|c| c.messages.first().map(|message| message.timestamp))
+                .min();
+            state.catch_up = oldest.map(|target| CatchUp {
+                target,
+                asked: Default::default(),
+                stuck: Default::default(),
+            });
         }
         if ui
             .selectable_label(searching, "Search")
