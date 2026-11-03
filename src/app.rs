@@ -6807,7 +6807,7 @@ impl App {
                 }
             });
             for (chat, conversation) in self.conversations.iter_mut() {
-                if chat != &id && conversation.messages.len() > 200 {
+                if chat != &id && !tabs.contains(chat) && conversation.messages.len() > 200 {
                     let remove = conversation.messages.len() - 200;
                     conversation.messages.drain(..remove);
                     conversation.rows.clear();
