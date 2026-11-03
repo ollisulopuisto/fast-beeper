@@ -662,7 +662,12 @@ pub fn handle(
             let body = person_messages(upstream, person, source.origins, *limit);
             return (200, body.to_string(), name, label);
         }
-        return (200, people_list(people, source.origins, client).to_string(), name, label);
+        return (
+            200,
+            people_list(people, source.origins, client).to_string(),
+            name,
+            label,
+        );
     }
     if let (true, Route::Messages(chat)) = (restricted, &parsed) {
         let probe = format!("/v1/chats/{}", encode(chat));

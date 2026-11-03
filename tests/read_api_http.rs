@@ -421,7 +421,11 @@ fn merged_timeline_with_recorded_origin_schema_orders_across_members() {
     assert_eq!(ada["members"][0]["readable"], true);
     assert_eq!(ada["members"][1]["readable"], true);
     let id = ada["id"].as_str().unwrap();
-    let (status, body) = get(&reader, &token, &format!("/v1/people/{id}/messages?limit=2"));
+    let (status, body) = get(
+        &reader,
+        &token,
+        &format!("/v1/people/{id}/messages?limit=2"),
+    );
     assert_eq!(status, 200);
     let timeline: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(timeline["partial"], false);
@@ -433,16 +437,35 @@ fn merged_timeline_with_recorded_origin_schema_orders_across_members() {
         .collect();
     assert_eq!(texts, ["wa newest", "sg middle"]);
     assert_eq!(timeline["items"][1]["accountID"], "local-signal_ba_Ada02");
-    assert!(timeline.get("hasMore").is_none(), "no upstream paging leaks");
+    assert!(
+        timeline.get("hasMore").is_none(),
+        "no upstream paging leaks"
+    );
 }
 
 #[test]
 fn an_allowlist_matching_the_recorded_accounts_sees_the_realistic_person() {
     let (base, _) = mock_server(false);
     let reader = start(&base, 8);
-    let both = add_client(&reader, "both", &["local-whatsapp_ba_Ada01", "local-signal_ba_Ada02"]);
+    let both = add_client(
+        &reader,
+        "both",
+        &["local-whatsapp_ba_Ada01", "local-signal_ba_Ada02"],
+    );
     let one = add_client(&reader, "one", &["local-whatsapp_ba_Ada01"]);
     std::fs::write(reader.path.with_extension("settings"), REAL_SHAPE).unwrap();
-    assert_eq!(people_ids(&reader, &both).1["items"].as_array().unwrap().len(), 1);
-    assert_eq!(people_ids(&reader, &one).1["items"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        people_ids(&reader, &both).1["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        people_ids(&reader, &one).1["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
