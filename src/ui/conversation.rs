@@ -6366,7 +6366,7 @@ pub(crate) fn linked_bubble(
     chat: &Chat,
     message: &Message,
     actions: &mut Vec<Action>,
-) {
+) -> Option<egui::Rect> {
     // The message's own source network hues its bubbles; a small network
     // icon above carries it too. Text colours stay the
     // palette's, so both themes keep their contrast.
@@ -6432,7 +6432,8 @@ pub(crate) fn linked_bubble(
             tailed: true,
         },
         actions,
-    );
+    )
+    .map(|response| response.rect)
 }
 
 /// Quick reactions plus our current reaction when needed.
