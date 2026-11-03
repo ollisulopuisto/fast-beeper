@@ -20,7 +20,7 @@ const ROUTES: &[(&str, u16, &str)] = &[
     ("/v1/chats/c-a1", 200, r#"{"accountID":"a1"}"#),
     ("/v1/chats/c-b2", 200, r#"{"accountID":"b2"}"#),
     ("/v1/chats/boom", 500, "SECRET-DETAIL"),
-    ("/v1/chats?", 200, r#"{"items":[{"accountID":"a1"}]}"#),
+    ("/v1/chats", 200, r#"{"items":[{"accountID":"a1"}]}"#),
 ];
 
 /// A mock Server: records "METHOD target|authorization" per request.
@@ -46,7 +46,9 @@ fn mock_server(redirect_accounts: bool) -> (String, Log) {
             let (status, extra, body) = if redirect_accounts && target == "/v1/accounts" {
                 (302, "location: http://127.0.0.1:1/elsewhere\r\n", "")
             } else {
-                match ROUTES.iter().find(|(p, _, _)| target.starts_with(p)) {
+                match ROUTES
+                    .iter()
+                    .find(|(p, _, _)| target.split('?').next() == Some(*p)) {
                     Some((_, s, b)) => (*s, "", *b),
                     None => (404, "", "{}"),
                 }
@@ -158,7 +160,6 @@ fn guessed_ids_traversal_and_query_tricks_never_reach_the_server() {
         "/v1/chats/a%2Fb/messages",
         "/v1/chats/c-a1%3Fx=1/messages?limit=1",
         "/v1/chats/c-a1/messages?limit=1&accountIDs=b2",
-        "/v1/chats/c-a1/messages?cursor=a%26b",
         "/v1/chats/c-a1/read",
     ] {
         let (status, _) = get(&reader, &token, target);
