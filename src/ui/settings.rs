@@ -2508,7 +2508,7 @@ mod tests {
         let header = painted
             .borrow()
             .iter()
-            .find(|(text, _)| text == "WhatsApp \u{b7} Personal [wa-personal]")
+            .find(|(text, _)| text == "WhatsApp \u{b7} Personal")
             .map(|(_, rect)| *rect)
             .unwrap_or_else(|| {
                 panic!(
