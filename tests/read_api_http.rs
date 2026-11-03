@@ -27,7 +27,7 @@ const ROUTES: &[(&str, u16, &str)] = &[
     ),
     ("/v1/chats/c-a1", 200, r#"{"accountID":"a1"}"#),
     ("/v1/chats/c-b2", 200, r#"{"accountID":"b2"}"#),
-    ("/v1/chats/boom", 500, "SECRET-DETAIL"),
+    ("/v1/chats/boom/messages", 500, "SECRET-DETAIL"),
     ("/v1/chats", 200, r#"{"items":[{"accountID":"a1"}]}"#),
 ];
 
