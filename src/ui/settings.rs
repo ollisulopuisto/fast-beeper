@@ -360,7 +360,7 @@ fn beeper_account_rows(
             rows.insert(
                 key,
                 (
-                    format!("{network} · {} [{}]", account.name, account.id),
+                    format!("{network} · {}", account.name),
                     account.id.clone(),
                     origin.clone(),
                     account.status.clone(),
@@ -422,10 +422,32 @@ fn sections(app: &App) -> Vec<Section> {
         for (id, (label, raw_id, origin, status)) in accounts {
             ui.push_id(&id, |ui| {
                 egui::CollapsingHeader::new(label).show(ui, |ui| {
-                    ui.label(format!("Account ID: {raw_id}"));
-                    ui.label(format!("Backend: {origin}"));
-                    ui.label(format!("Status reported by Beeper: {status}"));
-                    ui.label("Identity supplied by Beeper. Device administration is not available here.");
+                    let palette = app.palette;
+                    theme::text(ui, "Advanced", theme::semibold(13.0), palette.secondary);
+                    theme::text(
+                        ui,
+                        format!("Account ID: {raw_id}"),
+                        theme::regular(13.0),
+                        palette.secondary,
+                    );
+                    theme::text(
+                        ui,
+                        format!("Backend: {origin}"),
+                        theme::regular(13.0),
+                        palette.secondary,
+                    );
+                    theme::text(
+                        ui,
+                        format!("Status reported by Beeper: {status}"),
+                        theme::regular(13.0),
+                        palette.secondary,
+                    );
+                    theme::paragraph(
+                        ui,
+                        "Identity supplied by Beeper. Device administration is not available here.",
+                        theme::regular(13.0),
+                        palette.secondary,
+                    );
                     let settings = app.settings.beeper.accounts.entry(id.clone()).or_default();
                     let before = settings.clone();
                     egui::ComboBox::from_label("Show in Inbox").selected_text(format!("{:?}", settings.inbox)).show_ui(ui, |ui| {
@@ -1872,9 +1894,9 @@ fn section(
     title: &str,
     add_contents: impl FnOnce(&mut egui::Ui),
 ) {
-    ui.add_space(12.0);
+    ui.add_space(20.0);
     theme::text(ui, title, theme::bold(18.0), palette.text);
-    ui.add_space(8.0);
+    ui.add_space(10.0);
     Frame::new()
         .fill(theme::blend(palette.panel, palette.surface, 0.5))
         .stroke(Stroke::new(1.0, palette.outline))
@@ -1883,14 +1905,14 @@ fn section(
         .inner_margin(Margin {
             left: 20,
             right: 20,
-            top: 16,
-            bottom: 6,
+            top: 18,
+            bottom: 12,
         })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add_contents(ui);
         });
-    ui.add_space(8.0);
+    ui.add_space(12.0);
 }
 
 /// Our WhatsApp profile, which can be edited in place, and unlinking.
@@ -2545,6 +2567,9 @@ mod tests {
         let second = serde_json::to_string(&("http://127.0.0.1:8077", "same-id")).unwrap();
         assert_eq!(rows[&first].3, "disconnected");
         assert!(rows[&first].0.contains("Work"));
+        // The technical account ID stays in the panel's Advanced details,
+        // not the row title.
+        assert!(!rows[&first].0.contains("same-id"));
         app.settings
             .beeper
             .accounts
