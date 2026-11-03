@@ -86,6 +86,96 @@ pub fn latest_replyable<'a>(messages: &[&'a Message]) -> Option<&'a Message> {
         .copied()
         .find(|message| !matches!(message.content, crate::model::Content::Revoked))
 }
+/// One linked chat's paging, as the catch-up needs it.
+pub struct Paging {
+    pub chat: String,
+    /// Timestamp of the oldest loaded message, if any is loaded.
+    pub oldest: Option<i64>,
+    /// No further history can be fetched for this chat.
+    pub exhausted: bool,
+    /// A request for older messages is in flight.
+    pub busy: bool,
+}
+
+/// Why a chat stopped paging before reaching the target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stopped {
+    /// A request went out and brought nothing older.
+    NoProgress,
+    /// No request could go out: the phone is not connected or is cooling
+    /// down after an empty answer.
+    NotNow,
+}
+
+/// "Load older" in progress. Each linked chat pages by count, so a busy chat
+/// reaches back less far than a quiet one, and the merged view only shows a
+/// gap-free stretch back to the newest of their starts. This keeps paging the
+/// chats that start after `target` (the oldest message on screen when it was
+/// pressed), so the timeline fills in below it, and records which chats could
+/// not follow instead of dropping them silently.
+#[derive(Clone, Debug)]
+pub struct CatchUp {
+    target: i64,
+    /// The oldest message each chat had when its last request went out.
+    asked: std::collections::HashMap<String, i64>,
+    stopped: std::collections::BTreeMap<String, Stopped>,
+}
+
+impl CatchUp {
+    pub fn new(target: i64) -> Self {
+        Self {
+            target,
+            asked: Default::default(),
+            stopped: Default::default(),
+        }
+    }
+
+    /// The chats to ask for older messages now, and whether any request is
+    /// still in flight. Chats that already gave up are left alone.
+    pub fn plan(&mut self, members: &[Paging]) -> (Vec<String>, bool) {
+        let mut requests = Vec::new();
+        let mut waiting = false;
+        for member in members {
+            let Some(oldest) = member.oldest else {
+                continue;
+            };
+            let reached = oldest <= self.target;
+            let given_up = self.stopped.contains_key(&member.chat);
+            if member.exhausted || reached || given_up {
+                continue;
+            }
+            if member.busy {
+                waiting = true;
+            } else if self.asked.get(&member.chat) == Some(&oldest) {
+                self.stopped
+                    .insert(member.chat.clone(), Stopped::NoProgress);
+            } else {
+                requests.push(member.chat.clone());
+            }
+        }
+        (requests, waiting)
+    }
+
+    /// The request for `chat` went out while its oldest message was `oldest`.
+    pub fn asked(&mut self, chat: &str, oldest: i64) {
+        self.asked.insert(chat.to_owned(), oldest);
+    }
+
+    /// No request could go out for `chat`.
+    pub fn unavailable(&mut self, chat: &str) {
+        self.stopped.insert(chat.to_owned(), Stopped::NotNow);
+    }
+
+    /// The chats that could not follow, with why.
+    pub fn stopped(&self) -> impl Iterator<Item = (&str, Stopped)> {
+        self.stopped.iter().map(pair)
+    }
+}
+
+fn pair<'a>((chat, why): (&'a String, &'a Stopped)) -> (&'a str, Stopped) {
+    (chat.as_str(), *why)
+}
+
 /// Sort pointer-sized references, not message text/media payloads, on every frame.
 pub fn ordered_refs(mut messages: Vec<&Message>) -> Vec<&Message> {
     messages.sort_unstable_by(|a, b| {
@@ -306,5 +396,149 @@ mod tests {
         chat.backend_origin = Some("one".into());
         chat.backend_account = Some("personal".into());
         assert!(!member.matches(&chat));
+    }
+}
+
+#[cfg(test)]
+mod catch_up_tests {
+    use super::*;
+
+    /// A bridge with `history` messages older than what is loaded, paged
+    /// `page` at a time; `offline` bridges accept no request at all.
+    struct Bridge {
+        chat: &'static str,
+        loaded_from: i64,
+        remaining: Vec<i64>,
+        page: usize,
+        offline: bool,
+        pending: bool,
+    }
+
+    impl Bridge {
+        fn new(chat: &'static str, loaded_from: i64, remaining: Vec<i64>, page: usize) -> Self {
+            Self {
+                chat,
+                loaded_from,
+                remaining,
+                page,
+                offline: false,
+                pending: false,
+            }
+        }
+
+        fn paging(&self) -> Paging {
+            Paging {
+                chat: self.chat.to_owned(),
+                oldest: Some(self.loaded_from),
+                exhausted: self.remaining.is_empty() && !self.offline,
+                busy: self.pending,
+            }
+        }
+
+        /// A request arrives; it is answered on the next tick.
+        fn request(&mut self) -> bool {
+            if self.offline || self.pending {
+                return false;
+            }
+            self.pending = true;
+            true
+        }
+
+        fn tick(&mut self) {
+            if !self.pending {
+                return;
+            }
+            self.pending = false;
+            for _ in 0..self.page {
+                if let Some(next) = self.remaining.pop() {
+                    self.loaded_from = next;
+                }
+            }
+        }
+    }
+
+    /// The UI driver's loop, against fake bridges.
+    fn run(bridges: &mut [Bridge], target: i64) -> CatchUp {
+        let mut catch_up = CatchUp::new(target);
+        for _ in 0..200 {
+            let paging: Vec<_> = bridges.iter().map(Bridge::paging).collect();
+            let (requests, waiting) = catch_up.plan(&paging);
+            for chat in &requests {
+                let bridge = bridges.iter_mut().find(|b| b.chat == *chat).unwrap();
+                let oldest = bridge.loaded_from;
+                if bridge.request() {
+                    catch_up.asked(chat, oldest);
+                } else {
+                    catch_up.unavailable(chat);
+                }
+            }
+            if requests.is_empty() && !waiting {
+                break;
+            }
+            bridges.iter_mut().for_each(Bridge::tick);
+        }
+        catch_up
+    }
+
+    #[test]
+    fn a_busy_bridge_pages_until_it_reaches_the_quiet_ones_start() {
+        // Quiet chat loaded back to 100; the busy one only back to 900.
+        let busy: Vec<i64> = (0..900).rev().collect();
+        let mut bridges = [
+            Bridge::new("quiet", 100, vec![], 10),
+            Bridge::new("busy", 900, busy, 50),
+        ];
+        let catch_up = run(&mut bridges, 100);
+        let reached = bridges[1].loaded_from;
+        assert!(reached <= 100, "{reached}");
+        assert_eq!(catch_up.stopped().count(), 0);
+    }
+
+    #[test]
+    fn an_offline_bridge_is_reported_not_retried() {
+        let mut bridges = [
+            Bridge::new("quiet", 100, vec![], 10),
+            Bridge::new("busy", 900, (0..900).rev().collect(), 50),
+        ];
+        bridges[1].offline = true;
+        let catch_up = run(&mut bridges, 100);
+        assert_eq!(bridges[1].loaded_from, 900);
+        let stopped: Vec<_> = catch_up.stopped().collect();
+        assert_eq!(stopped, [("busy", Stopped::NotNow)]);
+    }
+
+    #[test]
+    fn a_page_that_brings_nothing_older_stops_the_chat() {
+        // Pages arrive empty, as a phone that answers with nothing does.
+        let mut bridges = [
+            Bridge::new("quiet", 100, vec![], 10),
+            Bridge::new("stuck", 900, vec![], 50),
+        ];
+        // Not exhausted by its own flag: the phone just keeps answering empty.
+        let mut catch_up = CatchUp::new(100);
+        for _ in 0..5 {
+            let mut paging: Vec<_> = bridges.iter().map(Bridge::paging).collect();
+            paging[1].exhausted = false;
+            let (requests, _) = catch_up.plan(&paging);
+            for chat in requests {
+                let oldest = bridges[1].loaded_from;
+                assert!(bridges[1].request());
+                catch_up.asked(&chat, oldest);
+            }
+            bridges[1].tick();
+        }
+        let stopped: Vec<_> = catch_up.stopped().collect();
+        assert_eq!(stopped, [("stuck", Stopped::NoProgress)]);
+    }
+
+    #[test]
+    fn exhausted_and_already_reaching_chats_are_left_alone() {
+        let bridges = [
+            Bridge::new("quiet", 100, vec![], 10),
+            Bridge::new("done", 500, vec![], 10),
+        ];
+        let paging: Vec<_> = bridges.iter().map(Bridge::paging).collect();
+        let mut catch_up = CatchUp::new(100);
+        assert_eq!(catch_up.plan(&paging), (vec![], false));
     }
 }
