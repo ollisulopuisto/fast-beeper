@@ -1707,7 +1707,7 @@ fn plain_rich_text(raw: &str) -> String {
         let mut links = crate::markup::links(raw);
         // A shorter address can be a prefix of a longer one in the same
         // message; repair the longest first so its span stays intact.
-        links.sort_by(|a, b| b.len().cmp(&a.len()));
+        links.sort_by_key(|a| std::cmp::Reverse(a.len()));
         for link in links {
             let fixed = decode_link_ampersands(&link);
             if fixed != link {
