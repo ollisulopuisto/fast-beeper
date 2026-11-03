@@ -24158,10 +24158,7 @@ mod tests {
     #[test]
     fn ctrl_tab_cycles_wrapping_and_close_chat_closes_the_active_tab() {
         let mut app = app();
-        for (id, name) in [
-            ("a@s.whatsapp.net", "Ada"),
-            ("b@s.whatsapp.net", "Ben"),
-        ] {
+        for (id, name) in [("a@s.whatsapp.net", "Ada"), ("b@s.whatsapp.net", "Ben")] {
             app.chats.push(Chat::new(id.into(), name.into()));
         }
         app.open_chat("a@s.whatsapp.net".into());
@@ -24182,10 +24179,7 @@ mod tests {
     #[test]
     fn a_background_tab_keeps_its_unread_when_a_message_arrives() {
         let mut app = app();
-        for (id, name) in [
-            ("a@s.whatsapp.net", "Ada"),
-            ("b@s.whatsapp.net", "Ben"),
-        ] {
+        for (id, name) in [("a@s.whatsapp.net", "Ada"), ("b@s.whatsapp.net", "Ben")] {
             app.chats.push(Chat::new(id.into(), name.into()));
         }
         app.open_chat("a@s.whatsapp.net".into());
@@ -24204,7 +24198,8 @@ mod tests {
     #[test]
     fn tabs_persist_to_account_settings() {
         let mut app = app();
-        app.chats.push(Chat::new("a@s.whatsapp.net".into(), "Ada".into()));
+        app.chats
+            .push(Chat::new("a@s.whatsapp.net".into(), "Ada".into()));
         app.open_chat("a@s.whatsapp.net".into());
         assert_eq!(
             app.account().settings.open_tabs,

@@ -110,7 +110,11 @@ fn tab_chip(app: &mut App, ui: &mut egui::Ui, palette: &Palette, id: &str) {
     } else {
         palette.surface
     };
-    let text_color = if active { palette.text } else { palette.secondary };
+    let text_color = if active {
+        palette.text
+    } else {
+        palette.secondary
+    };
     let mut short = title.chars().take(18).collect::<String>();
     if title.chars().count() > 18 {
         short.push('…');
@@ -125,13 +129,12 @@ fn tab_chip(app: &mut App, ui: &mut egui::Ui, palette: &Palette, id: &str) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 let label = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(short.clone()).color(text_color),
-                    )
-                    .sense(egui::Sense::click()),
+                    egui::Label::new(egui::RichText::new(short.clone()).color(text_color))
+                        .sense(egui::Sense::click()),
                 );
                 if label.clicked() && !active {
-                    app.actions.push(crate::model::Action::OpenChat(id.to_owned()));
+                    app.actions
+                        .push(crate::model::Action::OpenChat(id.to_owned()));
                 }
                 if !active && unread > 0 {
                     Frame::new()
@@ -147,8 +150,7 @@ fn tab_chip(app: &mut App, ui: &mut egui::Ui, palette: &Palette, id: &str) {
                         });
                 }
                 let button = ui.add(
-                    egui::Button::new(egui::RichText::new("×").color(text_color))
-                        .frame(false),
+                    egui::Button::new(egui::RichText::new("×").color(text_color)).frame(false),
                 );
                 if button.clicked() {
                     app.actions
@@ -157,7 +159,7 @@ fn tab_chip(app: &mut App, ui: &mut egui::Ui, palette: &Palette, id: &str) {
                 button.on_hover_text(close.clone())
             })
             .inner
-    });
+        });
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
