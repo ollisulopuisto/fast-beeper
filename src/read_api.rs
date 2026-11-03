@@ -21,7 +21,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-pub const SCOPES: [&str; 4] = ["accounts:read", "chats:read", "messages:read", "search:read"];
+pub const SCOPES: [&str; 4] = [
+    "accounts:read",
+    "chats:read",
+    "messages:read",
+    "search:read",
+];
 const MAX_LIMIT: u32 = 100;
 pub const RATE_PER_MINUTE: u32 = 120;
 
@@ -85,7 +90,8 @@ impl Registry {
             if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return Err("registry has an invalid token hash".into());
             }
-            if client.scopes.is_empty() || client.scopes.iter().any(|s| !SCOPES.contains(&s.as_str()))
+            if client.scopes.is_empty()
+                || client.scopes.iter().any(|s| !SCOPES.contains(&s.as_str()))
             {
                 return Err("registry has an empty or unknown scope".into());
             }
@@ -113,7 +119,8 @@ impl Registry {
         }
         #[cfg(not(unix))]
         let _ = meta;
-        let text = std::fs::read_to_string(path).map_err(|e| format!("registry unreadable: {e}"))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("registry unreadable: {e}"))?;
         Registry::parse(&text)
     }
 
@@ -129,7 +136,9 @@ impl Registry {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&tmp).map_err(|e| format!("save failed: {e}"))?;
+        let mut file = options
+            .open(&tmp)
+            .map_err(|e| format!("save failed: {e}"))?;
         file.write_all(text.as_bytes())
             .map_err(|e| format!("save failed: {e}"))?;
         drop(file);
@@ -254,9 +263,9 @@ fn decode(raw: &str) -> Option<String> {
 
 fn query_value_ok(value: &str) -> bool {
     value.len() <= 512
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'%' | b'+'))
+        && value.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'%' | b'+')
+        })
 }
 
 /// Parses a request target into a route and the exact upstream target to
@@ -348,7 +357,11 @@ fn filter_items(value: &Value, allowed: &[String]) -> Option<Value> {
     }
     let kept: Vec<Value> = items
         .iter()
-        .filter(|i| account_of(i).map(|a| allowed.iter().any(|x| x == a)).unwrap_or(false))
+        .filter(|i| {
+            account_of(i)
+                .map(|a| allowed.iter().any(|x| x == a))
+                .unwrap_or(false)
+        })
         .cloned()
         .collect();
     out.insert("items".into(), Value::Array(kept));
@@ -417,19 +430,21 @@ pub fn handle(
     if !restricted || matches!(parsed, Route::Messages(_)) {
         return (status, body, name, label);
     }
-    let filtered = serde_json::from_str::<Value>(&body).ok().and_then(|v| match &v {
-        Value::Array(list) => Some(Value::Array(
-            list.iter()
-                .filter(|i| {
-                    account_of(i)
-                        .map(|a| client.accounts.iter().any(|x| x == a))
-                        .unwrap_or(false)
-                })
-                .cloned()
-                .collect(),
-        )),
-        _ => filter_items(&v, &client.accounts),
-    });
+    let filtered = serde_json::from_str::<Value>(&body)
+        .ok()
+        .and_then(|v| match &v {
+            Value::Array(list) => Some(Value::Array(
+                list.iter()
+                    .filter(|i| {
+                        account_of(i)
+                            .map(|a| client.accounts.iter().any(|x| x == a))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect(),
+            )),
+            _ => filter_items(&v, &client.accounts),
+        });
     match filtered {
         Some(value) => (200, value.to_string(), name, label),
         None => {
@@ -451,7 +466,10 @@ impl RateLimiter {
         if self.windows.len() > 1024 {
             self.windows.retain(|_, slot| slot.0 == minute);
         }
-        let slot = self.windows.entry(client.to_string()).or_insert((minute, 0));
+        let slot = self
+            .windows
+            .entry(client.to_string())
+            .or_insert((minute, 0));
         if slot.0 != minute {
             *slot = (minute, 0);
         }
@@ -530,7 +548,10 @@ mod tests {
         let (mut registry, token) = setup(&["chats:read"], &[]);
         assert_eq!(run(&registry, "zfr_nope", "GET", "/v1/chats").0, 401);
         let mut fake = Fake { calls: vec![] };
-        assert_eq!(handle(&registry, &mut fake, None, "GET", "/v1/chats", 200).0, 401);
+        assert_eq!(
+            handle(&registry, &mut fake, None, "GET", "/v1/chats", 200).0,
+            401
+        );
         assert_eq!(run(&registry, &token, "GET", "/v1/chats").0, 200);
         assert!(registry.revoke("app"));
         assert_eq!(run(&registry, &token, "GET", "/v1/chats").0, 401);
@@ -551,8 +572,14 @@ mod tests {
         let (registry, token) = setup(&["chats:read"], &[]);
         assert_eq!(run(&registry, &token, "GET", "/v1/chats").0, 200);
         assert_eq!(run(&registry, &token, "GET", "/v1/accounts").0, 403);
-        assert_eq!(run(&registry, &token, "GET", "/v1/messages/search?query=x").0, 403);
-        assert_eq!(run(&registry, &token, "GET", "/v1/chats/c-a1/messages").0, 403);
+        assert_eq!(
+            run(&registry, &token, "GET", "/v1/messages/search?query=x").0,
+            403
+        );
+        assert_eq!(
+            run(&registry, &token, "GET", "/v1/chats/c-a1/messages").0,
+            403
+        );
     }
 
     #[test]
@@ -604,7 +631,8 @@ mod tests {
         let (registry, token) = setup(&SCOPES, &["a1"]);
         let accounts = run(&registry, &token, "GET", "/v1/accounts");
         assert_eq!(accounts.1, r#"[{"accountID":"a1"}]"#);
-        let chats: Value = serde_json::from_str(&run(&registry, &token, "GET", "/v1/chats").1).unwrap();
+        let chats: Value =
+            serde_json::from_str(&run(&registry, &token, "GET", "/v1/chats").1).unwrap();
         assert_eq!(chats["items"].as_array().unwrap().len(), 1);
         assert_eq!(chats["hasMore"], true);
         assert!(chats.get("users").is_none());
@@ -616,9 +644,18 @@ mod tests {
     #[test]
     fn account_allowlist_guards_messages_by_chat_owner() {
         let (registry, token) = setup(&SCOPES, &["a1"]);
-        assert_eq!(run(&registry, &token, "GET", "/v1/chats/c-a1/messages").0, 200);
-        assert_eq!(run(&registry, &token, "GET", "/v1/chats/c-b2/messages").0, 404);
-        assert_eq!(run(&registry, &token, "GET", "/v1/chats/unknown/messages").0, 404);
+        assert_eq!(
+            run(&registry, &token, "GET", "/v1/chats/c-a1/messages").0,
+            200
+        );
+        assert_eq!(
+            run(&registry, &token, "GET", "/v1/chats/c-b2/messages").0,
+            404
+        );
+        assert_eq!(
+            run(&registry, &token, "GET", "/v1/chats/unknown/messages").0,
+            404
+        );
     }
 
     #[test]
@@ -661,7 +698,12 @@ mod tests {
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         assert!(!std::fs::read_to_string(&path).unwrap().contains(&token));
-        assert!(Registry::load(&path).unwrap().authenticate(&token, 200).is_some());
+        assert!(
+            Registry::load(&path)
+                .unwrap()
+                .authenticate(&token, 200)
+                .is_some()
+        );
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(Registry::load(&path).is_err());
         let _ = std::fs::remove_dir_all(&dir);
@@ -670,9 +712,11 @@ mod tests {
     #[test]
     fn duplicate_client_names_are_refused() {
         let (mut registry, _) = setup(&["chats:read"], &[]);
-        assert!(registry
-            .add("app", vec!["chats:read".into()], vec![], None, 1)
-            .is_err());
+        assert!(
+            registry
+                .add("app", vec!["chats:read".into()], vec![], None, 1)
+                .is_err()
+        );
         assert_eq!(registry.clients.len(), 1);
     }
 

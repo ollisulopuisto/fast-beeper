@@ -128,7 +128,9 @@ fn serve_one(
     let at = now();
     // Rate-limit by token hash so unknown tokens cannot flood a real
     // client's allowance or reach the Server.
-    let key = bearer.map(zapfast::read_api::hash_token).unwrap_or_default();
+    let key = bearer
+        .map(zapfast::read_api::hash_token)
+        .unwrap_or_default();
     if !limiter.allow(&key, at) {
         return respond(stream, 429, r#"{"error":"rate limited"}"#);
     }
@@ -253,7 +255,8 @@ fn main() {
                 .filter(|t| !t.is_empty())
         })
         .unwrap_or_default();
-    let listen = std::env::var("ZAPFAST_READER_LISTEN").unwrap_or_else(|_| "127.0.0.1:23377".into());
+    let listen =
+        std::env::var("ZAPFAST_READER_LISTEN").unwrap_or_else(|_| "127.0.0.1:23377".into());
     let addr: SocketAddr = match listen.parse() {
         Ok(addr) => addr,
         Err(_) => {
