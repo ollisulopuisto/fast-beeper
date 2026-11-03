@@ -42,12 +42,28 @@ unit) and `loginctl enable-linger <user>`.
 Network: the container uses a private rootless network and publishes only
 `127.0.0.1:23374`. The CLI documents a port flag but no bind address, and
 reports `http://127.0.0.1:<port>`, so the Server is assumed to listen on
-loopback inside the container. pasta forwards host loopback to container
-loopback only with `--host-lo-to-ns-lo`; the script sets it. Host networking
-is deliberately not used. If the forward does not work on your Podman, host
-networking would be the only workaround: it puts the Server in the host's
-network namespace (still loopback-bound, but other host users can reach the
-port, which the token alone guards). Prefer option A over that.
+loopback inside the container. Per passt.1, pasta delivers a forward from
+host loopback to the namespace's public address unless `--host-lo-to-ns-lo`
+is given, in which case it goes to loopback in the namespace; that is the
+direction this needs and what the script sets. Not verified: that Podman's
+`-p` publish combines with that pasta option on your version. Host networking
+is deliberately not used. Loopback-only does not isolate other users on the
+same host: any local user can reach 127.0.0.1:23374, guarded only by the
+bearer token, so the dedicated-user or separate-VM advice still applies.
+
+Data: all state (the Server's database, bridge sessions, CLI target and
+token) lives in the named volume `zapfast-beeper-data`, mounted as the
+container user's home and owned by the dedicated user's uid via keep-id. It
+survives `--replace`, rebuilds and `podman restart`. `podman volume rm`
+deletes the sessions, and every network would need a fresh login. No host
+paths are mounted. Backup: stop the container, `podman volume export
+zapfast-beeper-data -o file.tar`, store it 0600 and encrypted: it contains
+logged-in sessions and the API token. Restore with `podman volume import`.
+Restoring an old copy can leave a bridge session out of sync with the
+network; test restore on one network first. Disk growth is not bounded by
+Podman for a local volume. Put the volume's storage on a filesystem or
+quota with a fixed size, watch it with `podman system df -v`, and expect
+media and history to grow. The Server's own retention settings are unknown.
 
 Untested assumptions: the pasta forward works as described, and the CLI can
 start and supervise the Server inside a container without systemd. If either

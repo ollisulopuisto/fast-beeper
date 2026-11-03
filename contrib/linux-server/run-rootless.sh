@@ -15,7 +15,7 @@ podman volume exists zapfast-beeper-data || podman volume create zapfast-beeper-
 # forwards go to the container's public address and a loopback-only Server is
 # unreachable. The port is published on the host's 127.0.0.1 only. Needs
 # Podman 5 or a pasta that accepts the option. Untested: if it fails, do not
-# fall back to --network=host silently (see README).
+# fall back to --network=host silently. Data lives in the named volume.
 podman run -d --name zapfast-beeper-server --replace \
   --network=pasta:--host-lo-to-ns-lo \
   -p 127.0.0.1:23374:23374 \
