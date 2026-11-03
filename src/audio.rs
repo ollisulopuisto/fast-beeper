@@ -590,7 +590,59 @@ fn decode_file(path: &Path) -> Result<Vec<f32>, String> {
 /// Decodes a voice note for transcription: mono 48 kHz samples, the same
 /// decode playback uses. Runs on the caller's thread.
 pub fn decode_for_transcription(path: &Path) -> Result<Vec<f32>, String> {
+    if is_video_file(path) {
+        return extract_audio_with_ffmpeg(path);
+    }
     decode_file(path)
+}
+
+/// Longest stretch of a video's audio sent for transcription, in seconds.
+/// Decoded samples are held in memory (48 kHz, four bytes each).
+const VIDEO_AUDIO_LIMIT_SECS: u32 = 900;
+
+/// Whether the file is a video container whose audio track needs ffmpeg.
+fn is_video_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp4" | "mov" | "m4v" | "webm" | "mkv" | "3gp" | "avi"
+            )
+        })
+}
+
+/// Strips a video's audio track to mono 48 kHz samples with the local
+/// `ffmpeg`. Nothing leaves the machine and no temporary file is written.
+fn extract_audio_with_ffmpeg(path: &Path) -> Result<Vec<f32>, String> {
+    use std::process::{Command, Stdio};
+    let output = Command::new("ffmpeg")
+        .args(["-v", "error", "-nostdin", "-i"])
+        .arg(path)
+        .args(["-vn", "-ac", "1", "-ar"])
+        .arg(crate::voice::RATE.to_string())
+        .args(["-t", &VIDEO_AUDIO_LIMIT_SECS.to_string()])
+        .args(["-f", "f32le", "pipe:1"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("ffmpeg is needed to transcribe videos: {error}"))?;
+    if !output.status.success() {
+        return Err("ffmpeg could not read this video's audio".to_owned());
+    }
+    let samples = samples_from_f32le(&output.stdout);
+    if samples.is_empty() {
+        return Err("This video has no audio to transcribe".to_owned());
+    }
+    Ok(samples)
+}
+
+/// Little-endian f32 samples from raw bytes; a trailing partial sample is dropped.
+fn samples_from_f32le(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect()
 }
 
 type Outcome = Arc<Mutex<Option<Result<Vec<f32>, String>>>>;
@@ -1551,5 +1603,22 @@ mod tests {
             heard.len()
         );
         assert!(levels.len() >= 15, "{}", levels.len());
+    }
+
+    #[test]
+    fn video_containers_take_the_ffmpeg_path() {
+        assert!(is_video_file(Path::new("clip.MP4")));
+        assert!(is_video_file(Path::new("a/b.mov")));
+        assert!(!is_video_file(Path::new("note.ogg")));
+        assert!(!is_video_file(Path::new("noextension")));
+    }
+
+    #[test]
+    fn f32le_bytes_become_samples_and_drop_a_partial_tail() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0.5f32.to_le_bytes());
+        bytes.extend_from_slice(&(-1.0f32).to_le_bytes());
+        bytes.extend_from_slice(&[1, 2]);
+        assert_eq!(samples_from_f32le(&bytes), vec![0.5, -1.0]);
     }
 }

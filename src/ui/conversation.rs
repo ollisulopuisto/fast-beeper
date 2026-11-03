@@ -7258,6 +7258,11 @@ fn content(
             } else {
                 video(ui, view, message, media, *seconds, *gif, width, actions)
             };
+            // Like a voice note, a video's speech transcribes locally; the
+            // line sits under the player, inside the bubble.
+            if !*gif && let Some(path) = &media.path {
+                voice_transcript(ui, view, message, path, actions);
+            }
             caption.as_ref().and_then(|caption| {
                 let wrap = if message.quoted.is_some() {
                     width.max(drawn)
