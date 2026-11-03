@@ -645,7 +645,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     egui::Vec2::splat(20.0),
                                     egui::Sense::hover(),
                                 );
-                                crate::theme::paint_icon(ui, icon, rect, 20.0, tint);
+                                crate::theme::paint_network_mark(ui, icon, rect, 20.0, tint);
                                 response.on_hover_text(&meta);
                             };
                             let before = actions.len();

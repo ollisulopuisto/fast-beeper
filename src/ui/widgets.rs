@@ -397,7 +397,7 @@ pub fn paint_network_badge(ui: &Ui, palette: &Palette, avatar: Rect, network: &s
     ui.painter()
         .circle_filled(center, size * 0.58, palette.surface);
     let tint = theme::network_tint(network).unwrap_or(palette.secondary);
-    theme::paint_icon(ui, theme::network_icon(network), rect, size * 0.85, tint);
+    theme::paint_network_mark(ui, theme::network_icon(network), rect, size * 0.85, tint);
 }
 
 pub fn paint_disappearing_badge(ui: &Ui, palette: &Palette, avatar: Rect) {
