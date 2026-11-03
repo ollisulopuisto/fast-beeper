@@ -2910,6 +2910,12 @@ impl App {
             || crate::model::phone_of(me).is_some_and(|phone| phone.contains(needle))
     }
 
+    /// Whether names come from a Beeper session, whose chats carry the
+    /// Beeper origin they were read from.
+    fn beeper_names(&self) -> bool {
+        self.chats.iter().any(|chat| chat.backend_origin.is_some())
+    }
+
     fn person_name(&self, id: &str, hint: Option<&str>) -> String {
         let contact = self.contacts.get(id);
         let present = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
@@ -2917,18 +2923,23 @@ impl App {
         let called = present(contact.and_then(|contact| contact.push_name.as_deref()))
             .or_else(|| present(hint));
         // Saved names first, as WhatsApp does; a profile name wears a tilde.
-        if let Some(name) = saved.or_else(|| called.map(|name| format!("~{name}"))) {
+        // Beeper's names are the bridge's own: it does not say whether one is
+        // saved or a profile name, so none is marked as unsaved.
+        let mark = |name: String| {
+            if self.beeper_names() || name.starts_with('~') {
+                name
+            } else {
+                format!("~{name}")
+            }
+        };
+        if let Some(name) = saved.or_else(|| called.map(&mark)) {
             return name;
         }
         if let Some(name) = self.sender_names.get(id).filter(|name| !name.is_empty()) {
-            return if name.starts_with('~') {
-                name.clone()
-            } else {
-                format!("~{name}")
-            };
+            return mark(name.clone());
         }
         if let Some(name) = self.roster_names.get(id).filter(|name| !name.is_empty()) {
-            return format!("~{name}");
+            return mark(name.clone());
         }
         // A name of digits alone is no name. When the id carries the number,
         // neither is one as `util::phone` grouped it when the chat was filed:
@@ -24646,6 +24657,18 @@ mod tests {
         assert_eq!(app.display_name("42@lid"), "~Bob");
         app.me = Some("42@lid".into());
         assert_eq!(app.display_name("42@lid"), "You");
+    }
+
+    #[test]
+    fn beeper_sender_names_carry_no_unsaved_marker() {
+        let mut app = app();
+        assert_eq!(app.display_name_or("a", Some("Ada")), "~Ada");
+        let mut chat = Chat::new("c".into(), "Group".into());
+        chat.backend_origin = Some("http://127.0.0.1:23374".into());
+        app.chats.push(chat);
+        assert_eq!(app.display_name_or("a", Some("Ada")), "Ada");
+        app.sender_names.insert("b".into(), "Grace".into());
+        assert_eq!(app.display_name_or("b", None), "Grace");
     }
 
     #[test]
