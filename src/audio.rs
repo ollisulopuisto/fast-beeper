@@ -639,9 +639,11 @@ fn extract_audio_with_ffmpeg(path: &Path) -> Result<Vec<f32>, String> {
 
 /// Little-endian f32 samples from raw bytes; a trailing partial sample is dropped.
 fn samples_from_f32le(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+    (0..bytes.len() / 4)
+        .map(|index| {
+            let at = index * 4;
+            f32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+        })
         .collect()
 }
 
