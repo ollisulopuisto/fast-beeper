@@ -423,19 +423,18 @@ pub fn ticks_in(ui: &Ui, palette: &Palette, rect: Rect, status: Delivery, plain:
         return;
     };
     let color = match status {
-        Delivery::Read | Delivery::Played => palette.read,
-        Delivery::ReadBySome => palette.read.gamma_multiply(0.5),
+        Delivery::Read | Delivery::ReadBySome | Delivery::Played => palette.read,
         Delivery::Failed => palette.danger,
         _ => plain,
     };
     theme::paint_icon(ui, icon, rect, rect.height(), color);
     if status == Delivery::ReadBySome {
-        // A plus after the ticks: some, not all, have read it.
+        // A bold plus after the ticks: some, not all, have read it.
         ui.painter().text(
-            rect.right_top() + vec2(1.0, -1.0),
-            egui::Align2::LEFT_TOP,
+            rect.right_center() + vec2(2.0, 0.0),
+            egui::Align2::LEFT_CENTER,
             "+",
-            theme::semibold(10.0),
+            theme::semibold(15.0),
             palette.read,
         );
     }
