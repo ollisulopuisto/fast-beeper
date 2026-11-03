@@ -3556,6 +3556,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.typing.clear();
                 app.scroll_to_bottom = true;
             }
+            "bars" => crate::theme::SHOT_BARS.store(true, std::sync::atomic::Ordering::Relaxed),
             "draft-one" => {
                 app.composer = "asdsa".into();
                 app.focus_composer = true;

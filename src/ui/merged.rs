@@ -516,6 +516,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         // The scroll area runs to the pane's edge so its overlay bar sits in
         // the side margin; rows keep the inset width and never sit under it.
         .scope_builder(egui::UiBuilder::new().max_rect(scroll_rect), |ui| {
+            crate::theme::shot_bars(ui);
             let remaining = ui.available_height().max(100.0);
             egui::ScrollArea::vertical()
                 .id_salt(("person-timeline", &person.members))

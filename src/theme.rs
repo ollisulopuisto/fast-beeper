@@ -655,6 +655,19 @@ fn tabular_family(weight: fastframe_fonts::Weight) -> egui::FontFamily {
 }
 
 /// Installs fonts, icons, and base style.
+/// Set by the `bars` shot page: scrollbars drawn as they are while scrolling,
+/// so a still capture shows where the bar sits against the content.
+pub static SHOT_BARS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Applies [`SHOT_BARS`] to `ui` and its children.
+pub fn shot_bars(ui: &mut egui::Ui) {
+    if SHOT_BARS.load(std::sync::atomic::Ordering::Relaxed) {
+        let scroll = &mut ui.style_mut().spacing.scroll;
+        scroll.dormant_handle_opacity = 0.55;
+        scroll.dormant_background_opacity = 0.0;
+    }
+}
+
 pub fn install(ctx: &egui::Context) {
     install_fonts(ctx);
     egui_extras::install_image_loaders(ctx);

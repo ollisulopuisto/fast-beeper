@@ -207,6 +207,13 @@ jobs:
           shot composer-three-1180x780 1180x780 chat,draft-three
           shot composer-max-1180x780 1180x780 chat,typing
           shot composer-one-dark-1180x780 1180x780 chat,draft-one,theme=Catppuccin.json
+          # Bars drawn as while scrolling: against rows and the composer.
+          shot bars-linked-1180x780 1180x780 chat,linked,bars
+          shot bars-linked-dark-1180x780 1180x780 chat,linked,bars,theme=Catppuccin.json
+          shot bars-linked-900x780 900x780 chat,linked,bars,info
+          shot bars-chat-1180x780 1180x780 chat,bars
+          shot bars-composer-one-1180x780 1180x780 chat,draft-one,bars
+          shot bars-composer-max-1180x780 1180x780 chat,typing,bars
           # Per-account appearance: the open chat's account draws its
           # conversation with its own theme, then its own background,
           # while the window keeps the global theme.

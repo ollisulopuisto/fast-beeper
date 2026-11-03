@@ -1724,6 +1724,7 @@ pub(crate) fn composer_with_capabilities(
                         // Grow from one to six lines, then scroll. The height
                         // is this frame's draft, measured above, rather than
                         // the scroll area's memory of the last frame.
+                        crate::theme::shot_bars(ui);
                         egui::ScrollArea::vertical()
                             .id_salt("composer-scroll")
                             .max_height(text_height)
@@ -2991,6 +2992,7 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
     let key_start = time - f64::from(ui.input(|input| input.stable_dt.min(0.1)));
     let mut pinned = false;
     let mut visible_day = None;
+    crate::theme::shot_bars(ui);
     let output = egui::ScrollArea::vertical()
         .id_salt(("messages", &chat.id))
         .auto_shrink([false, false])
