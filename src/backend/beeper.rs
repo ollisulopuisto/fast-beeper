@@ -1563,12 +1563,30 @@ fn decode_entities(text: &str) -> String {
     decoded
 }
 
+/// Whether every "&" in the text begins an HTML entity, which is what an
+/// escaped body looks like. One bare "&" ("a&b", "?q=1&r=2") means the text
+/// is not escaped, so nothing in it is decoded.
+fn consistently_escaped(raw: &str) -> bool {
+    raw.match_indices('&').all(|(at, _)| {
+        let rest = &raw[at..];
+        let Some(end) = rest.find(';').filter(|end| *end <= 10) else {
+            return false;
+        };
+        let name = &rest[1..end];
+        matches!(name, "amp" | "lt" | "gt" | "quot" | "apos" | "nbsp")
+            || name.strip_prefix('#').is_some_and(|digits| {
+                let digits = digits.trim_start_matches(['x', 'X']);
+                !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit())
+            })
+    })
+}
+
 /// Plain text can arrive with an HTML-escaped link ("...?a=1&amp;b=2"). Only
 /// "&amp;" inside a link is decoded, once: other entity-like text in a query
 /// ("&lt;", "&copy=1"), percent-encoding and text outside links stay as
 /// written, and "&amp;amp;" becomes "&amp;", not "&".
 fn decode_link_entities(raw: &str) -> String {
-    if !raw.contains("&amp;") {
+    if !raw.contains("&amp;") || !consistently_escaped(raw) {
         return raw.to_owned();
     }
     raw.split_inclusive(char::is_whitespace)
@@ -6116,6 +6134,9 @@ mod tests {
         same("https://x.test/?q=a%26amp%3Bb&r=%2B1");
         same("https://x.test/?q=a&lt;b&copy=1&#38;z=2");
         same("https://x.test/?q=1&r=2");
+        // A bare "&" anywhere means the text is not escaped: nothing changes.
+        same("https://x.test/?a=1&b=2&amp;c=3");
+        same("fish & chips https://x.test/?a=1&amp;b=2");
         // Signed query: one level decoded, percent data kept, no double decode.
         assert_eq!(
             plain_rich_text("https://s.test/f?X-Sig=ab%2Bc%3D&amp;X-Date=1&amp;amp;t=2"),
