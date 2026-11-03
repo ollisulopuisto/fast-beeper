@@ -1563,47 +1563,6 @@ fn decode_entities(text: &str) -> String {
     decoded
 }
 
-/// Whether every "&" in the text begins an HTML entity, which is what an
-/// escaped body looks like. One bare "&" ("a&b", "?q=1&r=2") means the text
-/// is not escaped, so nothing in it is decoded.
-fn consistently_escaped(raw: &str) -> bool {
-    raw.match_indices('&').all(|(at, _)| {
-        let rest = &raw[at..];
-        let Some(end) = rest.find(';').filter(|end| *end <= 10) else {
-            return false;
-        };
-        let name = &rest[1..end];
-        matches!(name, "amp" | "lt" | "gt" | "quot" | "apos" | "nbsp")
-            || name.strip_prefix('#').is_some_and(|digits| {
-                let digits = digits.trim_start_matches(['x', 'X']);
-                !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit())
-            })
-    })
-}
-
-/// Plain text can arrive with an HTML-escaped link ("...?a=1&amp;b=2"). Only
-/// "&amp;" inside a link is decoded, once: other entity-like text in a query
-/// ("&lt;", "&copy=1"), percent-encoding and text outside links stay as
-/// written, and "&amp;amp;" becomes "&amp;", not "&".
-fn decode_link_entities(raw: &str) -> String {
-    if !raw.contains("&amp;") || !consistently_escaped(raw) {
-        return raw.to_owned();
-    }
-    raw.split_inclusive(char::is_whitespace)
-        .map(|word| {
-            let lower = word.to_ascii_lowercase();
-            let start = ["http://", "https://", "www."]
-                .iter()
-                .filter_map(|scheme| lower.find(scheme))
-                .min();
-            match start {
-                Some(at) => format!("{}{}", &word[..at], word[at..].replace("&amp;", "&")),
-                None => word.to_owned(),
-            }
-        })
-        .collect()
-}
-
 fn plain_rich_text(raw: &str) -> String {
     let lower = raw.to_ascii_lowercase();
     let known = [
@@ -1642,7 +1601,7 @@ fn plain_rich_text(raw: &str) -> String {
         })
     });
     if !looks_html {
-        return decode_link_entities(raw);
+        return raw.to_owned();
     }
     let mut out = String::new();
     let mut rest = raw;
@@ -6111,41 +6070,13 @@ mod tests {
     }
 
     #[test]
-    fn escaped_ampersands_in_plain_text_links_are_decoded() {
-        let url = "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&amp;dl=0";
-        let fixed = "https://www.dropbox.com/scl/fi/abc/video.mp4?rlkey=xyz&dl=0";
-        assert_eq!(plain_rich_text(url), fixed);
-        // The link a click opens or copy takes is the corrected text.
-        assert_eq!(crate::markup::links(&plain_rich_text(url)), [fixed]);
-        assert_eq!(
-            plain_rich_text(&format!("see ({url}).\nthen &amp; more")),
-            format!("see ({fixed}).\nthen &amp; more")
-        );
-        assert_eq!(
-            plain_rich_text("a&b https://x.test/?q=1&r=2"),
-            "a&b https://x.test/?q=1&r=2"
-        );
-    }
-
-    #[test]
-    fn link_decoding_keeps_encoded_and_literal_query_data() {
+    fn tag_free_text_keeps_its_ampersand_entities_as_received() {
+        // Without the raw payload we cannot tell an escaped separator from a
+        // literal value, so tag-free text is never rewritten.
         let same = |text: &str| assert_eq!(plain_rich_text(text), text, "{text}");
-        // Percent-encoding and other entity-like values are data.
+        same("https://x.test/f?rlkey=k&amp;dl=0");
         same("https://x.test/?q=a%26amp%3Bb&r=%2B1");
-        same("https://x.test/?q=a&lt;b&copy=1&#38;z=2");
-        same("https://x.test/?q=1&r=2");
-        // A bare "&" anywhere means the text is not escaped: nothing changes.
-        same("https://x.test/?a=1&b=2&amp;c=3");
-        same("fish & chips https://x.test/?a=1&amp;b=2");
-        // Signed query: one level decoded, percent data kept, no double decode.
-        assert_eq!(
-            plain_rich_text("https://s.test/f?X-Sig=ab%2Bc%3D&amp;X-Date=1&amp;amp;t=2"),
-            "https://s.test/f?X-Sig=ab%2Bc%3D&X-Date=1&amp;t=2"
-        );
-        assert_eq!(
-            plain_rich_text("www.x.test/?a=1&amp;b=2 &amp; plain"),
-            "www.x.test/?a=1&b=2 &amp; plain"
-        );
+        same("see (https://x.test/?a=1&amp;b=2). then &amp; more");
     }
 
     #[test]
