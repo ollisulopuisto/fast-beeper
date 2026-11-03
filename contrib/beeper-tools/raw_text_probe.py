@@ -3,7 +3,8 @@
 
 Diagnoses whether a link in a message's `text` holds a bare ampersand or an
 escaped one (U+0026 followed by a, m, p, semicolon). It searches with the
-documented GET /v1/messages/search, tries up to three phrases that identify one reported
+documented GET /v1/messages/search (including low-priority messages, which the
+API excludes by default), tries up to three phrases that identify one reported
 link until one hits, and keeps at most two hits. For each hit it prints only a structural
 summary of the links found in the text, plus the structure of the payload's own
 link-preview urls when present: scheme and host, path segment lengths, each query
@@ -158,7 +159,7 @@ def main():
         opener = urllib.request.build_opener(*handlers)
 
         def search(query):
-            url = args.base_url.rstrip('/') + '/v1/messages/search?' + urllib.parse.urlencode({'query': query, 'limit': 20})
+            url = args.base_url.rstrip('/') + '/v1/messages/search?' + urllib.parse.urlencode({'query': query, 'limit': 20, 'excludeLowPriority': 'false'})
             request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token})
             with opener.open(request, timeout=20) as response:
                 body = response.read(8 * 1024 * 1024 + 1)
