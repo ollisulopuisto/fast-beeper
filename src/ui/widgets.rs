@@ -384,6 +384,22 @@ pub fn paint_avatar(
     }
 }
 
+/// A small network icon on an avatar's bottom-right corner. `slot` shifts
+/// further badges left, so a linked person's networks sit side by side.
+pub fn paint_network_badge(ui: &Ui, palette: &Palette, avatar: Rect, network: &str, slot: usize) {
+    let size = (avatar.width() * 0.38).clamp(14.0, 18.0);
+    let shift = slot as f32 * size * 0.85;
+    let center = pos2(
+        avatar.right() - size * 0.15 - shift,
+        avatar.bottom() - size * 0.15,
+    );
+    let rect = Rect::from_center_size(center, Vec2::splat(size));
+    ui.painter()
+        .circle_filled(center, size * 0.58, palette.surface);
+    let tint = theme::network_tint(network).unwrap_or(palette.secondary);
+    theme::paint_icon(ui, theme::network_icon(network), rect, size * 0.85, tint);
+}
+
 pub fn paint_disappearing_badge(ui: &Ui, palette: &Palette, avatar: Rect) {
     let size = (avatar.width() * 0.38).clamp(14.0, 18.0);
     let rect = Rect::from_center_size(

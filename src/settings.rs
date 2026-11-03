@@ -1613,6 +1613,8 @@ mod giphy_tests {
 #[serde(default)]
 pub struct BeeperPreferences {
     pub people: Vec<crate::merged::Person>,
+    /// Local display names for single chats, by chat id. Never sent anywhere.
+    pub chat_names: std::collections::HashMap<String, String>,
     pub reply_later: Vec<crate::merged::Member>,
     pub incognito: bool,
     pub compact_list: bool,
@@ -1631,6 +1633,7 @@ impl Default for BeeperPreferences {
     fn default() -> Self {
         Self {
             people: Vec::new(),
+            chat_names: std::collections::HashMap::new(),
             reply_later: Vec::new(),
             incognito: false,
             compact_list: false,
