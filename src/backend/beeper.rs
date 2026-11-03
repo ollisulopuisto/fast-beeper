@@ -1294,9 +1294,15 @@ impl Api {
         documents: bool,
         caption: Option<&str>,
     ) -> Result<SendAccepted, String> {
-        self.send_file_cancellable(chat, path, documents, caption, None)
+        let kind = if documents {
+            Attachment::Document
+        } else {
+            Attachment::Auto
+        };
+        self.send_attachment(chat, path, kind, caption, None, None)
     }
 
+    #[cfg(test)]
     fn send_file_cancellable(
         &self,
         chat: &str,
