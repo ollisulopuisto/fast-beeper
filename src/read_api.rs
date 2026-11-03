@@ -23,11 +23,12 @@ use sha2::{Digest, Sha256};
 
 use crate::merged::Person;
 
-pub const SCOPES: [&str; 4] = [
+pub const SCOPES: [&str; 5] = [
     "accounts:read",
     "chats:read",
     "messages:read",
     "search:read",
+    "people:read",
 ];
 const MAX_LIMIT: u32 = 100;
 pub const RATE_PER_MINUTE: u32 = 120;
