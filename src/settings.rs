@@ -884,6 +884,8 @@ pub struct AccountSettings {
     #[serde(alias = "auto_download_images")]
     pub auto_download: bool,
     pub last_chat: Option<String>,
+    /// Chats open as tabs, in bar order; the active one is `last_chat`.
+    pub open_tabs: Vec<String>,
     pub notifications: bool,
     /// Which chats notify once, then stay quiet for ten minutes.
     pub limit_notifications: NotificationLimit,
@@ -909,6 +911,7 @@ impl Default for AccountSettings {
             send_typing: true,
             auto_download: true,
             last_chat: None,
+            open_tabs: Vec::new(),
             notifications: true,
             limit_notifications: NotificationLimit::Off,
             save_contacts_to_phone: true,
@@ -927,6 +930,7 @@ impl AccountSettings {
             send_typing: settings.send_typing,
             auto_download: settings.auto_download,
             last_chat: settings.last_chat.clone(),
+            open_tabs: Vec::new(),
             notifications: settings.notifications,
             limit_notifications: NotificationLimit::Off,
             save_contacts_to_phone: settings.save_contacts_to_phone,

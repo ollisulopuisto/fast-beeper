@@ -34,6 +34,9 @@ pub struct Account {
     pub contacts: HashMap<String, Contact>,
     pub conversations: HashMap<ChatId, Conversation>,
     pub open_chat: Option<ChatId>,
+    /// Chats open as tabs, in bar order; `open_chat` is the active one and
+    /// is always a member.
+    pub open_tabs: Vec<ChatId>,
     /// The background-history state last sent to this account's worker: the
     /// switch and the chat on screen.
     pub(crate) prefetch_sent: Option<(bool, Option<ChatId>)>,
@@ -156,6 +159,12 @@ impl Account {
         backend: Backend,
     ) -> Self {
         let open_chat = settings.last_chat.clone();
+        let mut open_tabs = settings.open_tabs.clone();
+        if let Some(chat) = &open_chat
+            && !open_tabs.contains(chat)
+        {
+            open_tabs.push(chat.clone());
+        }
         let chat_filter = match settings
             .list_filter
             .as_deref()
@@ -182,6 +191,7 @@ impl Account {
             contacts: HashMap::new(),
             conversations: HashMap::new(),
             open_chat,
+            open_tabs,
             prefetch_sent: None,
             scroll_chat_into_view: None,
             drafts: HashMap::new(),

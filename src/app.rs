@@ -6652,6 +6652,34 @@ impl App {
         }
     }
 
+    /// Writes the tab order to this account's settings, so a restart
+    /// restores the same tabs.
+    fn persist_open_tabs(&mut self) {
+        let tabs = self.open_tabs.clone();
+        if self.account().settings.open_tabs != tabs {
+            self.account_mut().settings.open_tabs = tabs;
+            self.account_mut().mark_settings_dirty();
+        }
+    }
+
+    /// Activates the next (1) or previous (-1) tab, wrapping around.
+    fn cycle_tab(&mut self, dir: isize) {
+        if self.open_tabs.len() < 2 {
+            return;
+        }
+        let Some(current) = self
+            .open_chat
+            .as_ref()
+            .and_then(|id| self.open_tabs.iter().position(|tab| tab == id))
+        else {
+            return;
+        };
+        let len = self.open_tabs.len() as isize;
+        let next = (current as isize + dir).rem_euclid(len) as usize;
+        let id = self.open_tabs[next].clone();
+        self.open_chat(id);
+    }
+
     /// Opens an eligible chat, parking the previous draft and restoring this chat's composer.
     fn open_chat(&mut self, id: ChatId) {
         if self.chat(&id).is_some_and(|chat| chat.locked) && !self.locked_folder_open() {
@@ -6767,9 +6795,11 @@ impl App {
             }
             // Keep inactive transcript caches small. A revisited conversation
             // fetches its page again from Beeper; no remote history is deleted.
+            // An open tab is not inactive: switching to it must not refetch.
+            let tabs = self.open_tabs.clone();
             let mut kept = 0usize;
             self.conversations.retain(|chat, _| {
-                if chat == &id {
+                if chat == &id || tabs.contains(chat) {
                     true
                 } else {
                     kept += 1;
@@ -6787,6 +6817,11 @@ impl App {
             }
         }
         self.set_open_chat(Some(id.clone()));
+        // Every opened chat is a tab; the one just opened is active.
+        if !self.open_tabs.contains(&id) {
+            self.open_tabs.push(id.clone());
+            self.persist_open_tabs();
+        }
         // The Calls tab keeps its history beside the chat; every other page
         // gives way to the chat list.
         if self.page != Page::Calls {
@@ -7963,7 +7998,37 @@ impl App {
                     });
                 }
             }
+            Action::CloseTab(id) => {
+                let Some(pos) = self.open_tabs.iter().position(|tab| tab == &id) else {
+                    return;
+                };
+                self.open_tabs.remove(pos);
+                self.persist_open_tabs();
+                if self.open_chat.as_deref() == Some(id.as_str()) {
+                    // The right neighbor takes over, else the left one, else
+                    // the conversation closes through the ordinary path.
+                    let next = self
+                        .open_tabs
+                        .get(pos)
+                        .or_else(|| self.open_tabs.last())
+                        .cloned();
+                    match next {
+                        Some(next) => self.open_chat(next),
+                        None => self.apply(Action::CloseChat, ctx),
+                    }
+                }
+            }
+            Action::NextTab => self.cycle_tab(1),
+            Action::PreviousTab => self.cycle_tab(-1),
             Action::CloseChat => {
+                // With tabs, closing the chat closes its tab; the view only
+                // goes away when no tab remains.
+                if let Some(id) = self.open_chat.clone()
+                    && self.open_tabs.contains(&id)
+                {
+                    self.apply(Action::CloseTab(id), ctx);
+                    return;
+                }
                 self.close_info();
                 // A narrow window's Back from a picked call returns to the
                 // call history.
@@ -24048,6 +24113,106 @@ mod tests {
             }],
         );
         assert!(!app.offers_self(""), "no account identifier, no offer");
+    }
+
+    #[test]
+    fn opened_chats_become_tabs_and_closing_activates_a_neighbor() {
+        let mut app = app();
+        for (id, name) in [
+            ("a@s.whatsapp.net", "Ada"),
+            ("b@s.whatsapp.net", "Ben"),
+            ("c@s.whatsapp.net", "Cid"),
+        ] {
+            app.chats.push(Chat::new(id.into(), name.into()));
+        }
+        app.open_chat("a@s.whatsapp.net".into());
+        app.open_chat("b@s.whatsapp.net".into());
+        app.open_chat("c@s.whatsapp.net".into());
+        assert_eq!(
+            app.open_tabs,
+            vec![
+                "a@s.whatsapp.net".to_owned(),
+                "b@s.whatsapp.net".to_owned(),
+                "c@s.whatsapp.net".to_owned()
+            ],
+            "every opened chat is a tab, in open order"
+        );
+        // Reopening the active chat adds no duplicate tab.
+        app.open_chat("c@s.whatsapp.net".into());
+        assert_eq!(app.open_tabs.len(), 3);
+
+        let ctx = egui::Context::default();
+        // Closing a background tab keeps the active chat.
+        app.apply(Action::CloseTab("a@s.whatsapp.net".into()), &ctx);
+        assert_eq!(app.open_chat.as_deref(), Some("c@s.whatsapp.net"));
+        assert_eq!(app.open_tabs.len(), 2);
+        // Closing the active tab activates its right neighbor, else left.
+        app.apply(Action::CloseTab("c@s.whatsapp.net".into()), &ctx);
+        assert_eq!(app.open_chat.as_deref(), Some("b@s.whatsapp.net"));
+        // The last tab closes the conversation through CloseChat.
+        app.apply(Action::CloseTab("b@s.whatsapp.net".into()), &ctx);
+        assert_eq!(app.open_chat, None);
+        assert!(app.open_tabs.is_empty());
+    }
+
+    #[test]
+    fn ctrl_tab_cycles_wrapping_and_close_chat_closes_the_active_tab() {
+        let mut app = app();
+        for (id, name) in [
+            ("a@s.whatsapp.net", "Ada"),
+            ("b@s.whatsapp.net", "Ben"),
+        ] {
+            app.chats.push(Chat::new(id.into(), name.into()));
+        }
+        app.open_chat("a@s.whatsapp.net".into());
+        app.open_chat("b@s.whatsapp.net".into());
+        let ctx = egui::Context::default();
+        app.apply(Action::NextTab, &ctx);
+        assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
+        app.apply(Action::PreviousTab, &ctx);
+        assert_eq!(app.open_chat.as_deref(), Some("b@s.whatsapp.net"));
+        // Close chat now closes the active tab; the other stays open.
+        app.apply(Action::CloseChat, &ctx);
+        assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
+        assert_eq!(app.open_tabs, vec!["a@s.whatsapp.net".to_owned()]);
+        app.apply(Action::CloseChat, &ctx);
+        assert_eq!(app.open_chat, None);
+    }
+
+    #[test]
+    fn a_background_tab_keeps_its_unread_when_a_message_arrives() {
+        let mut app = app();
+        for (id, name) in [
+            ("a@s.whatsapp.net", "Ada"),
+            ("b@s.whatsapp.net", "Ben"),
+        ] {
+            app.chats.push(Chat::new(id.into(), name.into()));
+        }
+        app.open_chat("a@s.whatsapp.net".into());
+        app.open_chat("b@s.whatsapp.net".into());
+        app.window_focused = true;
+        let mut incoming = Chat::new("a@s.whatsapp.net".into(), "Ada".into());
+        incoming.unread = 1;
+        app.handle_chat_updated(incoming, true);
+        assert_eq!(
+            app.chat("a@s.whatsapp.net").map(|chat| chat.unread),
+            Some(1),
+            "only the active tab auto-reads; a background tab keeps unread"
+        );
+    }
+
+    #[test]
+    fn tabs_persist_to_account_settings() {
+        let mut app = app();
+        app.chats.push(Chat::new("a@s.whatsapp.net".into(), "Ada".into()));
+        app.open_chat("a@s.whatsapp.net".into());
+        assert_eq!(
+            app.account().settings.open_tabs,
+            vec!["a@s.whatsapp.net".to_owned()]
+        );
+        let ctx = egui::Context::default();
+        app.apply(Action::CloseTab("a@s.whatsapp.net".into()), &ctx);
+        assert!(app.account().settings.open_tabs.is_empty());
     }
 
     #[test]
