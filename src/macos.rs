@@ -15,6 +15,40 @@ thread_local! {
     static MENU: RefCell<Option<Menu>> = const { RefCell::new(None) };
 }
 static EVENTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Dock/activation diagnostics: one short line per event, in
+/// `<profile>/dock-diagnostic.log`, only when `ZAPFAST_PROFILE_ROOT` is set.
+/// Event names and window counts only, never chat, message or token content.
+/// The file is cut back once it passes 32 KiB.
+fn dock_diag(line: &str) {
+    use std::io::Write;
+    let Some(root) = std::env::var_os("ZAPFAST_PROFILE_ROOT") else {
+        return;
+    };
+    let path = std::path::Path::new(&root).join("dock-diagnostic.log");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 32 * 1024) {
+        let _ = std::fs::remove_file(&path);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{} client {line}", crate::util::now());
+    }
+}
+
+/// The app's windows as counts: all, visible, miniaturized.
+fn window_counts(app: &NSApplication) -> String {
+    let windows = app.windows();
+    let visible = windows.iter().filter(|w| w.isVisible()).count();
+    let mini = windows.iter().filter(|w| w.isMiniaturized()).count();
+    format!(
+        "windows={} visible={visible} mini={mini} active={}",
+        windows.len(),
+        app.isActive()
+    )
+}
 static EDIT_EVENTS: LazyLock<Arc<Mutex<Vec<egui::Event>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
 static REPAINT: Mutex<Option<egui::Context>> = Mutex::new(None);
@@ -175,6 +209,11 @@ unsafe extern "C-unwind" fn reopen(
         return objc2::runtime::Bool::YES;
     };
     let app = NSApplication::sharedApplication(mtm);
+    dock_diag(&format!(
+        "reopen has_visible={} {}",
+        has_visible_windows.as_bool(),
+        window_counts(&app)
+    ));
     // Bring the app's windows forward on every Dock reopen, visible or not:
     // the default behavior cannot be relied on when the process was started
     // by a launcher rather than by LaunchServices itself.
@@ -234,6 +273,7 @@ unsafe extern "C-unwind" fn did_become_active(
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
+    dock_diag(&format!("did_become_active {}", window_counts(&app)));
     // A visible window (including a native panel or file dialog) already
     // gives the switch something to show. Miniaturized windows report not
     // visible and go through the app's restore path.
