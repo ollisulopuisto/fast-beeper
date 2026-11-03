@@ -285,6 +285,7 @@ fn main() {
         settings: std::env::var("ZAPFAST_SETTINGS_FILE")
             .ok()
             .map(PathBuf::from),
+        origins,
     });
     run(listener, path, shared, MAX_CONNECTIONS);
 }
