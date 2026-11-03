@@ -53,6 +53,20 @@ Query keys are limited to `cursor`, `direction` (before/after), `limit`
 (capped at 100) and, for search, `query`. Anything else is refused with 400.
 Responses come from the Server unchanged for unrestricted clients.
 
+### Validating the origin match (non-secret)
+
+`ZAPFAST_SETTINGS_FILE=<settings.json> zapfast-reader people-check` lists
+each origin recorded in the app's people links, how many members use it,
+and whether this reader serves it; it exits 1 if any is unserved. The same
+lines are logged at startup. It prints only API base URLs and counts: no
+names, chat ids or message content, and it never contacts the Server.
+
+## v1 coverage (supported, explicit)
+
+One configured Beeper origin, read through that Server's API, plus the
+linked-person view over members recorded under that origin. Not claimed:
+multiple origins, ZapFast native WhatsApp mode, live behavior.
+
 ## Authentication and authorization
 
 - One named token per app: `zapfast-reader token add NAME --scopes a,b

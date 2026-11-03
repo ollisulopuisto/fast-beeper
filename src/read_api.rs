@@ -455,6 +455,21 @@ fn filter_items(value: &Value, allowed: &[String]) -> Option<Value> {
 }
 
 /// Stable, content-derived id for a linked person (settings has none).
+/// One line per distinct member origin in the app's people links: how many
+/// members use it and whether this reader serves it. Origins are API base
+/// URLs, not secrets.
+pub fn origin_report(people: &[Person], origins: &[String]) -> Vec<(String, usize, bool)> {
+    let mut rows: Vec<(String, usize, bool)> = Vec::new();
+    for member in people.iter().flat_map(|p| p.members.iter()) {
+        match rows.iter_mut().find(|r| r.0 == member.origin) {
+            Some(row) => row.1 += 1,
+            None => rows.push((member.origin.clone(), 1, readable(member, origins))),
+        }
+    }
+    rows.sort();
+    rows
+}
+
 /// What the people endpoints need besides the Server handle.
 pub struct PeopleSource<'a> {
     pub people: Option<&'a [Person]>,
@@ -978,6 +993,28 @@ mod tests {
         std::fs::write(path.with_extension("lock"), "4194999\n").unwrap();
         assert!(Registry::lock(&path).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn origin_report_counts_members_and_marks_unserved_origins() {
+        let member = |origin: &str, chat: &str| crate::merged::Member {
+            origin: origin.into(),
+            account: "acct".into(),
+            chat: chat.into(),
+        };
+        let people = vec![Person {
+            name: "Ada".into(),
+            members: vec![
+                member("http://127.0.0.1:23374", "!a:beeper.local"),
+                member("http://127.0.0.1:23374/", "!b:beeper.local"),
+                member("http://127.0.0.1:23373", "!c:beeper.local"),
+            ],
+            primary: None,
+        }];
+        let report = origin_report(&people, &["http://127.0.0.1:23374".to_string()]);
+        assert_eq!(report.len(), 3);
+        assert!(report.iter().any(|r| r.0.ends_with("23373") && !r.2));
+        assert!(report.iter().filter(|r| r.2).count() == 2);
     }
 
     #[test]

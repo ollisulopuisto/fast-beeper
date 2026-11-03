@@ -28,6 +28,26 @@ const ROUTES: &[(&str, u16, &str)] = &[
     ("/v1/chats/c-a1", 200, r#"{"accountID":"a1"}"#),
     ("/v1/chats/c-b2", 200, r#"{"accountID":"b2"}"#),
     ("/v1/chats/boom/messages", 500, "SECRET-DETAIL"),
+    (
+        "/v1/chats/%21AdaWa%3Abeeper.local",
+        200,
+        r#"{"id":"!AdaWa:beeper.local","accountID":"local-whatsapp_ba_Ada01","network":"WhatsApp","title":"Ada Lovelace","type":"single"}"#,
+    ),
+    (
+        "/v1/chats/%21AdaSg%3Abeeper.local",
+        200,
+        r#"{"id":"!AdaSg:beeper.local","accountID":"local-signal_ba_Ada02","network":"Signal","title":"Ada Lovelace","type":"single"}"#,
+    ),
+    (
+        "/v1/chats/%21AdaWa%3Abeeper.local/messages",
+        200,
+        r#"{"items":[{"id":"w2","chatID":"!AdaWa:beeper.local","accountID":"local-whatsapp_ba_Ada01","senderID":"ada","sortKey":"2","timestamp":"2026-11-03T12:00:00.000Z","text":"wa newest","isSender":false},{"id":"w1","chatID":"!AdaWa:beeper.local","accountID":"local-whatsapp_ba_Ada01","senderID":"ada","sortKey":"1","timestamp":"2026-11-03T10:00:00.000Z","text":"wa oldest","isSender":false}],"hasMore":true,"oldestCursor":"c1"}"#,
+    ),
+    (
+        "/v1/chats/%21AdaSg%3Abeeper.local/messages",
+        200,
+        r#"{"items":[{"id":"s1","chatID":"!AdaSg:beeper.local","accountID":"local-signal_ba_Ada02","senderID":"ada","sortKey":"1","timestamp":"2026-11-03T11:00:00.000Z","text":"sg middle","isSender":false}]}"#,
+    ),
     ("/v1/chats", 200, r#"{"items":[{"accountID":"a1"}]}"#),
 ];
 
@@ -93,7 +113,7 @@ fn start(base: &str, max: usize) -> Reader {
         source: Box::new(sender),
         limiter: Mutex::new(RateLimiter::default()),
         settings: Some(settings.clone()),
-        origins: vec!["http://app-origin".to_string()],
+        origins: vec!["http://127.0.0.1:23374".to_string()],
     });
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -277,12 +297,12 @@ fn loose_registry_permissions_refuse_everything() {
 
 const SETTINGS: &str = r#"{"beeper":{"people":[
   {"name":"Ada Lovelace","members":[
-    {"origin":"http://app-origin/","account":"a1","chat":"c-a1"},
+    {"origin":"http://127.0.0.1:23374/","account":"a1","chat":"c-a1"},
     {"origin":"http://other-backend:8077","account":"d9","chat":"c-d9"}],
-   "primary":{"origin":"http://app-origin/","account":"a1","chat":"c-a1"}},
+   "primary":{"origin":"http://127.0.0.1:23374/","account":"a1","chat":"c-a1"}},
   {"name":"Linked Across","members":[
-    {"origin":"http://app-origin/","account":"a1","chat":"c-a1"},
-    {"origin":"http://app-origin/","account":"b2","chat":"c-b2"}]}
+    {"origin":"http://127.0.0.1:23374/","account":"a1","chat":"c-a1"},
+    {"origin":"http://127.0.0.1:23374/","account":"b2","chat":"c-b2"}]}
 ],"local_ai_endpoint":"http://secret.example"}}"#;
 
 fn people_ids(reader: &Reader, token: &str) -> (u16, serde_json::Value) {
@@ -381,4 +401,48 @@ fn a_restricted_client_with_every_member_allowed_sees_only_its_own_metadata() {
     let (_, body) = get(&reader, &token, &format!("/v1/people/{id}/messages"));
     assert!(!body.contains("b2") && !body.contains("c-b2"));
     assert!(!log.lock().unwrap().join(" ").contains("c-b2"));
+}
+
+const REAL_SHAPE: &str = r#"{"beeper":{"people":[
+  {"name":"Ada Lovelace","members":[
+    {"origin":"http://127.0.0.1:23374","account":"local-whatsapp_ba_Ada01","chat":"!AdaWa:beeper.local"},
+    {"origin":"http://127.0.0.1:23374","account":"local-signal_ba_Ada02","chat":"!AdaSg:beeper.local"}],
+   "primary":{"origin":"http://127.0.0.1:23374","account":"local-whatsapp_ba_Ada01","chat":"!AdaWa:beeper.local"}}
+]}}"#;
+
+#[test]
+fn merged_timeline_with_recorded_origin_schema_orders_across_members() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &[]);
+    std::fs::write(reader.path.with_extension("settings"), REAL_SHAPE).unwrap();
+    let (_, list) = people_ids(&reader, &token);
+    let ada = &list["items"][0];
+    assert_eq!(ada["members"][0]["readable"], true);
+    assert_eq!(ada["members"][1]["readable"], true);
+    let id = ada["id"].as_str().unwrap();
+    let (status, body) = get(&reader, &token, &format!("/v1/people/{id}/messages?limit=2"));
+    assert_eq!(status, 200);
+    let timeline: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(timeline["partial"], false);
+    let texts: Vec<&str> = timeline["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["wa newest", "sg middle"]);
+    assert_eq!(timeline["items"][1]["accountID"], "local-signal_ba_Ada02");
+    assert!(timeline.get("hasMore").is_none(), "no upstream paging leaks");
+}
+
+#[test]
+fn an_allowlist_matching_the_recorded_accounts_sees_the_realistic_person() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let both = add_client(&reader, "both", &["local-whatsapp_ba_Ada01", "local-signal_ba_Ada02"]);
+    let one = add_client(&reader, "one", &["local-whatsapp_ba_Ada01"]);
+    std::fs::write(reader.path.with_extension("settings"), REAL_SHAPE).unwrap();
+    assert_eq!(people_ids(&reader, &both).1["items"].as_array().unwrap().len(), 1);
+    assert_eq!(people_ids(&reader, &one).1["items"].as_array().unwrap().len(), 0);
 }
