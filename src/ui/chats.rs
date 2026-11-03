@@ -1258,7 +1258,7 @@ fn favorite_chip(
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
-        network_badges(app, ui, &palette, avatar_rect, &chat);
+        network_badges(app, ui, &palette, avatar_rect, chat);
         if selected {
             // A short accent bar stands in for the selected row's background.
             ui.painter().rect_filled(
@@ -2039,7 +2039,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
-        network_badges(app, ui, &palette, avatar_rect, &chat);
+        network_badges(app, ui, &palette, avatar_rect, chat);
 
         let left = rect.left() + 76.0;
         let right = rect.right() - 14.0;
@@ -2559,7 +2559,7 @@ fn compact_row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response 
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
-        network_badges(app, ui, &palette, avatar_rect, &chat);
+        network_badges(app, ui, &palette, avatar_rect, chat);
         if selected {
             // A short accent bar stands in for the selected row's background.
             ui.painter().rect_filled(
