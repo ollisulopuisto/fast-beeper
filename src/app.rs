@@ -26951,15 +26951,15 @@ mod conversation_palette_tests {
     fn later_marks_are_independent_of_unread() {
         let mut app = app();
         let mut unread = later_chat("chat-1", 10);
-        unread.unread_count = 2;
+        unread.unread = 2;
         let mut read = later_chat("chat-2", 9);
-        read.unread_count = 0;
+        read.unread = 0;
         app.chats = vec![unread, read];
         let ctx = egui::Context::default();
         app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
         app.apply(Action::ToggleReplyLater("chat-2".into()), &ctx);
         // Flagging never touches the unread state.
-        assert_eq!(app.chats[0].unread_count, 2);
+        assert_eq!(app.chats[0].unread, 2);
         // Unread chip: only the unread chat; Reply later: both flags,
         // including the fully read one.
         app.chat_filter = ChatFilter::Unread;
