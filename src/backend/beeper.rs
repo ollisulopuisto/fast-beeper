@@ -1712,15 +1712,6 @@ fn decode_entities(text: &str) -> String {
     decoded
 }
 
-/// The ampersand entities a Server-escaped link separator can arrive as.
-/// Single level by construction: "&amp;amp;" repairs to "&amp;".
-fn decode_link_ampersands(link: &str) -> String {
-    link.replace("&amp;", "&")
-        .replace("&#38;", "&")
-        .replace("&#x26;", "&")
-        .replace("&#X26;", "&")
-}
-
 fn plain_rich_text(raw: &str) -> String {
     let lower = raw.to_ascii_lowercase();
     let known = [
@@ -1759,30 +1750,26 @@ fn plain_rich_text(raw: &str) -> String {
         })
     });
     if !looks_html {
-        // Server can entity-escape the & separators inside a plain TEXT
-        // payload's links: the 2026-11-03 live probe of the reported Dropbox
-        // message showed the separator on the wire as hex 26 61 6d 70 3b
-        // ("&amp;"), with zero bare ampersands in the whole text. Repair
-        // ampersand entities inside detected link addresses only, one level,
-        // so the address opens and reads as sent. Everything outside a link,
-        // including a hand-typed "&amp;", stays byte-for-byte as received.
-        let mut repaired = raw.to_owned();
-        let mut links = crate::markup::links(raw);
-        // A shorter address can be a prefix of a longer one in the same
-        // message; repair the longest first so its span stays intact.
-        links.sort_by_key(|a| std::cmp::Reverse(a.len()));
-        for link in links {
-            let fixed = decode_link_ampersands(&link);
-            if fixed != link {
-                repaired = repaired.replace(&link, &fixed);
-            }
-        }
-        return repaired;
+        // The API's contract for this field is rich text, not raw user
+        // input: developers.beeper.com documents `text` as the "Rich-text
+        // message body", and sending converts plain text and Markdown into
+        // the same normalized form. The 2026-11-03 live probe (#136) showed
+        // the escaping on the wire: the reported Dropbox link's separator
+        // arrived as hex 26 61 6d 70 3b ("&amp;"), with zero bare ampersands
+        // in the whole text; the reported WhatsApp quotes arrived as &quot;.
+        // So entities are the transport encoding of this field and decode
+        // one level: text the sender typed literally arrived double-escaped
+        // ("&amp;quot;") and survives one level as the literal. A bridge
+        // violating the contract with raw, unescaped text containing
+        // entity-looking literals would misdecode - the accepted residual
+        // risk #136 documented, now for the whole field.
+        return decode_entities(raw);
     }
     let mut out = String::new();
     let mut rest = raw;
     let mut blocked: Option<String> = None;
     let mut link: Option<String> = None;
+    let mut link_label: Option<usize> = None;
     while !rest.is_empty() {
         if rest.starts_with('<') {
             // A quoted > is an attribute value, not the end of a tag.
@@ -1824,13 +1811,27 @@ fn plain_rich_text(raw: &str) -> String {
                 } else if blocked.is_none() {
                     if name == "a" {
                         if closing {
+                            let label_start = link_label.take();
                             if let Some(url) = link.take() {
                                 // A matrix.to mention link already carries the
                                 // person's name as its text; the raw URL is noise.
                                 if !url.starts_with("https://matrix.to/#/@") {
-                                    out.push_str(" (");
-                                    out.push_str(&url);
-                                    out.push(')');
+                                    // A link whose text already is the address -
+                                    // a pasted URL the bridge marked up - keeps
+                                    // just the text; repeating the address in
+                                    // parentheses would show such links twice.
+                                    let shows_address = label_start.is_some_and(|start| {
+                                        let label = decode_entities(&out[start..]);
+                                        let label = label.trim();
+                                        label == url
+                                            || label.trim_end_matches('/')
+                                                == url.trim_end_matches('/')
+                                    });
+                                    if !shows_address {
+                                        out.push_str(" (");
+                                        out.push_str(&url);
+                                        out.push(')');
+                                    }
                                 }
                             }
                         } else {
@@ -1843,6 +1844,7 @@ fn plain_rich_text(raw: &str) -> String {
                             {
                                 out.push('@');
                             }
+                            link_label = link.as_ref().map(|_| out.len());
                         }
                     }
                     if matches!(
@@ -6872,12 +6874,12 @@ mod tests {
     }
 
     #[test]
-    fn tag_free_text_repairs_escaped_link_separators_only() {
+    fn tag_free_rich_text_decodes_one_level() {
         // Live-payload evidence (2026-11-03 probe of the reported Dropbox
         // message): the Server sends a TEXT payload with the link separator
         // already entity-escaped - wire bytes 26 61 6d 70 3b ("&amp;"), zero
-        // bare ampersands in the 113-char text, no HTML branch. The repair is
-        // scoped to detected link addresses.
+        // bare ampersands in the 113-char text, no HTML branch. The field's
+        // contract is rich text, so the wire form decodes one level.
         assert_eq!(
             plain_rich_text(
                 "https://www.dropbox.com/scl/fi/aaa/bbb/hh_uunista_ulos.mp4?rlkey=k&amp;dl=0"
@@ -6886,20 +6888,15 @@ mod tests {
         );
         assert_eq!(
             plain_rich_text("see (https://x.test/?a=1&amp;b=2). then &amp; more"),
-            "see (https://x.test/?a=1&b=2). then &amp; more"
+            "see (https://x.test/?a=1&b=2). then & more"
         );
-        // One level only, inside the link: a hand-typed "&amp;" arrives
-        // double-escaped and a single repair restores the literal.
+        // One level only: typed literally, "&amp;" arrives double-escaped
+        // and a single decode restores the literal.
         assert_eq!(
             plain_rich_text("https://x.test/?q=1&amp;amp;r=2"),
             "https://x.test/?q=1&amp;r=2"
         );
-        // Everything else in tag-free text stays byte-for-byte as received:
-        // entities outside links, bare ampersands, percent-encoded text.
-        assert_eq!(
-            plain_rich_text("wrote &amp; by hand, see a & b"),
-            "wrote &amp; by hand, see a & b"
-        );
+        // Percent-encoded text is not entity encoding and stays untouched.
         assert_eq!(
             plain_rich_text("https://x.test/?q=a%26amp%3Bb&r=%2B1"),
             "https://x.test/?q=a%26amp%3Bb&r=%2B1"
@@ -6907,6 +6904,53 @@ mod tests {
         assert_eq!(
             plain_rich_text("https://x.test/?a=1&#38;b=2 and https://x.test/?a=1&#x26;b=2"),
             "https://x.test/?a=1&b=2 and https://x.test/?a=1&b=2"
+        );
+    }
+
+    #[test]
+    fn server_escaped_text_decodes_one_level() {
+        // The reported WhatsApp quote, exactly as it arrived on the wire.
+        assert_eq!(
+            plain_rich_text("&quot;t\u{e4}\u{e4}h\u{e4}n on ku tilausty\u{f6} meille&quot;"),
+            "\"t\u{e4}\u{e4}h\u{e4}n on ku tilausty\u{f6} meille\""
+        );
+        // Every entity in the wire form decodes.
+        assert_eq!(
+            plain_rich_text("&quot;a&quot; &amp; &lt;b&gt; &#8220;c&#8221;"),
+            "\"a\" & <b> \u{201c}c\u{201d}"
+        );
+        // One level only: a typed "&quot;" arrived double-escaped on the
+        // wire, and a single decode restores exactly the typed literal.
+        assert_eq!(plain_rich_text("&amp;quot;"), "&quot;");
+        // A hand-typed entity arrives double-escaped and stays literal.
+        assert_eq!(
+            plain_rich_text("&amp;quot;tagged&amp;quot; and &amp;amp;"),
+            "&quot;tagged&quot; and &amp;"
+        );
+        // Unknown entity names stay literal, so even a contract-violating
+        // bridge's unrecognized escapes pass through undamaged.
+        assert_eq!(plain_rich_text("&quot;a&quot; &bogus;"), "\"a\" &bogus;");
+    }
+
+    #[test]
+    fn a_link_showing_its_address_is_not_repeated_in_parentheses() {
+        // The reported Yle share: the bridge marked the pasted URL up as an
+        // anchor whose text is the address itself.
+        assert_eq!(
+            plain_rich_text(
+                r#"<a href="https://yle.fi/a/7-10106742?utm_source=a&amp;utm_medium=b">https://yle.fi/a/7-10106742?utm_source=a&amp;utm_medium=b</a>"#
+            ),
+            "https://yle.fi/a/7-10106742?utm_source=a&utm_medium=b"
+        );
+        // A trailing-slash difference still reads as the same address.
+        assert_eq!(
+            plain_rich_text(r#"<a href="https://example.com/">https://example.com</a>"#),
+            "https://example.com"
+        );
+        // A distinct label keeps the parenthesized destination.
+        assert_eq!(
+            plain_rich_text(r#"<a href="https://example.com/page">this</a>"#),
+            "this (https://example.com/page)"
         );
     }
 

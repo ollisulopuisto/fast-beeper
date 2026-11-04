@@ -756,6 +756,26 @@ pub fn populate(app: &mut App) {
             row.thumbnail = Some(stock::thumbnail(stock::SPOTIFAST));
             row
         },
+        // The fixed reading of a Server-escaped WhatsApp quote: quote marks,
+        // not &quot; entities.
+        message(
+            ada,
+            "ada-quote",
+            false,
+            base + 160,
+            Content::text("\"t\u{e4}\u{e4}h\u{e4}n on ku tilausty\u{f6} meille\""),
+        ),
+        // The fixed reading of a shared link: the address once, underlined,
+        // not repeated in parentheses.
+        message(
+            ada,
+            "ada-share",
+            false,
+            base + 170,
+            Content::text(
+                "https://yle.fi/a/7-10106742?utm_source=social-media-share&utm_medium=social&utm_campaign=ylefiapp",
+            ),
+        ),
     ];
     let extra = vec![
         {
