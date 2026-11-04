@@ -602,11 +602,11 @@ static TEMP_UPLOADS: std::sync::Mutex<Option<std::collections::HashSet<std::path
     std::sync::Mutex::new(None);
 
 fn register_temp_upload(path: &std::path::Path) {
-    if let Some(set) = TEMP_UPLOADS.lock().unwrap().as_mut() {
-        set.insert(path.to_path_buf());
-    } else {
-        *TEMP_UPLOADS.lock().unwrap() = Some(std::collections::HashSet::from([path.to_path_buf()]));
-    }
+    TEMP_UPLOADS
+        .lock()
+        .unwrap()
+        .get_or_insert_with(std::collections::HashSet::new)
+        .insert(path.to_path_buf());
 }
 
 /// Claims a temporary file for deletion: true at most once per file.
