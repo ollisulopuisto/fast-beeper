@@ -346,13 +346,11 @@ pub(crate) fn can_select(content: &Content) -> bool {
 /// original is known.
 /// Adds the member to a later list, or removes every linked member when any
 /// is there: one person's flag lives and clears as one.
-fn toggle_later(
-    list: &mut Vec<crate::merged::Member>,
-    member: crate::merged::Member,
-    members: &[crate::merged::Member],
-) {
-    if list.iter().any(|saved| members.contains(saved)) {
-        list.retain(|saved| !members.contains(saved));
+/// One chat's mark on, or off. Nothing about linked people: each chat of
+/// a person carries its own mark.
+fn toggle_later(list: &mut Vec<crate::merged::Member>, member: crate::merged::Member) {
+    if list.contains(&member) {
+        list.retain(|saved| saved != &member);
     } else {
         list.push(member);
     }
@@ -3266,16 +3264,7 @@ impl App {
         self.show_starred = false;
     }
 
-    /// Local person-level triage, scoped to the exact configured members.
-    fn reply_later_members(&self, member: &crate::merged::Member) -> Vec<crate::merged::Member> {
-        self.settings
-            .beeper
-            .people
-            .iter()
-            .find(|person| person.members.contains(member))
-            .map(|person| person.members.clone())
-            .unwrap_or_else(|| vec![member.clone()])
-    }
+    /// Local per-chat triage, scoped to the exact configured members.
     pub fn toggle_reply_later(&mut self) {
         let Some(member) = self.current_chat().and_then(crate::merged::Member::of) else {
             return;
@@ -3283,10 +3272,10 @@ impl App {
         self.toggle_reply_later_member(member);
     }
 
-    /// Flags one chat to reply to later, or clears the flag. Person-level:
-    /// linked chats of one person share the mark. Local only; nothing is
-    /// sent to the server, and reading or replying never clears it - the
-    /// reader clears it.
+    /// Flags one chat to reply to later, or clears the flag. The mark is
+    /// this chat's alone: a linked person's other chats keep their own.
+    /// Local only; nothing is sent to the server, and reading or replying
+    /// never clears it - the reader clears it.
     pub fn toggle_reply_later_chat(&mut self, chat: &Chat) {
         let Some(member) = crate::merged::Member::of(chat) else {
             return;
@@ -3295,8 +3284,7 @@ impl App {
     }
 
     fn toggle_reply_later_member(&mut self, member: crate::merged::Member) {
-        let members = self.reply_later_members(&member);
-        toggle_later(&mut self.settings.beeper.reply_later, member, &members);
+        toggle_later(&mut self.settings.beeper.reply_later, member);
         self.mark_settings_dirty();
     }
 
@@ -3309,7 +3297,7 @@ impl App {
     }
 
     /// Flags one chat to read later, or clears the flag. Same local
-    /// person-level shape as reply later.
+    /// per-chat shape as reply later.
     pub fn toggle_read_later_chat(&mut self, chat: &Chat) {
         let Some(member) = crate::merged::Member::of(chat) else {
             return;
@@ -3318,8 +3306,7 @@ impl App {
     }
 
     fn toggle_read_later_member(&mut self, member: crate::merged::Member) {
-        let members = self.reply_later_members(&member);
-        toggle_later(&mut self.settings.beeper.read_later, member, &members);
+        toggle_later(&mut self.settings.beeper.read_later, member);
         self.mark_settings_dirty();
     }
     pub fn reply_later_contains(&self, chat: &Chat) -> bool {
@@ -3331,14 +3318,10 @@ impl App {
     }
 
     fn later_contains(&self, list: &[crate::merged::Member], chat: &Chat) -> bool {
-        let Some(member) = crate::merged::Member::of(chat) else {
-            return false;
-        };
-        let members = self.reply_later_members(&member);
-        list.iter().any(|saved| members.contains(saved))
+        crate::merged::Member::of(chat).is_some_and(|member| list.contains(&member))
     }
 
-    /// The active chip's test. The later filters are person-level marks in
+    /// The active chip's test. The later filters are per-chat marks in
     /// settings, which ChatFilter::matches cannot see.
     fn filter_matches(&self, filter: ChatFilter, chat: &Chat) -> bool {
         match filter {
@@ -5355,31 +5338,11 @@ impl App {
                     self.beeper_history_errors.remove(&chat);
                 }
             }
-            Event::BeeperSendConfirmed {
-                origin,
-                account,
-                chat,
-            } => {
-                let member = crate::merged::Member {
-                    origin,
-                    account,
-                    chat,
-                };
-                let members = self.reply_later_members(&member);
-                if self
-                    .settings
-                    .beeper
-                    .reply_later
-                    .iter()
-                    .any(|saved| members.contains(saved))
-                {
-                    self.settings
-                        .beeper
-                        .reply_later
-                        .retain(|saved| !members.contains(saved));
-                    self.mark_settings_dirty();
-                }
-            }
+            // Later marks are cleared only by an explicit toggle - never by
+            // sending, reading, or opening. The legacy queue dropped its
+            // mark here; the saved-flags lifecycle keeps it until the
+            // reader says it is done.
+            Event::BeeperSendConfirmed { .. } => {}
             Event::BeeperSendUncertain {
                 chat,
                 text,
@@ -26865,7 +26828,7 @@ mod conversation_palette_tests {
     }
 
     #[test]
-    fn later_flags_toggle_person_level_and_clear_independently() {
+    fn later_flags_toggle_per_chat_and_clear_independently() {
         let mut app = app();
         app.chats = vec![later_chat("chat-1", 10)];
         let ctx = egui::Context::default();
@@ -26908,6 +26871,98 @@ mod conversation_palette_tests {
         assert_eq!(ids(&app), ["chat-2"]);
         app.chat_filter = ChatFilter::All;
         assert_eq!(ids(&app), ["chat-1", "chat-2", "chat-3"]);
+    }
+
+    fn later_person(name: &str, ids: [&str; 2]) -> crate::merged::Person {
+        let member = |id: &str| crate::merged::Member {
+            origin: "local".to_owned(),
+            account: "account".to_owned(),
+            chat: id.to_owned(),
+        };
+        crate::merged::Person {
+            name: name.to_owned(),
+            members: vec![member(ids[0]), member(ids[1])],
+            primary: None,
+        }
+    }
+
+    #[test]
+    fn later_marks_are_per_chat_even_for_linked_people() {
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10), later_chat("chat-2", 9)];
+        app.settings.beeper.people = vec![later_person("Ada", ["chat-1", "chat-2"])];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        assert!(app.reply_later_contains(&app.chats[0]));
+        assert!(
+            !app.reply_later_contains(&app.chats[1]),
+            "a linked person's other chat keeps its own state"
+        );
+    }
+
+    #[test]
+    fn later_marks_survive_a_settings_roundtrip() {
+        let root = std::env::temp_dir().join(format!("zapfast-later-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10)];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReadLater("chat-1".into()), &ctx);
+        app.settings.save(&path).unwrap();
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.beeper.reply_later.len(), 1);
+        assert_eq!(loaded.beeper.read_later.len(), 1);
+        let chat = later_chat("chat-1", 10);
+        assert!(
+            loaded
+                .beeper
+                .reply_later
+                .contains(&crate::merged::Member::of(&chat).unwrap())
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn later_marks_are_independent_of_unread() {
+        let mut app = app();
+        let mut unread = later_chat("chat-1", 10);
+        unread.unread_count = 2;
+        let mut read = later_chat("chat-2", 9);
+        read.unread_count = 0;
+        app.chats = vec![unread, read];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReplyLater("chat-2".into()), &ctx);
+        // Flagging never touches the unread state.
+        assert_eq!(app.chats[0].unread_count, 2);
+        // Unread chip: only the unread chat; Reply later: both flags,
+        // including the fully read one.
+        app.chat_filter = ChatFilter::Unread;
+        let unread_ids: Vec<_> = app.visible_chats().iter().map(|c| c.id.clone()).collect();
+        assert_eq!(unread_ids, ["chat-1"]);
+        app.chat_filter = ChatFilter::ReplyLater;
+        let later_ids: Vec<_> = app.visible_chats().iter().map(|c| c.id.clone()).collect();
+        assert_eq!(later_ids, ["chat-1", "chat-2"]);
+    }
+
+    #[test]
+    fn sending_keeps_the_later_marks() {
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10)];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        let member = crate::merged::Member::of(&app.chats[0]).unwrap();
+        app.apply_backend_event(
+            Event::BeeperSendConfirmed {
+                origin: member.origin.clone(),
+                account: member.account.clone(),
+                chat: member.chat.clone(),
+            },
+            true,
+        );
+        assert!(app.reply_later_contains(&app.chats[0]));
     }
 
     #[test]

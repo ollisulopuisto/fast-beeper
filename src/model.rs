@@ -185,11 +185,23 @@ impl ListFilter {
 }
 
 impl ChatFilter {
-    pub const EVERY: [Self; 6] = [
+    pub const EVERY: [Self; 8] = [
         Self::All,
         Self::Unread,
         Self::ReplyLater,
         Self::ReadLater,
+        Self::Private,
+        Self::Favorites,
+        Self::Groups,
+        Self::Channels,
+    ];
+
+    /// The Alt+digit chip bindings, in their long-standing order. The
+    /// later chips joined the row after these were established, so they
+    /// get no positional binding and the existing ones never move.
+    pub const ALT_DIGIT: [Self; 6] = [
+        Self::All,
+        Self::Unread,
         Self::Private,
         Self::Favorites,
         Self::Groups,

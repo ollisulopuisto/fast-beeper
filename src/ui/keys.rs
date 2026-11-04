@@ -517,7 +517,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     } else {
         (None, None)
     };
-    if let Some(filter) = filter_number.and_then(|index| crate::model::ChatFilter::EVERY.get(index))
+    if let Some(filter) =
+        filter_number.and_then(|index| crate::model::ChatFilter::ALT_DIGIT.get(index))
     {
         actions.push(Action::SetChatFilter(*filter));
     }
@@ -1808,22 +1809,17 @@ mod tests {
         assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::EVERY[0]))
+                .contains(&Action::SetChatFilter(ChatFilter::ALT_DIGIT[0]))
         );
         app.actions.clear();
         assert!(!press(&mut app, &ctx, Key::Num6, Modifiers::ALT));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::EVERY[5]))
+                .contains(&Action::SetChatFilter(ChatFilter::ALT_DIGIT[5]))
         );
         app.actions.clear();
+        // The later chips have no positional binding: Alt+7 stays free.
         assert!(!press(&mut app, &ctx, Key::Num7, Modifiers::ALT));
-        assert!(
-            app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::EVERY[6]))
-        );
-        app.actions.clear();
-        assert!(!press(&mut app, &ctx, Key::Num8, Modifiers::ALT));
         assert!(app.actions.is_empty());
     }
 

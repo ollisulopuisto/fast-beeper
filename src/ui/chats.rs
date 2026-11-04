@@ -780,10 +780,13 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                     ChatFilter::Channels => Icon::Volume2,
                 };
                 let name = filter.label(app.locale);
-                let tooltip = format!(
-                    "{name} ({})",
-                    super::keys::label(&format!("Alt+{}", index + 1))
-                );
+                let tooltip = match ChatFilter::ALT_DIGIT.iter().position(|f| f == &filter) {
+                    Some(position) => format!(
+                        "{name} ({})",
+                        super::keys::label(&format!("Alt+{}", position + 1))
+                    ),
+                    None => name.to_string(),
+                };
                 let row = filter_icon(ui, &palette, icon, count, selected, &tooltip).tab_stop(
                     match filter {
                         ChatFilter::All => Stop::All,
@@ -848,7 +851,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 Icon::Clock,
                 0,
                 app.chat_filter == ChatFilter::ReplyLater,
-                "Reply later\nLocal queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat. Right-click: add or remove the open chat.",
+                "Reply later\nLocal marks, one chat at a time. Reading does not clear them. Cmd+Shift+L toggles the open chat. Right-click a chat: add or remove its mark.",
             );
             // Toggling the open chat's place in the queue was the wide
             // rail's text button; the icon's menu keeps it one click away.
@@ -2646,8 +2649,8 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
     {
         app.actions.push(Action::MarkUnread(chat.id.clone()));
     }
-    // Local later flags, person-level like the rail's queue: the chat's
-    // state decides the label, and nothing leaves this computer.
+    // Local later flags, one chat at a time: the chat's state decides
+    // the label, and nothing leaves this computer.
     if crate::merged::Member::of(chat).is_some() {
         let queued_reply = app.reply_later_contains(chat);
         let reply_label = if queued_reply {
