@@ -12126,6 +12126,61 @@ fn bmff_is_sequence(bytes: &[u8]) -> bool {
         .any(|brand| matches!(brand, b"avis" | b"heis" | b"hevs" | b"msf1"))
 }
 
+/// Whether a WebP file animates, from its RIFF chunks: an ANIM chunk or a
+/// VP8X chunk with the animation flag set.
+fn webp_is_animated(bytes: &[u8]) -> bool {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return false;
+    }
+    let mut pos = 12;
+    while pos + 8 <= bytes.len() {
+        let fourcc = &bytes[pos..pos + 4];
+        let size = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        if fourcc == b"ANIM" {
+            return true;
+        }
+        if fourcc == b"VP8X" && bytes.get(pos + 8).is_some_and(|flags| flags & 0x02 != 0) {
+            return true;
+        }
+        // Chunks pad to an even size.
+        pos += 8 + size + (size & 1);
+    }
+    false
+}
+
+/// Whether a PNG file animates: an acTL chunk before the first IDAT.
+fn png_is_animated(bytes: &[u8]) -> bool {
+    if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return false;
+    }
+    let mut pos = 8;
+    while pos + 8 <= bytes.len() {
+        let size = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+            as usize;
+        let fourcc = &bytes[pos + 4..pos + 8];
+        if fourcc == b"acTL" {
+            return true;
+        }
+        if fourcc == b"IDAT" {
+            return false;
+        }
+        // Length, type, data and CRC.
+        pos += 12 + size;
+    }
+    false
+}
+
+/// Whether a decoded image carries any transparency a photo JPEG would
+/// flatten, so the original goes as a file instead.
+fn alpha_used(image: &image::DynamicImage) -> bool {
+    image.color().has_alpha() && image.to_rgba8().pixels().any(|pixel| pixel.0[3] != u8::MAX)
+}
+
 /// macOS's ImageIO command line (`sips`), which decodes AVIF and HEIC
 /// natively. Always present on macOS, absent elsewhere.
 fn sips() -> Option<&'static std::path::Path> {
@@ -12307,8 +12362,15 @@ async fn prepare_media(
     // Photos decode natively when the `image` crate reads the format, and
     // through a system converter - macOS's sips or an installed ffmpeg -
     // when it does not (AVIF, HEIC). An animated image goes as its original
-    // file: converting its first frame to a still JPEG would lose the
-    // animation without saying so.
+    // file rather than losing its motion to a still JPEG, and an image with
+    // transparency goes as its original file rather than flattening it:
+    // either change would alter what the recipient gets without saying so.
+    let animated = match mime {
+        "image/webp" => webp_is_animated(&bytes),
+        "image/png" => png_is_animated(&bytes),
+        "image/avif" | "image/heic" | "image/heif" => bmff_is_sequence(&bytes),
+        _ => false,
+    };
     let is_picture = matches!(
         mime,
         "image/jpeg"
@@ -12319,7 +12381,7 @@ async fn prepare_media(
             | "image/avif"
             | "image/heic"
             | "image/heif"
-    ) && !bmff_is_sequence(&bytes);
+    ) && !animated;
     if is_picture {
         let extension = file_name
             .and_then(|name| name.rsplit_once('.').map(|(_, ext)| ext.to_owned()))
@@ -12348,6 +12410,14 @@ async fn prepare_media(
                 return Ok(prepared);
             }
         };
+        if mime != "image/jpeg" && alpha_used(&decoded) {
+            let name = file_name.unwrap_or("The image");
+            let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+            prepared.note = Some(format!(
+                "{name} went as a file: sending it as a photo would flatten its transparency"
+            ));
+            return Ok(prepared);
+        }
         let (width, height) = (decoded.width(), decoded.height());
         let jpeg = if mime == "image/jpeg" {
             bytes
@@ -12387,7 +12457,7 @@ async fn prepare_media(
             note: None,
         });
     }
-    if matches!(mime, "image/avif" | "image/heic" | "image/heif") && bmff_is_sequence(&bytes) {
+    if animated {
         let name = file_name.unwrap_or("The image");
         let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
         prepared.note = Some(format!(
@@ -24559,6 +24629,48 @@ mod older_history_tests {
         assert!(!bmff_is_sequence(&[
             0xff, 0xd8, 0xff, 0xe1, 0, 0, 0, 0, 0, 0, 0, 0
         ]));
+    }
+
+    #[test]
+    fn animated_webp_and_apng_are_not_stills() {
+        let webp = |flags: u8| {
+            let mut bytes = b"RIFF\x1a\0\0\0WEBP".to_vec();
+            bytes.extend_from_slice(b"VP8X\x0a\0\0\0");
+            bytes.push(flags);
+            bytes.extend_from_slice(&[0; 9]);
+            bytes
+        };
+        assert!(webp_is_animated(&webp(0x02)));
+        assert!(!webp_is_animated(&webp(0x00)));
+        assert!(!webp_is_animated(b""));
+        assert!(!webp_is_animated(b"RIFF\x04\0\0\0WAVE"));
+
+        let png = |chunks: &[&[u8; 4]]| {
+            let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+            for fourcc in chunks {
+                bytes.extend_from_slice(&[0, 0, 0, 8]);
+                bytes.extend_from_slice(*fourcc);
+                bytes.extend_from_slice(&[0; 12]);
+            }
+            bytes
+        };
+        assert!(png_is_animated(&png(&[b"IHDR", b"acTL"])));
+        assert!(!png_is_animated(&png(&[b"IHDR", b"IDAT"])));
+        assert!(!png_is_animated(&png(&[b"IHDR"])));
+        assert!(!png_is_animated(b""));
+    }
+
+    #[test]
+    fn transparency_marks_a_photo_as_no_plain_jpeg() {
+        let mut rgba = image::RgbaImage::new(2, 1);
+        rgba.put_pixel(0, 0, image::Rgba([255, 0, 0, 200]));
+        assert!(alpha_used(&image::DynamicImage::ImageRgba8(rgba)));
+        let mut opaque = image::RgbaImage::new(1, 1);
+        opaque.put_pixel(0, 0, image::Rgba([0, 255, 0, 255]));
+        assert!(!alpha_used(&image::DynamicImage::ImageRgba8(opaque)));
+        assert!(!alpha_used(&image::DynamicImage::ImageRgb8(
+            image::RgbImage::new(1, 1)
+        )));
     }
 
     #[tokio::test]
