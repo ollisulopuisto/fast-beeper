@@ -884,7 +884,9 @@ pub struct AccountSettings {
     #[serde(alias = "auto_download_images")]
     pub auto_download: bool,
     pub last_chat: Option<String>,
-    /// Chats open as tabs, in bar order; the active one is `last_chat`.
+    /// Recently opened chats, most recent last; `last_chat` is the open
+    /// one. The field name stays for file compatibility: it was the tab
+    /// strip's order, and the strip is gone.
     pub open_tabs: Vec<String>,
     pub notifications: bool,
     /// Which chats notify once, then stay quiet for ten minutes.

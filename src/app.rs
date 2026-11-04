@@ -6658,32 +6658,15 @@ impl App {
         }
     }
 
-    /// Writes the tab order to this account's settings, so a restart
-    /// restores the same tabs.
+    /// Writes the recent-chat list to this account's settings, so a
+    /// restart restores it. The list was the tab strip; the strip is
+    /// gone and the list now only feeds the Cmd+K switcher.
     fn persist_open_tabs(&mut self) {
         let tabs = self.open_tabs.clone();
         if self.account().settings.open_tabs != tabs {
             self.account_mut().settings.open_tabs = tabs;
             self.account_mut().mark_settings_dirty();
         }
-    }
-
-    /// Activates the next (1) or previous (-1) tab, wrapping around.
-    fn cycle_tab(&mut self, dir: isize) {
-        if self.open_tabs.len() < 2 {
-            return;
-        }
-        let Some(current) = self
-            .open_chat
-            .as_ref()
-            .and_then(|id| self.open_tabs.iter().position(|tab| tab == id))
-        else {
-            return;
-        };
-        let len = self.open_tabs.len() as isize;
-        let next = (current as isize + dir).rem_euclid(len) as usize;
-        let id = self.open_tabs[next].clone();
-        self.open_chat(id);
     }
 
     /// Opens an eligible chat, parking the previous draft and restoring this chat's composer.
@@ -6801,11 +6784,10 @@ impl App {
             }
             // Keep inactive transcript caches small. A revisited conversation
             // fetches its page again from Beeper; no remote history is deleted.
-            // An open tab is not inactive: switching to it must not refetch.
-            let tabs = self.open_tabs.clone();
+            // Only the open chat is active; a recent chat refetches on return.
             let mut kept = 0usize;
             self.conversations.retain(|chat, _| {
-                if chat == &id || tabs.contains(chat) {
+                if chat == &id {
                     true
                 } else {
                     kept += 1;
@@ -6813,7 +6795,7 @@ impl App {
                 }
             });
             for (chat, conversation) in self.conversations.iter_mut() {
-                if chat != &id && !tabs.contains(chat) && conversation.messages.len() > 200 {
+                if chat != &id && conversation.messages.len() > 200 {
                     let remove = conversation.messages.len() - 200;
                     conversation.messages.drain(..remove);
                     conversation.rows.clear();
@@ -6823,9 +6805,21 @@ impl App {
             }
         }
         self.set_open_chat(Some(id.clone()));
-        // Every opened chat is a tab; the one just opened is active.
+        // Every opened chat joins the recent-chat list that the Cmd+K
+        // switcher shows, most recent last. The list was the tab strip;
+        // without one it is capped so it cannot grow for a whole session.
         if !self.open_tabs.contains(&id) {
             self.open_tabs.push(id.clone());
+            // The open chat is never evicted; drafts live outside this
+            // list, so eviction never loses one.
+            while self.open_tabs.len() > 20 {
+                let oldest = self
+                    .open_tabs
+                    .iter()
+                    .position(|tab| Some(tab) != self.open_chat.as_ref())
+                    .unwrap_or(0);
+                self.open_tabs.remove(oldest);
+            }
             self.persist_open_tabs();
         }
         // The Calls tab keeps its history beside the chat; every other page
@@ -8004,41 +7998,9 @@ impl App {
                     });
                 }
             }
-            Action::CloseTab(id) => {
-                let Some(pos) = self.open_tabs.iter().position(|tab| tab == &id) else {
-                    return;
-                };
-                self.open_tabs.remove(pos);
-                self.persist_open_tabs();
-                if self.open_chat.as_deref() == Some(id.as_str()) {
-                    // The right neighbor takes over, else the left one, else
-                    // the conversation closes through the ordinary path. A
-                    // tab whose chat is gone is no takeover target.
-                    let next = self
-                        .open_tabs
-                        .get(pos)
-                        .or_else(|| self.open_tabs.last())
-                        .filter(|tab| self.chat(tab).is_some())
-                        .cloned();
-                    match next {
-                        Some(next) => self.open_chat(next),
-                        None => self.apply(Action::CloseChat, ctx),
-                    }
-                }
-            }
-            Action::NextTab => self.cycle_tab(1),
-            Action::PreviousTab => self.cycle_tab(-1),
             Action::CloseChat => {
-                // Closing the conversation closes its tab too; the remaining
-                // tabs stay for later. Neighbor takeover lives in CloseTab
-                // alone, so navigation and other internal closes keep their
-                // original meaning.
-                if let Some(id) = self.open_chat.clone()
-                    && self.open_tabs.contains(&id)
-                {
-                    self.open_tabs.retain(|tab| tab != &id);
-                    self.persist_open_tabs();
-                }
+                // The chat stays on the recent list the Cmd+K switcher
+                // shows; closing is not forgetting.
                 self.close_info();
                 // A narrow window's Back from a picked call returns to the
                 // call history.
@@ -24132,47 +24094,49 @@ mod tests {
     }
 
     #[test]
-    fn opened_chats_become_tabs_and_closing_activates_a_neighbor() {
+    fn opened_chats_become_recents_in_open_order_capped_and_deduped() {
         let mut app = app();
-        for (id, name) in [
-            ("a@s.whatsapp.net", "Ada"),
-            ("b@s.whatsapp.net", "Ben"),
-            ("c@s.whatsapp.net", "Cid"),
-        ] {
-            app.chats.push(Chat::new(id.into(), name.into()));
+        for n in 0..25 {
+            let id = format!("{n}@s.whatsapp.net");
+            app.chats.push(Chat::new(id.clone(), "Chat".into()));
+            app.open_chat(id);
         }
-        app.open_chat("a@s.whatsapp.net".into());
-        app.open_chat("b@s.whatsapp.net".into());
-        app.open_chat("c@s.whatsapp.net".into());
-        assert_eq!(
-            app.open_tabs,
-            vec![
-                "a@s.whatsapp.net".to_owned(),
-                "b@s.whatsapp.net".to_owned(),
-                "c@s.whatsapp.net".to_owned()
-            ],
-            "every opened chat is a tab, in open order"
+        // The recent list caps at 20, oldest dropped first.
+        assert_eq!(app.open_tabs.len(), 20);
+        assert_eq!(app.open_tabs[0], "5@s.whatsapp.net");
+        assert_eq!(app.open_tabs[19], "24@s.whatsapp.net");
+        // Reopening the active chat adds no duplicate.
+        app.open_chat("24@s.whatsapp.net".into());
+        assert_eq!(app.open_tabs.len(), 20);
+        // Eviction never touches drafts, and never the open chat.
+        app.drafts
+            .insert("6@s.whatsapp.net".into(), "half-written".into());
+        app.open_chat("6@s.whatsapp.net".into());
+        for n in 25..29 {
+            let id = format!("{n}@s.whatsapp.net");
+            app.chats.push(Chat::new(id.clone(), "Chat".into()));
+            app.open_chat(id);
+        }
+        app.open_chat("6@s.whatsapp.net".into());
+        for n in 29..32 {
+            let id = format!("{n}@s.whatsapp.net");
+            app.chats.push(Chat::new(id.clone(), "Chat".into()));
+            app.open_chat(id);
+        }
+        assert_eq!(app.open_tabs.len(), 20);
+        assert!(
+            app.open_tabs.contains(&"6@s.whatsapp.net".to_owned()),
+            "the open chat is never evicted"
         );
-        // Reopening the active chat adds no duplicate tab.
-        app.open_chat("c@s.whatsapp.net".into());
-        assert_eq!(app.open_tabs.len(), 3);
-
-        let ctx = egui::Context::default();
-        // Closing a background tab keeps the active chat.
-        app.apply(Action::CloseTab("a@s.whatsapp.net".into()), &ctx);
-        assert_eq!(app.open_chat.as_deref(), Some("c@s.whatsapp.net"));
-        assert_eq!(app.open_tabs.len(), 2);
-        // Closing the active tab activates its right neighbor, else left.
-        app.apply(Action::CloseTab("c@s.whatsapp.net".into()), &ctx);
-        assert_eq!(app.open_chat.as_deref(), Some("b@s.whatsapp.net"));
-        // The last tab closes the conversation through CloseChat.
-        app.apply(Action::CloseTab("b@s.whatsapp.net".into()), &ctx);
-        assert_eq!(app.open_chat, None);
-        assert!(app.open_tabs.is_empty());
+        assert_eq!(
+            app.drafts.get("6@s.whatsapp.net").map(String::as_str),
+            Some("half-written"),
+            "eviction from the recent list never loses a draft"
+        );
     }
 
     #[test]
-    fn ctrl_tab_cycles_wrapping_and_close_chat_closes_the_conversation() {
+    fn close_chat_closes_the_conversation_but_keeps_the_recents() {
         let mut app = app();
         for (id, name) in [("a@s.whatsapp.net", "Ada"), ("b@s.whatsapp.net", "Ben")] {
             app.chats.push(Chat::new(id.into(), name.into()));
@@ -24180,22 +24144,21 @@ mod tests {
         app.open_chat("a@s.whatsapp.net".into());
         app.open_chat("b@s.whatsapp.net".into());
         let ctx = egui::Context::default();
-        app.apply(Action::NextTab, &ctx);
-        assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
-        app.apply(Action::PreviousTab, &ctx);
-        assert_eq!(app.open_chat.as_deref(), Some("b@s.whatsapp.net"));
-        // Closing the conversation closes its tab; the other tab stays for
-        // later, and no neighbor takes over outside an explicit tab close.
+        // Closing the conversation leaves both chats on the recent list:
+        // the Cmd+K switcher still offers them.
         app.apply(Action::CloseChat, &ctx);
         assert_eq!(app.open_chat, None);
-        assert_eq!(app.open_tabs, vec!["a@s.whatsapp.net".to_owned()]);
-        // The remaining tab still opens its chat.
+        assert_eq!(
+            app.open_tabs,
+            vec!["a@s.whatsapp.net".to_owned(), "b@s.whatsapp.net".to_owned()]
+        );
+        // A recent chat still opens.
         app.apply(Action::OpenChat("a@s.whatsapp.net".into()), &ctx);
         assert_eq!(app.open_chat.as_deref(), Some("a@s.whatsapp.net"));
     }
 
     #[test]
-    fn a_background_tab_keeps_its_unread_when_a_message_arrives() {
+    fn a_background_chat_keeps_its_unread_when_a_message_arrives() {
         let mut app = app();
         for (id, name) in [("a@s.whatsapp.net", "Ada"), ("b@s.whatsapp.net", "Ben")] {
             app.chats.push(Chat::new(id.into(), name.into()));
@@ -24209,12 +24172,12 @@ mod tests {
         assert_eq!(
             app.chat("a@s.whatsapp.net").map(|chat| chat.unread),
             Some(1),
-            "only the active tab auto-reads; a background tab keeps unread"
+            "only the open chat auto-reads; a background chat keeps unread"
         );
     }
 
     #[test]
-    fn tabs_persist_to_account_settings() {
+    fn recents_persist_to_account_settings() {
         let mut app = app();
         app.chats
             .push(Chat::new("a@s.whatsapp.net".into(), "Ada".into()));
@@ -24223,9 +24186,14 @@ mod tests {
             app.account().settings.open_tabs,
             vec!["a@s.whatsapp.net".to_owned()]
         );
+        // Closing the conversation keeps the recent entry, so a restart's
+        // switcher still lists the chat.
         let ctx = egui::Context::default();
-        app.apply(Action::CloseTab("a@s.whatsapp.net".into()), &ctx);
-        assert!(app.account().settings.open_tabs.is_empty());
+        app.apply(Action::CloseChat, &ctx);
+        assert_eq!(
+            app.account().settings.open_tabs,
+            vec!["a@s.whatsapp.net".to_owned()]
+        );
     }
 
     #[test]

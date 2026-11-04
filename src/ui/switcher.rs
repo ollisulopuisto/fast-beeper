@@ -1,6 +1,7 @@
-//! The open-chat switcher (Ctrl+K): jump between the chats that are
-//! already open as tabs. Closed chats stay out on purpose - the command
-//! palette (Ctrl+P) and the chat-list search (Ctrl+Shift+F) find those.
+//! The recent-chat switcher (Ctrl+K): jump between the chats opened
+//! most recently. Older and never-opened chats stay out on purpose - the
+//! command palette (Ctrl+P) and the chat-list search (Ctrl+Shift+F) find
+//! those.
 
 use egui::{Key, Modifiers, Sense, vec2};
 
@@ -8,7 +9,7 @@ use super::{theme, widgets};
 use crate::app::App;
 use crate::model::{Action, ChatId};
 
-/// One rendered row: an open tab.
+/// One rendered row: a recent chat.
 pub struct SwitcherEntry {
     pub title: String,
     pub detail: String,
@@ -16,8 +17,8 @@ pub struct SwitcherEntry {
     pub current: bool,
 }
 
-/// The open tabs matching a query, in tab order. Pure over app state, so
-/// the matching is testable without a frame.
+/// The recent chats matching a query, most recent last. Pure over app
+/// state, so the matching is testable without a frame.
 ///
 /// Tabs whose chat is not loaded (or is gone) and locked chats outside
 /// the unlocked folder stay out: they cannot be opened from here either.
@@ -57,9 +58,9 @@ pub fn entries(app: &App, query: &str) -> Vec<SwitcherEntry> {
     out
 }
 
-/// Where the highlight starts: the tab after the current one, wrapping,
-/// so Enter alone alternates the two most recent tabs. Falls back to the
-/// first row when there is no current tab in the list.
+/// Where the highlight starts: the chat after the current one, wrapping,
+/// so Enter alone alternates the two most recent chats. Falls back to the
+/// first row when the current chat is not in the list.
 pub fn default_selected(app: &App, entries: &[SwitcherEntry]) -> usize {
     if entries.is_empty() {
         return 0;
@@ -216,14 +217,14 @@ mod tests {
     }
 
     #[test]
-    fn entries_list_open_tabs_in_tab_order_only() {
+    fn entries_list_recents_in_open_order_only() {
         let (_root, mut app) = app();
         chat(&mut app, "1@example", "Ada", "WhatsApp");
         chat(&mut app, "2@example", "Boris", "IRC");
         // A chat that is not open stays out.
         app.chats
             .push(crate::model::Chat::new("3@example".into(), "Carol".into()));
-        // A stale tab without a chat stays out too.
+        // A stale entry without a chat stays out too.
         app.open_tabs.push("gone@example".into());
         let rows = entries(&app, "");
         let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
@@ -264,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn the_highlight_starts_on_the_tab_after_the_current_one() {
+    fn the_highlight_starts_on_the_chat_after_the_current_one() {
         let (_root, mut app) = app();
         chat(&mut app, "1@example", "Ada", "WhatsApp");
         chat(&mut app, "2@example", "Boris", "IRC");
@@ -272,13 +273,13 @@ mod tests {
         let rows = entries(&app, "");
         // No current chat: the first row.
         assert_eq!(default_selected(&app, &rows), 0);
-        // Current in the middle: the next tab.
+        // Current in the middle: the next chat.
         app.open_chat = Some("2@example".into());
         assert_eq!(default_selected(&app, &rows), 2);
         // Current last: wraps to the first.
         app.open_chat = Some("3@example".into());
         assert_eq!(default_selected(&app, &rows), 0);
-        // A single open tab cannot alternate.
+        // A single recent chat cannot alternate.
         app.open_tabs = vec!["1@example".into()];
         app.open_chat = Some("1@example".into());
         let rows = entries(&app, "");
