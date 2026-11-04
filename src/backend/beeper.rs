@@ -1958,6 +1958,33 @@ fn read_state(value: &serde_json::Value, own: &str) -> Option<Delivery> {
     }
 }
 
+/// The read time a `seen` receipt carries, when it names one. A timestamp
+/// string is the bridge's per-message read claim. A per-participant map
+/// counts only when a single other reader's entry holds a timestamp: with
+/// several readers the one `read_at` field cannot say whose time it would
+/// show, so a broader map stays time-unknown rather than misattributed. The
+/// sender's own entry never counts, as in `read_state`.
+fn read_time(value: &serde_json::Value, own: &str) -> Option<i64> {
+    match value {
+        serde_json::Value::String(time) if !time.is_empty() => jiff::Timestamp::from_str(time)
+            .ok()
+            .map(|stamp| stamp.as_second()),
+        serde_json::Value::Object(by) => {
+            let mut times = by
+                .iter()
+                .filter(|(who, _)| who.as_str() != own)
+                .filter_map(|(_, entry)| read_time(entry, own));
+            let first = times.next()?;
+            if times.next().is_none() {
+                Some(first)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn delivery_of(m: &BeeperMessage) -> Delivery {
     if !m.is_sender.unwrap_or(false) {
         return Delivery::None;
@@ -1978,6 +2005,15 @@ fn delivery_of(m: &BeeperMessage) -> Delivery {
 
 fn map_message(m: &BeeperMessage, fallback_chat: &str) -> Message {
     let (body, _labelled) = body_of(m);
+    let status = delivery_of(m);
+    // The read timestamp is the one receipt time the API carries, inside
+    // `seen`; a delivery time has no field and stays unrecorded rather than
+    // guessed. Message info shows "Time not recorded" for that.
+    let read_at = if matches!(status, Delivery::Read | Delivery::ReadBySome) {
+        m.seen.as_ref().and_then(|seen| read_time(seen, &m.sender_id))
+    } else {
+        None
+    };
     Message {
         id: m.id.clone(),
         chat: if m.chat_id.is_empty() {
@@ -1995,9 +2031,9 @@ fn map_message(m: &BeeperMessage, fallback_chat: &str) -> Message {
             text: body,
             preview: None,
         }),
-        status: delivery_of(m),
+        status,
         delivered_at: None,
-        read_at: None,
+        read_at,
         quoted: m.linked_message_id.as_ref().map(|id| crate::model::Quoted {
             chat: None,
             id: id.clone(),
@@ -6080,6 +6116,41 @@ mod tests {
             let m: BeeperMessage = serde_json::from_value(wire).unwrap();
             assert_eq!(map_message(&m, "chat").status, expected, "{seen}");
         }
+    }
+
+    #[test]
+    fn a_seen_timestamp_becomes_the_read_time_and_nothing_invents_one() {
+        use serde_json::json;
+        use std::str::FromStr;
+        let read_at = |seen: serde_json::Value| {
+            let wire = json!({
+                "id": "x", "isSender": true, "senderID": "@me",
+                "seen": seen, "sendStatus": {"status": "SUCCESS"}
+            });
+            let m: BeeperMessage = serde_json::from_value(wire).unwrap();
+            map_message(&m, "chat").read_at
+        };
+        let stamp = jiff::Timestamp::from_str("2026-11-03T07:48:00Z")
+            .expect("valid")
+            .as_second();
+        // A timestamp string is the read time.
+        assert_eq!(read_at(json!("2026-11-03T07:48:00Z")), Some(stamp));
+        // A single other reader's map entry is too.
+        assert_eq!(
+            read_at(json!({"@me": "2026-11-01T00:00:00Z", "them": "2026-11-03T07:48:00Z"})),
+            Some(stamp)
+        );
+        // Several readers: no single time to show.
+        assert_eq!(
+            read_at(json!({"a": "2026-11-03T07:48:00Z", "b": "2026-11-03T08:00:00Z"})),
+            None
+        );
+        // Bare "read" without a time, an unreadable string, and unread states
+        // all stay unrecorded.
+        assert_eq!(read_at(json!(true)), None);
+        assert_eq!(read_at(json!("soon")), None);
+        assert_eq!(read_at(json!(false)), None);
+        assert_eq!(read_at(json!({"a": false})), None);
     }
 
     #[test]
