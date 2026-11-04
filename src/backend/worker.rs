@@ -12122,7 +12122,9 @@ fn bmff_is_sequence(bytes: &[u8]) -> bool {
     let box_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
     let end = box_len.min(bytes.len());
     bytes[8..end]
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|brand| matches!(brand, b"avis" | b"heis" | b"hevs" | b"msf1"))
 }
 
