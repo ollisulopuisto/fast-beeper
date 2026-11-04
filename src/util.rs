@@ -211,6 +211,50 @@ pub fn clock(unix_seconds: i64) -> String {
         .unwrap_or_default()
 }
 
+/// Bubble timestamp: the time today, the day named for the two days before
+/// it, then the date with the time - "01.11. 15:38" within the year and
+/// "01.11.2025 15:38" further back.
+pub fn bubble_stamp(locale: Locale, unix_seconds: i64) -> String {
+    let Some(when) = zoned(unix_seconds) else {
+        return String::new();
+    };
+    bubble_stamp_relative_to(locale, &when, today())
+}
+
+fn bubble_stamp_relative_to(locale: Locale, when: &Zoned, today: Date) -> String {
+    let time = hour_minute(when);
+    let days = today
+        .since(when.date())
+        .map(|span| span.get_days())
+        .unwrap_or(i32::MAX);
+    match days {
+        // A future day is a clock skew, not a date to name.
+        days if days <= 0 => time,
+        1 => crate::i18n::gettext(locale, "Yesterday {time}").replace("{time}", &time),
+        2 => {
+            crate::i18n::gettext(locale, "The day before yesterday {time}").replace("{time}", &time)
+        }
+        _ if when.year() == today.year() => {
+            format!("{:02}.{:02}. {time}", when.day(), when.month())
+        }
+        _ => format!(
+            "{:02}.{:02}.{} {time}",
+            when.day(),
+            when.month(),
+            when.year()
+        ),
+    }
+}
+
+/// The full moment, with seconds and the local zone: "04.11.2026 13:03:45
+/// EET". Message info shows it for the message itself, where the bubble's
+/// short stamp has no room for the date.
+pub fn full_stamp(unix_seconds: i64) -> String {
+    zoned(unix_seconds)
+        .map(|when| when.strftime("%d.%m.%Y %H:%M:%S %Z").to_string())
+        .unwrap_or_default()
+}
+
 /// WhatsApp transcript timestamp such as `22:41, 8/18/2026`.
 pub fn copy_stamp(unix_seconds: i64) -> String {
     zoned(unix_seconds)
@@ -1042,6 +1086,31 @@ mod tests {
             ),
             "14 Nov 2023"
         );
+    }
+
+    #[test]
+    fn bubble_stamps_name_two_days_then_show_dates() {
+        let when = Timestamp::from_second(1_700_000_000)
+            .expect("valid")
+            .to_zoned(jiff::tz::TimeZone::UTC);
+        let date = when.date(); // 14 Nov 2023, 22:13 UTC
+        let plus = |days: i64| {
+            date.checked_add(jiff::Span::new().days(days))
+                .expect("date")
+        };
+        let stamp = |today| super::bubble_stamp_relative_to(Locale::English, &when, today);
+        let time = time_of_day(22, 13, twelve_hour_clock());
+        assert_eq!(stamp(date), time);
+        assert_eq!(stamp(plus(1)), format!("Yesterday {time}"));
+        assert_eq!(stamp(plus(2)), format!("The day before yesterday {time}"));
+        // Three days back the date takes over, without the year this year.
+        assert_eq!(stamp(plus(3)), format!("14.11. {time}"));
+        // Months later but still the same year: still no year.
+        assert_eq!(stamp(plus(45)), format!("14.11. {time}"));
+        // A previous year carries the full year.
+        assert_eq!(stamp(plus(400)), format!("14.11.2023 {time}"));
+        // A future timestamp is clock skew, not a named day.
+        assert_eq!(stamp(plus(-1)), time);
     }
 
     /// Last seen reads as on the phone: the time today and yesterday, the

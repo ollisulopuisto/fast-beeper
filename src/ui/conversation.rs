@@ -3734,7 +3734,7 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
                                     )
                                 })
                                 .flatten();
-                            let time = crate::util::clock(last.timestamp);
+                            let time = crate::util::bubble_stamp(view.locale, last.timestamp);
                             // Whether the file is there to open, still coming, or why not;
                             // in an album, the first item that is not there yet.
                             let attachment = members.iter().find_map(|member| {
@@ -5182,7 +5182,7 @@ fn bubble_frame(
             // An album's footer is its last member's, marks included.
             let starred = view.starred.is_some_and(|ids| ids.contains(&last.id));
             let pinned = view.pins.is_some_and(|ids| ids.contains(&last.id));
-            let reserve = footer_width(ui, last, starred, pinned);
+            let reserve = footer_width(ui, view.locale, last, starred, pinned);
             let settled = album
                 .map(|_| CARD_WIDTH.min(cap))
                 .or_else(|| settled_width(ui, view, message, cap));
@@ -5492,7 +5492,7 @@ fn natural_text_width(ui: &egui::Ui, view: &View<'_>, message: &Message, cap: f3
     let last = laid.galley.rows.last().map_or(0.0, |row| row.row.size.x);
     let starred = view.starred.is_some_and(|ids| ids.contains(&message.id));
     let pinned = view.pins.is_some_and(|ids| ids.contains(&message.id));
-    let reserve = footer_width(ui, message, starred, pinned);
+    let reserve = footer_width(ui, view.locale, message, starred, pinned);
     Some(if last + 8.0 + reserve <= cap {
         widest.max(last + 8.0 + reserve)
     } else {
@@ -5849,12 +5849,12 @@ const FOOTER_MARK_GAP: f32 = 8.0;
 const FOOTER_MARK_SLOT: f32 = FOOTER_MARK + FOOTER_MARK_GAP;
 const FOOTER_STAR: Color32 = Color32::from_rgb(0xEA, 0xB3, 0x08);
 
-/// The clock's own width at the footer's size: the floor a footer starts from,
-/// and the one part of it that depends on the reader's clock format.
-fn clock_width(ui: &egui::Ui, message: &Message) -> f32 {
+/// The stamp's own width at the footer's size: the floor a footer starts
+/// from, and the one part of it that depends on the reader's clock format.
+fn clock_width(ui: &egui::Ui, locale: crate::i18n::Locale, message: &Message) -> f32 {
     ui.painter()
         .layout_no_wrap(
-            crate::util::clock(message.timestamp),
+            crate::util::bubble_stamp(locale, message.timestamp),
             theme::regular(11.0),
             Color32::WHITE,
         )
@@ -5863,9 +5863,15 @@ fn clock_width(ui: &egui::Ui, message: &Message) -> f32 {
 }
 
 /// Width of the message footer, including the room its marks take.
-fn footer_width(ui: &egui::Ui, message: &Message, starred: bool, pinned: bool) -> f32 {
+fn footer_width(
+    ui: &egui::Ui,
+    locale: crate::i18n::Locale,
+    message: &Message,
+    starred: bool,
+    pinned: bool,
+) -> f32 {
     let font = theme::regular(11.0);
-    let time = clock_width(ui, message);
+    let time = clock_width(ui, locale, message);
     let edited = if message.edited {
         ui.painter()
             .layout_no_wrap("edited".to_owned(), font, Color32::WHITE)
@@ -5963,9 +5969,11 @@ fn footer_over_picture(
 ) {
     let palette = &view.palette;
     let font = theme::regular(11.0);
-    let time =
-        ui.painter()
-            .layout_no_wrap(crate::util::clock(message.timestamp), font, Color32::WHITE);
+    let time = ui.painter().layout_no_wrap(
+        crate::util::bubble_stamp(view.locale, message.timestamp),
+        font,
+        Color32::WHITE,
+    );
     let failed = not_sent(message).then(|| {
         ui.painter()
             .layout_no_wrap(NOT_SENT.to_owned(), theme::medium(11.0), Color32::WHITE)
@@ -6120,7 +6128,7 @@ fn footer(
     let palette = &view.palette;
     let font = theme::regular(11.0);
     let time = ui.painter().layout_no_wrap(
-        crate::util::clock(message.timestamp),
+        crate::util::bubble_stamp(view.locale, message.timestamp),
         font.clone(),
         palette.secondary,
     );
@@ -11539,10 +11547,10 @@ mod tests {
             },
             |ui| {
                 let message = crate::archive::tests::message("1@s.whatsapp.net", "m1", 0, false);
-                clock = clock_width(ui, &message);
-                plain = footer_width(ui, &message, false, false);
-                pinned = footer_width(ui, &message, false, true);
-                both = footer_width(ui, &message, true, true);
+                clock = clock_width(ui, crate::i18n::Locale::English, &message);
+                plain = footer_width(ui, crate::i18n::Locale::English, &message, false, false);
+                pinned = footer_width(ui, crate::i18n::Locale::English, &message, false, true);
+                both = footer_width(ui, crate::i18n::Locale::English, &message, true, true);
             },
         );
         output.textures_delta.clear();
@@ -11624,10 +11632,10 @@ mod tests {
             |ui| {
                 let from_them = crate::archive::tests::message("1@s.whatsapp.net", "m1", 0, false);
                 let from_me = crate::archive::tests::message("1@s.whatsapp.net", "m1", 0, true);
-                clock = clock_width(ui, &from_them);
-                incoming = footer_width(ui, &from_them, false, false);
-                starred = footer_width(ui, &from_them, true, false);
-                own = footer_width(ui, &from_me, false, false);
+                clock = clock_width(ui, crate::i18n::Locale::English, &from_them);
+                incoming = footer_width(ui, crate::i18n::Locale::English, &from_them, false, false);
+                starred = footer_width(ui, crate::i18n::Locale::English, &from_them, true, false);
+                own = footer_width(ui, crate::i18n::Locale::English, &from_me, false, false);
             },
         );
         output.textures_delta.clear();
@@ -11804,12 +11812,26 @@ mod tests {
         };
         let mut widths = Vec::new();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            widths.push(footer_width(ui, &message, false, false));
+            widths.push(footer_width(
+                ui,
+                crate::i18n::Locale::English,
+                &message,
+                false,
+                false,
+            ));
             message.status = Delivery::Failed;
-            widths.push(footer_width(ui, &message, false, false));
+            widths.push(footer_width(
+                ui,
+                crate::i18n::Locale::English,
+                &message,
+                false,
+                false,
+            ));
             // Only our own messages can fail to send.
             message.from_me = false;
-            widths.push(footer_width(ui, &message, false, false) + 19.0);
+            widths.push(
+                footer_width(ui, crate::i18n::Locale::English, &message, false, false) + 19.0,
+            );
         });
         output.textures_delta.clear();
         assert!(widths[1] > widths[0] + 30.0, "{widths:?}");

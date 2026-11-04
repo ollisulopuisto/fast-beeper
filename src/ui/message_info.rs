@@ -79,6 +79,21 @@ fn receipts(app: &mut App, ui: &mut egui::Ui, chat: &str, id: &str, message: &Me
         app.account_receipts_off,
     );
     preview(ui, &palette, app.locale, message, delivery);
+    // The bubble's stamp is short; here the full moment, with seconds and
+    // the zone, pins the receipt times beside it to an exact instant.
+    ui.add_space(4.0);
+    theme::text(
+        ui,
+        gettext(app.locale, "Sent"),
+        theme::medium(13.0),
+        palette.text,
+    );
+    theme::text(
+        ui,
+        crate::util::full_stamp(message.timestamp),
+        theme::regular(12.5),
+        palette.secondary,
+    );
     if crate::model::ChatKind::from_id(chat) != crate::model::ChatKind::Group {
         direct(app, ui, message);
         return;
@@ -123,7 +138,8 @@ fn preview(
         |ui| {
             // Room for the tail, which reaches out past the bubble's side.
             ui.add_space(widgets::TAIL_WIDTH);
-            bubble(ui, palette, message, text, width, delivery);
+            let stamp = crate::util::bubble_stamp(locale, message.timestamp);
+            bubble(ui, palette, text, width, &stamp, delivery);
         },
     );
 }
@@ -131,9 +147,9 @@ fn preview(
 fn bubble(
     ui: &mut egui::Ui,
     palette: &Palette,
-    message: &Message,
     text: widgets::Line,
     width: f32,
+    stamp: &str,
     delivery: Delivery,
 ) {
     // Drawn as the chat draws our own messages: shadow, raised edge, tail.
@@ -142,7 +158,7 @@ fn bubble(
         .inner_margin(Margin::symmetric(12, 8))
         .show(ui, |ui| {
             let clock = ui.painter().layout_no_wrap(
-                crate::util::clock(message.timestamp),
+                stamp.to_owned(),
                 theme::regular(11.5),
                 palette.secondary,
             );
