@@ -12310,6 +12310,218 @@ async fn ffmpeg_image_to_png(ffmpeg: &std::path::Path, bytes: &[u8]) -> Result<V
     Ok(output.stdout)
 }
 
+/// The ffprobe from an installed ffmpeg, reporting the streams a media file
+/// actually holds. Resolved once per run.
+fn ffprobe() -> Option<&'static std::path::Path> {
+    static FFPROBE: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    FFPROBE
+        .get_or_init(|| {
+            let mut dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+                .map(|paths| std::env::split_paths(&paths).collect())
+                .unwrap_or_default();
+            dirs.push("/opt/homebrew/bin".into());
+            dirs.push("/usr/local/bin".into());
+            dirs.push("/usr/bin".into());
+            let name = format!("ffprobe{}", std::env::consts::EXE_SUFFIX);
+            dirs.into_iter()
+                .map(|dir| dir.join(&name))
+                .find(|bin| bin.is_file())
+        })
+        .as_deref()
+}
+
+/// ffprobe's report of the streams a video holds: its video and audio
+/// codecs, when present. The demuxers need a seekable input, so a temp
+/// file; the file is removed whether the probe works or not.
+async fn ffprobe_codecs(
+    ffprobe: &std::path::Path,
+    bytes: &[u8],
+    extension: Option<&str>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|span| span.as_nanos())
+        .unwrap_or_default();
+    let unique = format!("zapfast-probe-{}-{nanos}", std::process::id());
+    let input = std::env::temp_dir().join(format!("{unique}.{}", extension.unwrap_or("video")));
+    let result = async {
+        tokio::fs::write(&input, bytes)
+            .await
+            .map_err(|error| error.to_string())?;
+        let output = tokio::time::timeout(
+            Duration::from_secs(15),
+            tokio::process::Command::new(ffprobe)
+                .args([
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=codec_type,codec_name",
+                    "-of",
+                    "json",
+                ])
+                .arg(&input)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .map_err(|_| "ffprobe timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(format!("ffprobe exited with {}", output.status));
+        }
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+        let streams = parsed["streams"].as_array().cloned().unwrap_or_default();
+        let codec = |kind: &str| {
+            streams
+                .iter()
+                .find(|stream| stream["codec_type"].as_str() == Some(kind))
+                .and_then(|stream| stream["codec_name"].as_str().map(str::to_owned))
+        };
+        Ok((codec("video"), codec("audio")))
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&input).await;
+    result
+}
+
+/// How an attached video reaches phones: as-is when its streams already
+/// play inline (H.264 video, AAC/MP3 or no audio, in MP4), remuxed into MP4
+/// when the streams play but the container does not, re-encoded otherwise
+/// (#553). A failed probe keeps the container-only call.
+enum VideoPlan {
+    Send,
+    Remux,
+    Reencode,
+}
+
+fn video_plan(mime: &str, probed: Option<&(Option<String>, Option<String>)>) -> VideoPlan {
+    let plays_inline = |codecs: &(Option<String>, Option<String>)| {
+        codecs.0.as_deref() == Some("h264")
+            && matches!(codecs.1.as_deref(), None | Some("aac") | Some("mp3"))
+    };
+    match probed {
+        Some(codecs) if plays_inline(codecs) && whatsapp_video_mime(mime) => VideoPlan::Send,
+        Some(codecs) if plays_inline(codecs) => VideoPlan::Remux,
+        Some(_) => VideoPlan::Reencode,
+        None if whatsapp_video_mime(mime) => VideoPlan::Send,
+        None => VideoPlan::Reencode,
+    }
+}
+
+/// Runs ffmpeg over `bytes` through temp files (its demuxers and muxers
+/// need a seekable file, unlike the still-image pipe) and returns the
+/// converted bytes. The files are removed whether it works or not.
+async fn ffmpeg_convert(
+    ffmpeg: &std::path::Path,
+    bytes: &[u8],
+    input_extension: Option<&str>,
+    args: &[&str],
+    output_extension: &str,
+    timeout: Duration,
+) -> Result<Vec<u8>, String> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|span| span.as_nanos())
+        .unwrap_or_default();
+    let unique = format!("zapfast-convert-{}-{nanos}", std::process::id());
+    let dir = std::env::temp_dir();
+    let input = dir.join(format!("{unique}.{}", input_extension.unwrap_or("media")));
+    let output = dir.join(format!("{unique}.{output_extension}"));
+    let result = async {
+        tokio::fs::write(&input, bytes)
+            .await
+            .map_err(|error| error.to_string())?;
+        let status = tokio::time::timeout(
+            timeout,
+            tokio::process::Command::new(ffmpeg)
+                .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+                .arg(&input)
+                .args(args)
+                .arg(&output)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true)
+                .status(),
+        )
+        .await
+        .map_err(|_| "ffmpeg timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        if !status.success() {
+            return Err(format!("ffmpeg exited with {status}"));
+        }
+        tokio::fs::read(&output)
+            .await
+            .map_err(|error| error.to_string())
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&input).await;
+    let _ = tokio::fs::remove_file(&output).await;
+    result
+}
+
+/// Converts a video phones cannot play inline (or an animated image) to an
+/// MP4 they can: remuxed when its streams only need a new container,
+/// re-encoded to H.264/AAC otherwise. Motion and sound carry over.
+async fn ffmpeg_video_to_mp4(
+    ffmpeg: &std::path::Path,
+    bytes: &[u8],
+    extension: Option<&str>,
+    remux: bool,
+) -> Result<Vec<u8>, String> {
+    let args: &[&str] = if remux {
+        &["-c", "copy", "-movflags", "+faststart"]
+    } else {
+        &[
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "28",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+        ]
+    };
+    ffmpeg_convert(
+        ffmpeg,
+        bytes,
+        extension,
+        args,
+        "mp4",
+        Duration::from_secs(300),
+    )
+    .await
+}
+
+/// Converts audio phones cannot play inline (WAV, FLAC, AIFF, WMA) to AAC
+/// in MP4 they can (#162).
+async fn ffmpeg_audio_to_m4a(
+    ffmpeg: &std::path::Path,
+    bytes: &[u8],
+    extension: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    ffmpeg_convert(
+        ffmpeg,
+        bytes,
+        extension,
+        &["-vn", "-c:a", "aac", "-b:a", "128k"],
+        "m4a",
+        Duration::from_secs(120),
+    )
+    .await
+}
+
 /// Decodes a still image: natively when the `image` crate reads the format,
 /// otherwise through a system converter - macOS's `sips` (AVIF, HEIC) or an
 /// installed ffmpeg - which writes one frame as PNG the crate then reads.
@@ -12363,10 +12575,11 @@ async fn prepare_media(
 ) -> Result<Prepared, String> {
     // Photos decode natively when the `image` crate reads the format, and
     // through a system converter - macOS's sips or an installed ffmpeg -
-    // when it does not (AVIF, HEIC). An animated image goes as its original
-    // file rather than losing its motion to a still JPEG, and an image with
-    // transparency goes as its original file rather than flattening it:
-    // either change would alter what the recipient gets without saying so.
+    // when it does not (AVIF, HEIC). An animated image becomes a video
+    // through an installed ffmpeg rather than losing its motion to a still
+    // JPEG, and an image with transparency goes as its original file rather
+    // than flattening it: either silent change would alter what the
+    // recipient gets.
     let animated = match mime {
         "image/webp" => webp_is_animated(&bytes),
         "image/png" => png_is_animated(&bytes),
@@ -12384,18 +12597,19 @@ async fn prepare_media(
             | "image/heic"
             | "image/heif"
     ) && !animated;
+    let extension = file_name
+        .and_then(|name| name.rsplit_once('.').map(|(_, ext)| ext.to_owned()))
+        .or_else(|| {
+            mime.rsplit_once('/').map(|(_, subtype)| {
+                subtype
+                    .split(';')
+                    .next()
+                    .unwrap_or(subtype)
+                    .trim()
+                    .to_owned()
+            })
+        });
     if is_picture {
-        let extension = file_name
-            .and_then(|name| name.rsplit_once('.').map(|(_, ext)| ext.to_owned()))
-            .or_else(|| {
-                match mime {
-                    "image/avif" => Some("avif"),
-                    "image/heic" => Some("heic"),
-                    "image/heif" => Some("heif"),
-                    _ => None,
-                }
-                .map(str::to_owned)
-            });
         let decoded = match decode_image(&bytes, extension.as_deref()).await {
             Ok(decoded) => decoded,
             Err(reason) => {
@@ -12459,17 +12673,128 @@ async fn prepare_media(
             note: None,
         });
     }
+    let mut bytes = bytes;
+    let mut mime_owned = mime.to_owned();
+    let mut gif = gif;
     if animated {
+        // An animated image goes as a video through an installed ffmpeg,
+        // keeping its motion; without one it keeps its original format as
+        // a file, with a note saying so - never a silently flattened still.
         let name = file_name.unwrap_or("The image");
-        let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
-        prepared.note = Some(format!(
-            "{name} went as a file: animated images keep their original format"
-        ));
-        return Ok(prepared);
+        match ffmpeg() {
+            Some(ffmpeg) => {
+                match ffmpeg_video_to_mp4(ffmpeg, &bytes, extension.as_deref(), false).await {
+                    Ok(mp4) => {
+                        bytes = mp4;
+                        mime_owned = "video/mp4".to_owned();
+                        gif = true;
+                    }
+                    Err(error) => {
+                        let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+                        prepared.note = Some(format!(
+                            "{name} went as a file: converting the animation to video failed: {error}"
+                        ));
+                        return Ok(prepared);
+                    }
+                }
+            }
+            None => {
+                let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+                prepared.note = Some(format!(
+                    "{name} went as a file: animated images keep their original format"
+                ));
+                return Ok(prepared);
+            }
+        }
+    } else if mime.starts_with("video/") {
+        // Phones play only MP4 (H.264, AAC/MP3 audio) inline. With an
+        // installed ffmpeg the streams decide: send as-is when they already
+        // play, remux into MP4 when only the container is wrong, re-encode
+        // otherwise (#553). Without ffmpeg, non-MP4 goes as the original
+        // file with a note.
+        match ffmpeg() {
+            Some(ffmpeg) => {
+                let probed = match ffprobe() {
+                    Some(ffprobe) => ffprobe_codecs(ffprobe, &bytes, extension.as_deref())
+                        .await
+                        .ok(),
+                    None => None,
+                };
+                let plan = video_plan(&mime_owned, probed.as_ref());
+                match plan {
+                    VideoPlan::Send => {}
+                    VideoPlan::Remux | VideoPlan::Reencode => {
+                        let name = file_name.unwrap_or("The video");
+                        let remux = matches!(plan, VideoPlan::Remux);
+                        let converted =
+                            match ffmpeg_video_to_mp4(ffmpeg, &bytes, extension.as_deref(), remux)
+                                .await
+                            {
+                                Ok(mp4) => Ok(mp4),
+                                Err(_) if remux => {
+                                    ffmpeg_video_to_mp4(ffmpeg, &bytes, extension.as_deref(), false)
+                                        .await
+                                }
+                                Err(error) => Err(error),
+                            };
+                        match converted {
+                            Ok(mp4) => {
+                                bytes = mp4;
+                                mime_owned = "video/mp4".to_owned();
+                            }
+                            Err(error) => {
+                                let mut prepared =
+                                    prepare_document(client, bytes, mime, file_name).await?;
+                                prepared.note = Some(format!(
+                                    "{name} went as a file: conversion to a playable video failed: {error}"
+                                ));
+                                return Ok(prepared);
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                if !whatsapp_video_mime(&mime_owned) {
+                    let name = file_name.unwrap_or("The video");
+                    let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+                    prepared.note = Some(format!(
+                        "{name} went as a file: install ffmpeg to send {mime} as a video"
+                    ));
+                    return Ok(prepared);
+                }
+            }
+        }
+    } else if mime.starts_with("audio/") && whatsapp_audio_mime(mime).is_none() {
+        // Audio phones cannot play inline (WAV, FLAC, AIFF, WMA) becomes
+        // AAC through an installed ffmpeg; without one the original goes as
+        // a file with a note (#162).
+        let name = file_name.unwrap_or("The audio");
+        match ffmpeg() {
+            Some(ffmpeg) => match ffmpeg_audio_to_m4a(ffmpeg, &bytes, extension.as_deref()).await {
+                Ok(m4a) => {
+                    bytes = m4a;
+                    mime_owned = "audio/mp4".to_owned();
+                }
+                Err(error) => {
+                    let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+                    prepared.note = Some(format!(
+                        "{name} went as a file: conversion to playable audio failed: {error}"
+                    ));
+                    return Ok(prepared);
+                }
+            },
+            None => {
+                let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+                prepared.note = Some(format!(
+                    "{name} went as a file: install ffmpeg to send {mime} as an audio message"
+                ));
+                return Ok(prepared);
+            }
+        }
     }
     let size = bytes.len() as u64;
-    let mime_owned = mime.to_owned();
-    if whatsapp_video_mime(mime) {
+    if whatsapp_video_mime(&mime_owned) {
         // The picture, size, and length phones show before downloading it.
         // Reading a second of frames takes a moment, so off the runtime.
         let poster = {
@@ -12524,7 +12849,7 @@ async fn prepare_media(
             note: None,
         });
     }
-    if let Some(audio_mime) = whatsapp_audio_mime(mime) {
+    if let Some(audio_mime) = whatsapp_audio_mime(&mime_owned) {
         let mime_owned = audio_mime.to_owned();
         let upload = client
             .upload(bytes.clone(), MediaType::Audio, UploadOptions::default())
@@ -24673,6 +24998,40 @@ mod older_history_tests {
         assert!(!alpha_used(&image::DynamicImage::ImageRgb8(
             image::RgbImage::new(1, 1)
         )));
+    }
+
+    #[test]
+    fn video_conversion_follows_the_streams_not_the_container() {
+        let h264_aac = (Some("h264".to_owned()), Some("aac".to_owned()));
+        let h265_aac = (Some("hevc".to_owned()), Some("aac".to_owned()));
+        let vp9_opus = (Some("vp9".to_owned()), Some("opus".to_owned()));
+        let h264_silent = (Some("h264".to_owned()), None);
+        assert!(matches!(
+            video_plan("video/mp4", Some(&h264_aac)),
+            VideoPlan::Send
+        ));
+        assert!(matches!(
+            video_plan("video/quicktime", Some(&h264_aac)),
+            VideoPlan::Remux
+        ));
+        assert!(matches!(
+            video_plan("video/mp4", Some(&h264_silent)),
+            VideoPlan::Send
+        ));
+        assert!(matches!(
+            video_plan("video/mp4", Some(&h265_aac)),
+            VideoPlan::Reencode
+        ));
+        assert!(matches!(
+            video_plan("video/webm", Some(&vp9_opus)),
+            VideoPlan::Reencode
+        ));
+        // A failed probe keeps the container-only call.
+        assert!(matches!(video_plan("video/mp4", None), VideoPlan::Send));
+        assert!(matches!(
+            video_plan("video/quicktime", None),
+            VideoPlan::Reencode
+        ));
     }
 
     #[tokio::test]
