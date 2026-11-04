@@ -2311,15 +2311,20 @@ fn composer_tools_menu(app: &mut App, chat: &Chat, plus: &egui::Response) {
                     app.actions
                         .push(Action::ShowDialog(Dialog::SendLocation(chat.id.clone())));
                 }
-                let create_poll = crate::i18n::gettext(app.locale, "Create poll");
-                if widgets::menu_item(
-                    ui,
-                    &app.conversation_palette(),
-                    Some(Icon::ListChecks),
-                    &create_poll,
-                ) {
-                    app.actions
-                        .push(Action::ShowDialog(Dialog::CreatePoll(chat.id.clone())));
+                // Poll creation has no endpoint in the Beeper Server API,
+                // so on that backend the entry could only fail after the
+                // draft; it stays on the WhatsApp backend where it works.
+                if !crate::backend::beeper::BeeperConfig::is_beeper_mode() {
+                    let create_poll = crate::i18n::gettext(app.locale, "Create poll");
+                    if widgets::menu_item(
+                        ui,
+                        &app.conversation_palette(),
+                        Some(Icon::ListChecks),
+                        &create_poll,
+                    ) {
+                        app.actions
+                            .push(Action::ShowDialog(Dialog::CreatePoll(chat.id.clone())));
+                    }
                 }
             });
     }

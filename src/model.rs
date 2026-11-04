@@ -328,6 +328,11 @@ pub struct Chat {
     pub backend_origin: Option<String>,
     /// Exact API network name, separate from a decorated account label.
     pub backend_network: Option<String>,
+    /// Beeper's per-chat poll capability level (-2 rejected .. 2 fully
+    /// supported, per the Desktop API), `None` when the server reports no
+    /// capabilities. Informational only: the API has no poll content or
+    /// vote endpoint to use it with yet.
+    pub poll_capability: Option<i8>,
 }
 
 /// A group's permissions and admins, as its metadata says. Kept in the
@@ -425,6 +430,7 @@ impl Chat {
             backend_account: None,
             backend_origin: None,
             backend_network: None,
+            poll_capability: None,
         }
     }
 
