@@ -3265,10 +3265,23 @@ impl App {
     }
 
     /// Local per-chat triage, scoped to the exact configured members.
+    /// The mark key for any chat: the Beeper member when the chat has one,
+    /// else the app account and chat id. An empty origin never collides
+    /// with a real backend origin, and the app account keeps identical
+    /// chat ids on different accounts apart.
+    fn later_key(&self, chat: &Chat) -> crate::merged::Member {
+        crate::merged::Member::of(chat).unwrap_or_else(|| crate::merged::Member {
+            origin: String::new(),
+            account: self.account().id.0.clone(),
+            chat: chat.id.clone(),
+        })
+    }
+
     pub fn toggle_reply_later(&mut self) {
-        let Some(member) = self.current_chat().and_then(crate::merged::Member::of) else {
+        let Some(chat) = self.current_chat() else {
             return;
         };
+        let member = self.later_key(chat);
         self.toggle_reply_later_member(member);
     }
 
@@ -3277,9 +3290,7 @@ impl App {
     /// Local only; nothing is sent to the server, and reading or replying
     /// never clears it - the reader clears it.
     pub fn toggle_reply_later_chat(&mut self, chat: &Chat) {
-        let Some(member) = crate::merged::Member::of(chat) else {
-            return;
-        };
+        let member = self.later_key(chat);
         self.toggle_reply_later_member(member);
     }
 
@@ -3290,18 +3301,17 @@ impl App {
 
     /// Flags the open chat to read later, or clears the flag. Local only.
     pub fn toggle_read_later(&mut self) {
-        let Some(member) = self.current_chat().and_then(crate::merged::Member::of) else {
+        let Some(chat) = self.current_chat() else {
             return;
         };
+        let member = self.later_key(chat);
         self.toggle_read_later_member(member);
     }
 
     /// Flags one chat to read later, or clears the flag. Same local
     /// per-chat shape as reply later.
     pub fn toggle_read_later_chat(&mut self, chat: &Chat) {
-        let Some(member) = crate::merged::Member::of(chat) else {
-            return;
-        };
+        let member = self.later_key(chat);
         self.toggle_read_later_member(member);
     }
 
@@ -3318,7 +3328,7 @@ impl App {
     }
 
     fn later_contains(&self, list: &[crate::merged::Member], chat: &Chat) -> bool {
-        crate::merged::Member::of(chat).is_some_and(|member| list.contains(&member))
+        list.contains(&self.later_key(chat))
     }
 
     /// The active chip's test. The later filters are per-chat marks in
@@ -5338,11 +5348,26 @@ impl App {
                     self.beeper_history_errors.remove(&chat);
                 }
             }
-            // Later marks are cleared only by an explicit toggle - never by
-            // sending, reading, or opening. The legacy queue dropped its
-            // mark here; the saved-flags lifecycle keeps it until the
-            // reader says it is done.
-            Event::BeeperSendConfirmed { .. } => {}
+            Event::BeeperSendConfirmed {
+                origin,
+                account,
+                chat,
+            } => {
+                // Established queue behavior: a successful send clears the
+                // chat's reply-later mark. Read-later stays manual.
+                let member = crate::merged::Member {
+                    origin,
+                    account,
+                    chat,
+                };
+                if self.settings.beeper.reply_later.contains(&member) {
+                    self.settings
+                        .beeper
+                        .reply_later
+                        .retain(|saved| saved != &member);
+                    self.mark_settings_dirty();
+                }
+            }
             Event::BeeperSendUncertain {
                 chat,
                 text,
@@ -9582,24 +9607,22 @@ impl App {
                 self.backend.send(Command::SetFavorite(chat, favorite));
             }
             Action::ToggleReplyLater(id) => {
-                let Some(member) = self.chat(&id).and_then(crate::merged::Member::of) else {
+                let Some(chat) = self.chat(&id) else {
                     return;
                 };
-                let queued = self
-                    .chat(&id)
-                    .is_some_and(|chat| self.reply_later_contains(chat));
+                let queued = self.reply_later_contains(chat);
+                let member = self.later_key(chat);
                 self.toggle_reply_later_member(member);
                 if !queued {
                     self.toast(crate::i18n::gettext(self.locale, "Marked to reply later"));
                 }
             }
             Action::ToggleReadLater(id) => {
-                let Some(member) = self.chat(&id).and_then(crate::merged::Member::of) else {
+                let Some(chat) = self.chat(&id) else {
                     return;
                 };
-                let queued = self
-                    .chat(&id)
-                    .is_some_and(|chat| self.read_later_contains(chat));
+                let queued = self.read_later_contains(chat);
+                let member = self.later_key(chat);
                 self.toggle_read_later_member(member);
                 if !queued {
                     self.toast(crate::i18n::gettext(self.locale, "Marked to read later"));
@@ -26948,11 +26971,12 @@ mod conversation_palette_tests {
     }
 
     #[test]
-    fn sending_keeps_the_later_marks() {
+    fn sending_clears_reply_later_but_keeps_read_later() {
         let mut app = app();
         app.chats = vec![later_chat("chat-1", 10)];
         let ctx = egui::Context::default();
         app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReadLater("chat-1".into()), &ctx);
         let member = crate::merged::Member::of(&app.chats[0]).unwrap();
         app.apply_backend_event(
             Event::BeeperSendConfirmed {
@@ -26962,7 +26986,31 @@ mod conversation_palette_tests {
             },
             true,
         );
-        assert!(app.reply_later_contains(&app.chats[0]));
+        // Established queue behavior: a successful send clears reply later;
+        // read later is an explicit manual mark with no auto-clear.
+        assert!(!app.reply_later_contains(&app.chats[0]));
+        assert!(app.read_later_contains(&app.chats[0]));
+    }
+
+    #[test]
+    fn native_chats_mark_per_app_account() {
+        let mut app = app();
+        // A WhatsApp-backend chat: no Beeper origin or account.
+        let mut chat = Chat::new("42@s.whatsapp.net".into(), "Ada".into());
+        chat.last_activity = 10;
+        app.chats = vec![chat];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReadLater("42@s.whatsapp.net".into()), &ctx);
+        assert!(app.read_later_contains(&app.chats[0]));
+        // The same chat id under another app account is unmarked: the key
+        // is (app account, chat id), so accounts never share marks.
+        app.account_mut().id = AccountId("other-account".into());
+        assert!(!app.read_later_contains(&app.chats[0]));
+        // And a Beeper chat reusing the same chat id is distinct again:
+        // its origin is a real backend URL, never empty.
+        let beeper = later_chat("42@s.whatsapp.net", 9);
+        app.account_mut().id = AccountId("account".into());
+        assert!(!app.read_later_contains(&beeper));
     }
 
     #[test]

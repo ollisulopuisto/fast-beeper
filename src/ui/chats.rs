@@ -2650,8 +2650,9 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
         app.actions.push(Action::MarkUnread(chat.id.clone()));
     }
     // Local later flags, one chat at a time: the chat's state decides
-    // the label, and nothing leaves this computer.
-    if crate::merged::Member::of(chat).is_some() {
+    // the label, and nothing leaves this computer. Any chat can be
+    // marked - Beeper chats by backend member, others by app account.
+    {
         let queued_reply = app.reply_later_contains(chat);
         let reply_label = if queued_reply {
             crate::i18n::gettext(locale, "Clear reply later")
