@@ -159,7 +159,7 @@ fn bubble(
         .show(ui, |ui| {
             let clock = ui
                 .painter()
-                .layout_no_wrap(stamp, theme::regular(11.5), palette.secondary);
+                .layout_no_wrap(stamp.to_owned(), theme::regular(11.5), palette.secondary);
             let (rect, _) =
                 ui.allocate_exact_size(vec2(width, text.size().y + 18.0), Sense::hover());
             text.paint(ui, rect.min, palette.text);
