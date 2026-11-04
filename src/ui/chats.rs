@@ -760,7 +760,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
         // accessibility label.
         ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
         ui.vertical_centered(|ui| {
-            for (index, filter) in ChatFilter::EVERY.into_iter().enumerate() {
+            for filter in ChatFilter::EVERY {
                 let count = match filter {
                     ChatFilter::All => 0,
                     _ => app.unread_chats(filter),

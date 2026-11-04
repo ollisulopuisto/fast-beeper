@@ -1632,8 +1632,10 @@ mod giphy_tests {
         let root = std::env::temp_dir().join(format!("zapfast-migrate-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("settings.json");
-        let mut settings = Settings::default();
-        settings.version = 1;
+        let mut settings = Settings {
+            version: 1,
+            ..Settings::default()
+        };
         settings.beeper.people = vec![crate::merged::Person {
             name: "Ada".to_owned(),
             members: vec![member("chat-1"), member("chat-2")],
