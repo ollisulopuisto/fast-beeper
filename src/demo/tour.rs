@@ -233,7 +233,14 @@ fn script() -> Vec<Cue> {
     let mut cues = Vec::new();
     let mut add = |at, gesture| cues.push(Cue { at, gesture });
     let left = PointerButton::Primary;
-    add(0.0, Key(egui::Key::K, command(), "Ctrl + K · Search chats"));
+    add(
+        0.0,
+        Key(
+            egui::Key::F,
+            command() | egui::Modifiers::SHIFT,
+            "Ctrl + Shift + F · Search chats",
+        ),
+    );
     add(0.8, Move(Label("Rust Berlin")));
     add(1.15, Click(left));
     add(
