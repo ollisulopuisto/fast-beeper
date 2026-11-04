@@ -10408,6 +10408,8 @@ impl Worker {
             let chat = chat.clone();
             let dir = self.dirs.media_cache_dir();
             let me = self.me();
+            let events = self.events.clone();
+            let waker = self.waker.clone();
             // Attach the caption to the first file.
             let caption = if index == 0 { caption.clone() } else { None };
             let mentions = if index == 0 {
@@ -10431,6 +10433,10 @@ impl Worker {
                     } else {
                         prepare_media(&client, bytes, &mime, file_name.as_deref(), false).await?
                     };
+                    if let Some(note) = prepared.note.take() {
+                        let _ = events.send(Event::Info(note));
+                        waker.wake();
+                    }
                     if view_once {
                         mark_view_once_photo(&mut prepared)?;
                     }
@@ -11958,6 +11964,10 @@ pub(super) struct Prepared {
     bytes: Vec<u8>,
     mime: String,
     file_name: Option<String>,
+    /// Why a file went out in a shape other than the obvious one, surfaced to
+    /// the sender: an image no decoder here could read goes as a document
+    /// instead of failing, or losing its animation, silently.
+    note: Option<String>,
 }
 
 fn encode_jpeg(image: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
@@ -12064,6 +12074,7 @@ async fn prepare_voice(
         bytes,
         mime,
         file_name: None,
+        note: None,
     })
 }
 
@@ -12091,6 +12102,257 @@ fn whatsapp_video_mime(mime: &str) -> bool {
     mime == "video/mp4"
 }
 
+/// Why a photo-shaped image could not be decoded, surfaced with the document
+/// it goes out as instead of failing the send.
+#[derive(Debug)]
+enum DecodeFailure {
+    /// No bundled decoder reads the format and the system has no converter
+    /// (macOS `sips` or an installed ffmpeg).
+    NoConverter,
+    /// ffmpeg exists but could not convert the image.
+    ConversionFailed(String),
+}
+
+/// Whether an ISO-BMFF image (AVIF, HEIC) is an animation sequence rather
+/// than a still, from the brands its file type box declares.
+fn bmff_is_sequence(bytes: &[u8]) -> bool {
+    if bytes.len() < 12 || &bytes[4..8] != b"ftyp" {
+        return false;
+    }
+    let box_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let end = box_len.min(bytes.len());
+    bytes[8..end]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|brand| matches!(brand, b"avis" | b"heis" | b"hevs" | b"msf1"))
+}
+
+/// Whether a WebP file animates, from its RIFF chunks: an ANIM chunk or a
+/// VP8X chunk with the animation flag set.
+fn webp_is_animated(bytes: &[u8]) -> bool {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return false;
+    }
+    let mut pos = 12;
+    while pos + 8 <= bytes.len() {
+        let fourcc = &bytes[pos..pos + 4];
+        let size = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        if fourcc == b"ANIM" {
+            return true;
+        }
+        if fourcc == b"VP8X" && bytes.get(pos + 8).is_some_and(|flags| flags & 0x02 != 0) {
+            return true;
+        }
+        // Chunks pad to an even size.
+        pos += 8 + size + (size & 1);
+    }
+    false
+}
+
+/// Whether a PNG file animates: an acTL chunk before the first IDAT.
+fn png_is_animated(bytes: &[u8]) -> bool {
+    if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return false;
+    }
+    let mut pos = 8;
+    while pos + 8 <= bytes.len() {
+        let size = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+            as usize;
+        let fourcc = &bytes[pos + 4..pos + 8];
+        if fourcc == b"acTL" {
+            return true;
+        }
+        if fourcc == b"IDAT" {
+            return false;
+        }
+        // Length, type, data and CRC.
+        pos += 12 + size;
+    }
+    false
+}
+
+/// Whether a decoded image carries any transparency a photo JPEG would
+/// flatten, so the original goes as a file instead.
+fn alpha_used(image: &image::DynamicImage) -> bool {
+    image.color().has_alpha() && image.to_rgba8().pixels().any(|pixel| pixel.0[3] != u8::MAX)
+}
+
+/// macOS's ImageIO command line (`sips`), which decodes AVIF and HEIC
+/// natively. Always present on macOS, absent elsewhere.
+fn sips() -> Option<&'static std::path::Path> {
+    static SIPS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    SIPS.get_or_init(|| {
+        let bin = std::path::PathBuf::from("/usr/bin/sips");
+        bin.is_file().then_some(bin)
+    })
+    .as_deref()
+}
+
+/// Reads one still of `bytes` as PNG through `sips`. The temporary files are
+/// removed whether the conversion works or not.
+async fn sips_image_to_png(
+    sips: &std::path::Path,
+    bytes: &[u8],
+    extension: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|span| span.as_nanos())
+        .unwrap_or_default();
+    let unique = format!("zapfast-convert-{}-{nanos}", std::process::id());
+    let dir = std::env::temp_dir();
+    // sips decides the input type from the extension.
+    let input = dir.join(format!("{unique}.{}", extension.unwrap_or("img")));
+    let output = dir.join(format!("{unique}.png"));
+    let result = async {
+        tokio::fs::write(&input, bytes)
+            .await
+            .map_err(|error| error.to_string())?;
+        let status = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new(sips)
+                .args(["-s", "format", "png"])
+                .arg(&input)
+                .arg("--out")
+                .arg(&output)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true)
+                .status(),
+        )
+        .await
+        .map_err(|_| "sips timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        if !status.success() {
+            return Err(format!("sips exited with {status}"));
+        }
+        tokio::fs::read(&output)
+            .await
+            .map_err(|error| error.to_string())
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&input).await;
+    let _ = tokio::fs::remove_file(&output).await;
+    result
+}
+
+/// The ffmpeg binary converting images the bundled decoders cannot read, or
+/// None when the system has none. Resolved once per run.
+fn ffmpeg() -> Option<&'static std::path::Path> {
+    static FFMPEG: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    FFMPEG
+        .get_or_init(|| {
+            let mut dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+                .map(|paths| std::env::split_paths(&paths).collect())
+                .unwrap_or_default();
+            // A GUI launch on macOS sees a minimal PATH, so probe the usual
+            // Homebrew and system spots too.
+            dirs.push("/opt/homebrew/bin".into());
+            dirs.push("/usr/local/bin".into());
+            dirs.push("/usr/bin".into());
+            let name = format!("ffmpeg{}", std::env::consts::EXE_SUFFIX);
+            dirs.into_iter()
+                .map(|dir| dir.join(&name))
+                .find(|bin| bin.is_file())
+        })
+        .as_deref()
+}
+
+/// Reads one still frame of `bytes` as PNG through ffmpeg's standard streams,
+/// so no temporary file is left behind.
+async fn ffmpeg_image_to_png(ffmpeg: &std::path::Path, bytes: &[u8]) -> Result<Vec<u8>, String> {
+    use tokio::io::AsyncWriteExt;
+    let mut child = tokio::process::Command::new(ffmpeg)
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "pipe:0",
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "png",
+            "-",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "ffmpeg stdin unavailable".to_owned())?;
+    let input = bytes.to_vec();
+    let writer = tokio::spawn(async move { stdin.write_all(&input).await });
+    let output =
+        match tokio::time::timeout(std::time::Duration::from_secs(30), child.wait_with_output())
+            .await
+        {
+            Ok(output) => output.map_err(|error| error.to_string())?,
+            Err(_) => return Err("ffmpeg timed out".to_owned()),
+        };
+    let _ = writer.await;
+    if !output.status.success() || output.stdout.is_empty() {
+        return Err(format!("ffmpeg exited with {}", output.status));
+    }
+    Ok(output.stdout)
+}
+
+/// Decodes a still image: natively when the `image` crate reads the format,
+/// otherwise through a system converter - macOS's `sips` (AVIF, HEIC) or an
+/// installed ffmpeg - which writes one frame as PNG the crate then reads.
+async fn decode_image(
+    bytes: &[u8],
+    extension: Option<&str>,
+) -> Result<image::DynamicImage, DecodeFailure> {
+    let native = tokio::task::spawn_blocking({
+        let bytes = bytes.to_vec();
+        move || image::load_from_memory(&bytes)
+    })
+    .await
+    .map_err(|error| DecodeFailure::ConversionFailed(error.to_string()))?;
+    if let Ok(decoded) = native {
+        return Ok(decoded);
+    }
+    let png = |bytes: Vec<u8>| {
+        image::load_from_memory(&bytes)
+            .map_err(|error| DecodeFailure::ConversionFailed(error.to_string()))
+    };
+    let mut converter_found = false;
+    let mut last_error = String::new();
+    if let Some(sips) = sips() {
+        converter_found = true;
+        match sips_image_to_png(sips, bytes, extension).await {
+            Ok(bytes) => return png(bytes),
+            Err(error) => last_error = error,
+        }
+    }
+    if let Some(ffmpeg) = ffmpeg() {
+        converter_found = true;
+        match ffmpeg_image_to_png(ffmpeg, bytes).await {
+            Ok(bytes) => return png(bytes),
+            Err(error) => last_error = error,
+        }
+    }
+    if converter_found {
+        Err(DecodeFailure::ConversionFailed(last_error))
+    } else {
+        Err(DecodeFailure::NoConverter)
+    }
+}
+
 /// Uploads a file and builds its message. Images are encoded as JPEG.
 async fn prepare_media(
     client: &Client,
@@ -12099,17 +12361,65 @@ async fn prepare_media(
     file_name: Option<&str>,
     gif: bool,
 ) -> Result<Prepared, String> {
+    // Photos decode natively when the `image` crate reads the format, and
+    // through a system converter - macOS's sips or an installed ffmpeg -
+    // when it does not (AVIF, HEIC). An animated image goes as its original
+    // file rather than losing its motion to a still JPEG, and an image with
+    // transparency goes as its original file rather than flattening it:
+    // either change would alter what the recipient gets without saying so.
+    let animated = match mime {
+        "image/webp" => webp_is_animated(&bytes),
+        "image/png" => png_is_animated(&bytes),
+        "image/avif" | "image/heic" | "image/heif" => bmff_is_sequence(&bytes),
+        _ => false,
+    };
     let is_picture = matches!(
         mime,
-        "image/jpeg" | "image/png" | "image/webp" | "image/bmp" | "image/tiff"
-    );
+        "image/jpeg"
+            | "image/png"
+            | "image/webp"
+            | "image/bmp"
+            | "image/tiff"
+            | "image/avif"
+            | "image/heic"
+            | "image/heif"
+    ) && !animated;
     if is_picture {
-        let decoded = tokio::task::spawn_blocking({
-            let bytes = bytes.clone();
-            move || image::load_from_memory(&bytes).map_err(|error| error.to_string())
-        })
-        .await
-        .map_err(|error| error.to_string())??;
+        let extension = file_name
+            .and_then(|name| name.rsplit_once('.').map(|(_, ext)| ext.to_owned()))
+            .or_else(|| {
+                match mime {
+                    "image/avif" => Some("avif"),
+                    "image/heic" => Some("heic"),
+                    "image/heif" => Some("heif"),
+                    _ => None,
+                }
+                .map(str::to_owned)
+            });
+        let decoded = match decode_image(&bytes, extension.as_deref()).await {
+            Ok(decoded) => decoded,
+            Err(reason) => {
+                let name = file_name.unwrap_or("The image");
+                let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+                prepared.note = Some(match reason {
+                    DecodeFailure::NoConverter => {
+                        format!("{name} went as a file: install ffmpeg to send {mime} as a photo")
+                    }
+                    DecodeFailure::ConversionFailed(error) => {
+                        format!("{name} went as a file: conversion to a photo failed: {error}")
+                    }
+                });
+                return Ok(prepared);
+            }
+        };
+        if mime != "image/jpeg" && alpha_used(&decoded) {
+            let name = file_name.unwrap_or("The image");
+            let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+            prepared.note = Some(format!(
+                "{name} went as a file: sending it as a photo would flatten its transparency"
+            ));
+            return Ok(prepared);
+        }
         let (width, height) = (decoded.width(), decoded.height());
         let jpeg = if mime == "image/jpeg" {
             bytes
@@ -12146,7 +12456,16 @@ async fn prepare_media(
             bytes: jpeg,
             mime: "image/jpeg".to_owned(),
             file_name: None,
+            note: None,
         });
+    }
+    if animated {
+        let name = file_name.unwrap_or("The image");
+        let mut prepared = prepare_document(client, bytes, mime, file_name).await?;
+        prepared.note = Some(format!(
+            "{name} went as a file: animated images keep their original format"
+        ));
+        return Ok(prepared);
     }
     let size = bytes.len() as u64;
     let mime_owned = mime.to_owned();
@@ -12202,6 +12521,7 @@ async fn prepare_media(
             bytes,
             mime: mime_owned,
             file_name: file_name.map(str::to_owned),
+            note: None,
         });
     }
     if let Some(audio_mime) = whatsapp_audio_mime(mime) {
@@ -12228,6 +12548,7 @@ async fn prepare_media(
             bytes,
             mime: mime_owned,
             file_name: file_name.map(str::to_owned),
+            note: None,
         });
     }
     prepare_document(client, bytes, mime, file_name).await
@@ -12267,6 +12588,7 @@ async fn prepare_document(
         bytes,
         mime: mime_owned,
         file_name: Some(name),
+        note: None,
     })
 }
 
@@ -12322,6 +12644,7 @@ async fn prepare_sticker(client: &Client, bytes: Vec<u8>) -> Result<Prepared, St
         bytes,
         mime: "image/webp".to_owned(),
         file_name: None,
+        note: None,
     })
 }
 
@@ -15998,6 +16321,7 @@ mod tests {
                 bytes: vec![1, 2, 3, 4],
                 mime: "image/jpeg".into(),
                 file_name: None,
+                note: None,
             };
             if view_once {
                 mark_view_once_photo(&mut prepared).unwrap();
@@ -24289,5 +24613,81 @@ mod older_history_tests {
         worker.apply_history(history, true);
         worker.apply_history(chat_removal_tests::history(CHAT, &[90]), true);
         assert!(!worker.archive.history_start(CHAT).unwrap());
+    }
+
+    #[test]
+    fn bmff_sequence_brands_are_not_stills() {
+        let ftyp = |brand: &[u8; 4]| {
+            let mut bytes = vec![0, 0, 0, 24, b'f', b't', b'y', b'p'];
+            bytes.extend_from_slice(brand);
+            bytes.extend_from_slice(&[0, 0, 0, 0, b'm', b'i', b'f', b'1']);
+            bytes
+        };
+        assert!(bmff_is_sequence(&ftyp(b"avis")));
+        assert!(bmff_is_sequence(&ftyp(b"msf1")));
+        assert!(!bmff_is_sequence(&ftyp(b"avif")));
+        assert!(!bmff_is_sequence(&ftyp(b"heic")));
+        assert!(!bmff_is_sequence(b""));
+        assert!(!bmff_is_sequence(&[
+            0xff, 0xd8, 0xff, 0xe1, 0, 0, 0, 0, 0, 0, 0, 0
+        ]));
+    }
+
+    #[test]
+    fn animated_webp_and_apng_are_not_stills() {
+        let webp = |flags: u8| {
+            let mut bytes = b"RIFF\x1a\0\0\0WEBP".to_vec();
+            bytes.extend_from_slice(b"VP8X\x0a\0\0\0");
+            bytes.push(flags);
+            bytes.extend_from_slice(&[0; 9]);
+            bytes
+        };
+        assert!(webp_is_animated(&webp(0x02)));
+        assert!(!webp_is_animated(&webp(0x00)));
+        assert!(!webp_is_animated(b""));
+        assert!(!webp_is_animated(b"RIFF\x04\0\0\0WAVE"));
+
+        let png = |chunks: &[&[u8; 4]]| {
+            let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+            for fourcc in chunks {
+                bytes.extend_from_slice(&[0, 0, 0, 8]);
+                bytes.extend_from_slice(*fourcc);
+                bytes.extend_from_slice(&[0; 12]);
+            }
+            bytes
+        };
+        assert!(png_is_animated(&png(&[b"IHDR", b"acTL"])));
+        assert!(!png_is_animated(&png(&[b"IHDR", b"IDAT"])));
+        assert!(!png_is_animated(&png(&[b"IHDR"])));
+        assert!(!png_is_animated(b""));
+    }
+
+    #[test]
+    fn transparency_marks_a_photo_as_no_plain_jpeg() {
+        let mut rgba = image::RgbaImage::new(2, 1);
+        rgba.put_pixel(0, 0, image::Rgba([255, 0, 0, 200]));
+        assert!(alpha_used(&image::DynamicImage::ImageRgba8(rgba)));
+        let mut opaque = image::RgbaImage::new(1, 1);
+        opaque.put_pixel(0, 0, image::Rgba([0, 255, 0, 255]));
+        assert!(!alpha_used(&image::DynamicImage::ImageRgba8(opaque)));
+        assert!(!alpha_used(&image::DynamicImage::ImageRgb8(
+            image::RgbImage::new(1, 1)
+        )));
+    }
+
+    #[tokio::test]
+    async fn an_avif_converts_with_a_system_converter_when_present() {
+        if sips().is_none() && ffmpeg().is_none() {
+            return;
+        }
+        let bytes = include_bytes!("../../tests/fixtures/images/pixel.avif");
+        assert!(!bmff_is_sequence(bytes));
+        match decode_image(bytes, Some("avif")).await {
+            Ok(decoded) => assert_eq!((decoded.width(), decoded.height()), (8, 8)),
+            // An ffmpeg build without libavif legitimately cannot read the
+            // fixture; only sips (macOS) guarantees AVIF decoding.
+            Err(_) if sips().is_none() => {}
+            Err(reason) => panic!("a system converter present but failed: {reason:?}"),
+        }
     }
 }
