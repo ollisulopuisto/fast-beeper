@@ -664,22 +664,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                         // boundary are computed only for rows actually laid
                         // out, from the previous row's message whether that
                         // row was laid out or skipped.
-                        let height = match cache.height(&original_message.chat, &original_message.id)
-                        {
-                            Some(height) => height,
-                            None => {
-                                let height = super::conversation::linked_estimated_height(
-                                    original_message,
-                                    cache.width,
-                                );
-                                cache.note_height(
-                                    &original_message.chat,
-                                    &original_message.id,
-                                    height,
-                                );
-                                height
-                            }
-                        };
+                        let height =
+                            match cache.height(&original_message.chat, &original_message.id) {
+                                Some(height) => height,
+                                None => {
+                                    let height = super::conversation::linked_estimated_height(
+                                        original_message,
+                                        cache.width,
+                                    );
+                                    cache.note_height(
+                                        &original_message.chat,
+                                        &original_message.id,
+                                        height,
+                                    );
+                                    height
+                                }
+                            };
                         if !crate::merged::row_near_view(
                             top,
                             height,
@@ -703,9 +703,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             )
                         });
                         let boundary = crate::merged::header_boundary(
-                            previous_fields.as_ref().map(|(chat, sender, day, from_me)| {
-                                (*chat, *sender, day.as_str(), *from_me)
-                            }),
+                            previous_fields
+                                .as_ref()
+                                .map(|(chat, sender, day, from_me)| {
+                                    (*chat, *sender, day.as_str(), *from_me)
+                                }),
                             (
                                 original_message.chat.as_str(),
                                 original_message.sender.as_str(),
