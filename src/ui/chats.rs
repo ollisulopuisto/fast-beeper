@@ -382,6 +382,71 @@ fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {
         app.focus_search = false;
         response.request_focus();
     }
+    facet_row(app, ui);
+}
+
+/// The permanent facets under the search field: All and Unread beside the
+/// Reply later and Read later marks, each chip labeled and carrying its
+/// count. They hide with the list's other filters: the starred panel
+/// replaces the list, and a typed search already lists every match.
+fn facet_row(app: &mut App, ui: &mut egui::Ui) {
+    if app.show_starred {
+        return;
+    }
+    if !app.locked_folder_open() && !app.search.trim().is_empty() {
+        return;
+    }
+    const FACETS: [ChatFilter; 4] = [
+        ChatFilter::All,
+        ChatFilter::Unread,
+        ChatFilter::ReplyLater,
+        ChatFilter::ReadLater,
+    ];
+    let palette = app.palette;
+    ui.add_space(6.0);
+    // horizontal_wrapped: a narrow list wraps the chips onto another row
+    // rather than overflowing it.
+    widgets::chip_scroll_row(ui, "chat-facets", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
+            for filter in FACETS {
+                let count = match filter {
+                    ChatFilter::All => 0,
+                    _ => app.unread_chats(filter),
+                };
+                let selected = !app.locked_folder_open()
+                    && !app.show_archived
+                    && app.label_filter.is_none()
+                    && app.chat_filter == filter;
+                let name = filter.label(app.locale);
+                let tooltip = match ChatFilter::ALT_DIGIT.iter().position(|f| f == &filter) {
+                    Some(position) => format!(
+                        "{name} ({})",
+                        super::keys::label(&format!("Alt+{}", position + 1))
+                    ),
+                    None => name.to_string(),
+                };
+                let chip = widgets::filter_chip(ui, &palette, name.as_ref(), count, selected)
+                    .tab_stop(match filter {
+                        ChatFilter::All => Stop::All,
+                        ChatFilter::Unread => Stop::Unread,
+                        ChatFilter::ReplyLater => Stop::ReplyLater,
+                        ChatFilter::ReadLater => Stop::ReadLater,
+                        _ => unreachable!("FACETS holds only the four facets"),
+                    })
+                    .on_hover_text(tooltip);
+                // Store the chip rect for interaction tests.
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(filter_chip_id(filter), chip.rect));
+                if chip.clicked() {
+                    // A second click on the active facet returns to every chat.
+                    let next = if selected { ChatFilter::All } else { filter };
+                    app.beeper_unreplied = false;
+                    app.actions.push(Action::SetChatFilter(next));
+                }
+            }
+        });
+    });
 }
 
 /// A button on the right of the chat list header's first row.
@@ -742,8 +807,9 @@ fn filter_icon(
     response.on_hover_text(tooltip)
 }
 
-/// Quick filters in the combined sidebar. Search lists every match, so
-/// the chips hide there.
+/// The rail's quick filters: All, Unread and the later facets are the
+/// labeled row above the chat list, so the rail keeps the rest. Search
+/// lists every match, so the chips hide there.
 pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
     if app.show_starred {
         // The starred panel replaces the chat list, so its filters go with it.
@@ -760,7 +826,14 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
         // accessibility label.
         ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
         ui.vertical_centered(|ui| {
-            for filter in ChatFilter::EVERY {
+            // All, Unread and the later facets moved to the labeled row
+            // above the chat list; the rail keeps the rest.
+            for filter in [
+                ChatFilter::Private,
+                ChatFilter::Favorites,
+                ChatFilter::Groups,
+                ChatFilter::Channels,
+            ] {
                 let count = match filter {
                     ChatFilter::All => 0,
                     _ => app.unread_chats(filter),
@@ -844,46 +917,6 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
             if unreplied.clicked() {
                 app.beeper_unreplied = !app.beeper_unreplied;
                 app.actions.push(Action::SetChatFilter(ChatFilter::All));
-            }
-            let later = filter_icon(
-                ui,
-                &palette,
-                Icon::Clock,
-                0,
-                app.chat_filter == ChatFilter::ReplyLater,
-                "Reply later\nLocal marks, one chat at a time. Reading does not clear them. Cmd+Shift+L toggles the open chat. Right-click a chat: add or remove its mark.",
-            );
-            // Toggling the open chat's place in the queue was the wide
-            // rail's text button; the icon's menu keeps it one click away.
-            let queued = app
-                .current_chat()
-                .is_some_and(|chat| app.reply_later_contains(chat));
-            let has_current = app.current_chat().is_some();
-            if has_current {
-                later.context_menu(|ui| {
-                    if widgets::menu_item(
-                        ui,
-                        &palette,
-                        None,
-                        if queued {
-                            "Remove from later"
-                        } else {
-                            "Reply later +"
-                        },
-                    ) {
-                        app.toggle_reply_later();
-                        ui.close();
-                    }
-                });
-            }
-            if later.clicked() {
-                let next = if app.chat_filter == ChatFilter::ReplyLater {
-                    ChatFilter::All
-                } else {
-                    ChatFilter::ReplyLater
-                };
-                app.beeper_unreplied = false;
-                app.actions.push(Action::SetChatFilter(next));
             }
         }
         ui.add_space(4.0);
@@ -3512,9 +3545,12 @@ mod tests {
         );
     }
 
-    /// The user requested no horizontal scrollbars. The six filters stack
-    /// one icon per row down the rail's column with the label dots below,
-    /// keeping every filter/label reachable instead of the old scrolling UI.
+    /// No horizontal scrollbars in a narrow rail. The rail's four category
+    /// filters (Private, Favorites, Groups, Channels) stack one icon per row
+    /// down the rail's column with the label dots below, keeping every
+    /// filter/label reachable instead of the old scrolling UI. The labeled
+    /// All/Unread/Reply later/Read later facets live in the row above the
+    /// chat list; the demo's geometry test covers that row.
     #[test]
     fn narrow_chip_rows_stack_within_the_viewport_without_horizontal_scrolling() {
         let directory = tempfile::tempdir().unwrap();
@@ -3542,10 +3578,16 @@ mod tests {
             output.textures_delta.clear();
             output.shapes
         };
+        // The rail's filters after the primary facets moved above the list.
+        const RAIL: [ChatFilter; 4] = [
+            ChatFilter::Private,
+            ChatFilter::Favorites,
+            ChatFilter::Groups,
+            ChatFilter::Channels,
+        ];
         let rects = || {
             ctx.data(|data| {
-                ChatFilter::EVERY
-                    .into_iter()
+                RAIL.into_iter()
                     .map(|filter| data.get_temp::<Rect>(filter_chip_id(filter)).unwrap())
                     .chain((0..8).map(|index| {
                         data.get_temp::<Rect>(super::labels::chip_id(&index.to_string()))
@@ -3556,7 +3598,7 @@ mod tests {
         };
         frame(vec![]);
         let before = rects();
-        assert_eq!(before.len(), ChatFilter::EVERY.len() + 8);
+        assert_eq!(before.len(), RAIL.len() + 8);
         for rect in &before {
             assert!(
                 rect.is_positive() && rect.left() >= 0.0 && rect.right() <= 220.0,
@@ -3566,7 +3608,7 @@ mod tests {
         // One icon per row: every filter starts below the one before, the
         // whole column shares one center line, and the label dots follow.
         let column_x = before[0].center().x;
-        for pair in before[..ChatFilter::EVERY.len()].windows(2) {
+        for pair in before[..RAIL.len()].windows(2) {
             assert!(
                 pair[1].top() >= pair[0].bottom() - 1.0,
                 "filters stack one per row: {pair:?}"
@@ -3578,8 +3620,8 @@ mod tests {
                 "one centered column: {rect:?}"
             );
         }
-        assert!(before.last().unwrap().top() > before[ChatFilter::EVERY.len()].top());
-        for pointer in [before[0].center(), before[ChatFilter::EVERY.len()].center()] {
+        assert!(before.last().unwrap().top() > before[RAIL.len()].top());
+        for pointer in [before[0].center(), before[RAIL.len()].center()] {
             for _ in 0..5 {
                 frame(vec![egui::Event::PointerMoved(pointer)]);
             }
