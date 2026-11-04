@@ -236,9 +236,9 @@ fn script() -> Vec<Cue> {
     add(
         0.0,
         Key(
-            egui::Key::K,
+            egui::Key::F,
             command() | egui::Modifiers::SHIFT,
-            "Ctrl + Shift + K · Search chats",
+            "Ctrl + Shift + F · Search chats",
         ),
     );
     add(0.8, Move(Label("Rust Berlin")));

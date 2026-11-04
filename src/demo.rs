@@ -12943,7 +12943,7 @@ mod tests {
             &mut app,
             &ctx,
             vec![key(
-                egui::Key::K,
+                egui::Key::F,
                 egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
             )],
         );
@@ -12981,7 +12981,7 @@ mod tests {
             &mut app,
             &ctx,
             vec![key(
-                egui::Key::K,
+                egui::Key::F,
                 egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
             )],
         );
@@ -18412,7 +18412,7 @@ mod tests {
             &mut app,
             &ctx,
             vec![key(
-                egui::Key::K,
+                egui::Key::F,
                 egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
             )],
         );
