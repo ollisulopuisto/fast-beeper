@@ -18806,7 +18806,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_stay_one_row_within_sidebar_and_locked_is_only_shown_when_needed() {
+    fn filters_keep_their_columns_and_locked_is_only_shown_when_needed() {
         use crate::ui::rail::{Destination, destination_id};
         let mut app = app();
         for chat in &mut app.chats {
@@ -18838,30 +18838,74 @@ mod tests {
                 && (settings.top() - locked.bottom() - 4.0).abs() < 0.5,
             "Locked stacks directly above Settings: {locked:?} {settings:?}"
         );
-        let chips: Vec<_> = crate::model::ChatFilter::EVERY
-            .into_iter()
-            .map(|filter| {
-                ctx.data(|data| {
-                    data.get_temp::<egui::Rect>(crate::ui::chats::filter_chip_id(filter))
-                })
+        use crate::model::ChatFilter;
+        let chip = |filter: ChatFilter| {
+            ctx.data(|data| data.get_temp::<egui::Rect>(crate::ui::chats::filter_chip_id(filter)))
                 .unwrap()
-            })
-            .collect();
-        let sidebar = app.settings.sidebar_width;
-        for rect in &chips {
+        };
+        let facets = [
+            ChatFilter::All,
+            ChatFilter::Unread,
+            ChatFilter::ReplyLater,
+            ChatFilter::ReadLater,
+        ]
+        .map(&chip);
+        let rail_filters = [
+            ChatFilter::Private,
+            ChatFilter::Favorites,
+            ChatFilter::Groups,
+            ChatFilter::Channels,
+        ]
+        .map(&chip);
+        for rect in facets.into_iter().chain(rail_filters) {
             assert!(rect.is_positive(), "filter must remain visible: {rect:?}");
+        }
+        // The primary facets are the labeled row above the chat list: in the
+        // list column under the header, above the first chat row, wrapping
+        // onto extra rows instead of overflowing the sidebar's width.
+        let rail_width = ctx
+            .data(|data| data.get_temp::<f32>(crate::ui::rail::width_id()))
+            .unwrap();
+        let sidebar = app.settings.sidebar_width;
+        let header = ctx
+            .data(|data| data.get_temp::<egui::Rect>(crate::ui::chats::header_row_id()))
+            .unwrap();
+        for rect in &facets {
             assert!(
-                rect.left() >= chips[0].left() - 0.1 && rect.right() <= chips[0].left() + sidebar,
-                "filter must fit the sidebar: {rect:?}"
+                rect.left() >= rail_width - 0.1
+                    && rect.right() <= rail_width + sidebar + 0.1
+                    && rect.top() >= header.bottom() - 0.1,
+                "facet stays inside the list column under the header: {rect:?}"
             );
         }
+        for pair in facets.windows(2) {
+            let same_row = (pair[0].top() - pair[1].top()).abs() < 0.5;
+            assert!(
+                (same_row && pair[1].left() > pair[0].left())
+                    || (!same_row && pair[1].top() > pair[0].top()),
+                "facets read left to right, wrapping down: {pair:?}"
+            );
+        }
+        let first_row = ctx
+            .data(|data| {
+                data.get_temp::<egui::Rect>(crate::ui::chats::chat_row_id(
+                    &app.visible_chats()[0].id,
+                ))
+            })
+            .expect("the list's first chat row");
+        assert!(
+            facets
+                .iter()
+                .all(|rect| rect.bottom() <= first_row.top() + 0.1),
+            "facets stay above the chat list: {first_row:?}"
+        );
         // Compact icon column: one filter per row down the rail's single
         // centered column, matching filter_chips' stacked contract.
-        for pair in chips.windows(2) {
+        for pair in rail_filters.windows(2) {
             assert!(
                 (pair[0].center().x - pair[1].center().x).abs() < 0.5
                     && pair[1].top() >= pair[0].bottom(),
-                "filters form one centered column, one per row: {pair:?}"
+                "rail filters form one centered column, one per row: {pair:?}"
             );
         }
     }
