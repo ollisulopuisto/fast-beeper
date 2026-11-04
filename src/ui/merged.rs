@@ -538,6 +538,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     });
             });
     }
+    // Home/End and PageUp/PageDown from the key map land here: the linked
+    // timeline owns its scroll area, and the single-chat message list never
+    // runs while this view is up.
+    let pending_scroll = app.scroll_page.take();
+    let forced_bottom = std::mem::take(&mut app.scroll_to_bottom_forced);
     let messages = crate::merged::ordered_refs(
         valid
             .iter()
@@ -632,11 +637,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     let mut previous: Option<&crate::model::Message> = None;
     let mut previous_laid_out = false;
     let mut previous_on_screen = false;
-    // Home/End and PageUp/PageDown from the key map land here: the linked
-    // timeline owns its scroll area, and the single-chat message list never
-    // runs while this view is up.
-    let pending_scroll = app.scroll_page.take();
-    let forced_bottom = std::mem::take(&mut app.scroll_to_bottom_forced);
     let output = ui
         // The scroll area runs to the pane's edge so its overlay bar sits in
         // the side margin; rows keep the inset width and never sit under it.
