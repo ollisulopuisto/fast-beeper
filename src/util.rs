@@ -1105,7 +1105,8 @@ mod tests {
         assert_eq!(stamp(plus(2)), format!("The day before yesterday {time}"));
         // Three days back the date takes over, without the year this year.
         assert_eq!(stamp(plus(3)), format!("14.11. {time}"));
-        assert_eq!(stamp(plus(300)), format!("14.11. {time}"));
+        // Months later but still the same year: still no year.
+        assert_eq!(stamp(plus(45)), format!("14.11. {time}"));
         // A previous year carries the full year.
         assert_eq!(stamp(plus(400)), format!("14.11.2023 {time}"));
         // A future timestamp is clock skew, not a named day.
