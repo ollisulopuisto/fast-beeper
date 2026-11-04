@@ -231,8 +231,9 @@ fn bubble_stamp_relative_to(locale: Locale, when: &Zoned, today: Date) -> String
         // A future day is a clock skew, not a date to name.
         days if days <= 0 => time,
         1 => crate::i18n::gettext(locale, "Yesterday {time}").replace("{time}", &time),
-        2 => crate::i18n::gettext(locale, "The day before yesterday {time}")
-            .replace("{time}", &time),
+        2 => {
+            crate::i18n::gettext(locale, "The day before yesterday {time}").replace("{time}", &time)
+        }
         _ if when.year() == today.year() => {
             format!("{:02}.{:02}. {time}", when.day(), when.month())
         }
@@ -1093,7 +1094,10 @@ mod tests {
             .expect("valid")
             .to_zoned(jiff::tz::TimeZone::UTC);
         let date = when.date(); // 14 Nov 2023, 22:13 UTC
-        let plus = |days: i64| date.checked_add(jiff::Span::new().days(days)).expect("date");
+        let plus = |days: i64| {
+            date.checked_add(jiff::Span::new().days(days))
+                .expect("date")
+        };
         let stamp = |today| super::bubble_stamp_relative_to(Locale::English, &when, today);
         let time = time_of_day(22, 13, twelve_hour_clock());
         assert_eq!(stamp(date), time);
