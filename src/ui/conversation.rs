@@ -77,6 +77,91 @@ pub(super) fn beeper_live_warning(app: &App, ui: &mut egui::Ui, chat: &str) {
     }
 }
 
+/// The open chats as tabs above the conversation: the active one
+/// highlighted, an inactive one badged with its unread count, each with a
+/// close button. Shown once a second chat is open.
+fn tab_bar(app: &mut App, ui: &mut egui::Ui) {
+    if app.open_tabs.len() < 2 {
+        return;
+    }
+    let palette = app.conversation_palette();
+    let tabs = app.open_tabs.clone();
+    Frame::new()
+        .fill(palette.panel)
+        .inner_margin(Margin::symmetric(8, 3))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for id in tabs {
+                    tab_chip(app, ui, &palette, &id);
+                }
+            });
+        });
+}
+
+fn tab_chip(app: &mut App, ui: &mut egui::Ui, palette: &Palette, id: &str) {
+    let active = app.open_chat.as_deref() == Some(id);
+    let (title, unread) = app
+        .chat(id)
+        .map(|chat| (app.chat_title(chat), chat.unread))
+        .unwrap_or_else(|| (id.to_owned(), 0));
+    let fill = if active {
+        palette.surface_active
+    } else {
+        palette.surface
+    };
+    let text_color = if active {
+        palette.text
+    } else {
+        palette.secondary
+    };
+    let mut short = title.chars().take(18).collect::<String>();
+    if title.chars().count() > 18 {
+        short.push('…');
+    }
+    let close = crate::i18n::gettext(app.locale, "Close tab");
+    Frame::new()
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, palette.outline))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(10, 3))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let label = ui.add(
+                    egui::Label::new(egui::RichText::new(short.clone()).color(text_color))
+                        .sense(egui::Sense::click()),
+                );
+                if label.clicked() && !active {
+                    app.actions
+                        .push(crate::model::Action::OpenChat(id.to_owned()));
+                }
+                if !active && unread > 0 {
+                    Frame::new()
+                        .fill(palette.accent)
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::symmetric(5, 1))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(unread.to_string())
+                                    .color(palette.on_accent)
+                                    .small(),
+                            );
+                        });
+                }
+                let button = ui.add(
+                    egui::Button::new(egui::RichText::new("×").color(text_color)).frame(false),
+                );
+                if button.clicked() {
+                    app.actions
+                        .push(crate::model::Action::CloseTab(id.to_owned()));
+                }
+                button.on_hover_text(close.clone())
+            })
+            .inner
+        });
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let Some(chat) = app.current_chat().cloned() else {
         if theme::chrome_in_headers(ui.ctx()) {
@@ -94,6 +179,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // On a vibrant window the messages scroll on under the header, as in
     // Messages: the header and any banner go on a layer above them.
     if app.conversation_palette().vibrant() {
+        // Tabs are navigation chrome: they take real space above the header,
+        // never the frosted overlay messages scroll beneath.
+        tab_bar(app, ui);
         let layer = egui::LayerId::new(egui::Order::Middle, ui.id().with("chat-header"));
         let bar = ui
             .scope_builder(egui::UiBuilder::new().layer_id(layer), |ui| {
@@ -127,6 +215,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         // A vibrant window is flat, as Messages is: no shadows over the chat.
         return;
     }
+    tab_bar(app, ui);
     let header = header(app, ui, &chat);
     beeper_live_warning(app, ui, &chat.id);
     if theme::chrome_in_headers(ui.ctx()) {

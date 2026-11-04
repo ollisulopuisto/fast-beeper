@@ -257,6 +257,18 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(Modifiers::COMMAND, Key::Comma, Action::ToggleSettings);
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
         key(Modifiers::COMMAND, Key::W, Action::CloseWindow);
+        // Shift first: a plain Ctrl binding also matches with Shift held.
+        key(
+            Modifiers::CTRL | Modifiers::SHIFT,
+            Key::Tab,
+            Action::PreviousTab,
+        );
+        key(Modifiers::CTRL, Key::Tab, Action::NextTab);
+        // Cmd+W owns CloseWindow everywhere; plain Ctrl+W closes the active
+        // chat tab only where it is not the same physical shortcut.
+        if cfg!(target_os = "macos") {
+            key(Modifiers::CTRL, Key::W, Action::CloseChat);
+        }
         key(
             Modifiers::COMMAND,
             Key::Slash,
@@ -1082,6 +1094,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Ctrl+Shift+L",
         "Reply later in Beeper; lock elsewhere (add Alt in Beeper)",
     ),
+    ("Ctrl+Tab / Ctrl+Shift+Tab", "Cycle the open chat tabs"),
     ("Ctrl+W", "Close the window (ZapFast remains in the tray)"),
     ("Ctrl+Q", "Quit"),
 ];

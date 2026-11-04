@@ -73,6 +73,8 @@ pub struct AccountSettings {
     #[serde(alias = "auto_download_images", default = "default_true")]
     pub auto_download: bool,
     pub last_chat: Option<String>,
+    /// Chats open as tabs, in bar order; the active one is `last_chat`.
+    pub open_tabs: Vec<String>,
     #[serde(default = "default_true")]
     pub notifications: bool,
     pub limit_notifications: NotificationLimit,
