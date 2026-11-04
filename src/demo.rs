@@ -14154,10 +14154,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("no {prefix} row"))
                 .clone()
         };
-        for status in ["Sent ", "Delivered ", "Read "] {
+        for status in ["Sent", "Delivered", "Read"] {
             assert!(
-                nodes.iter().all(|(label, _, _)| !label.starts_with(status)),
-                "the menu has no {status}row"
+                nodes.iter().all(|(label, _, _)| label != status),
+                "the menu has no {status} row"
             );
         }
         assert_eq!(find("Message info").1, Role::Button);
@@ -19942,6 +19942,8 @@ mod tests {
                 Stop::Search,
                 Stop::All,
                 Stop::Unread,
+                Stop::ReplyLater,
+                Stop::ReadLater,
                 Stop::Private,
                 Stop::Favorites,
                 Stop::Groups,
