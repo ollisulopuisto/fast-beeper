@@ -2010,7 +2010,9 @@ fn map_message(m: &BeeperMessage, fallback_chat: &str) -> Message {
     // `seen`; a delivery time has no field and stays unrecorded rather than
     // guessed. Message info shows "Time not recorded" for that.
     let read_at = if matches!(status, Delivery::Read | Delivery::ReadBySome) {
-        m.seen.as_ref().and_then(|seen| read_time(seen, &m.sender_id))
+        m.seen
+            .as_ref()
+            .and_then(|seen| read_time(seen, &m.sender_id))
     } else {
         None
     };
