@@ -34,8 +34,9 @@ pub struct Account {
     pub contacts: HashMap<String, Contact>,
     pub conversations: HashMap<ChatId, Conversation>,
     pub open_chat: Option<ChatId>,
-    /// Chats open as tabs, in bar order; `open_chat` is the active one and
-    /// is always a member.
+    /// Recently opened chats, most recent last; `open_chat` is the open
+    /// one and is always a member. Feeds the Cmd+K switcher; was the tab
+    /// strip's order.
     pub open_tabs: Vec<ChatId>,
     /// The background-history state last sent to this account's worker: the
     /// switch and the chat on screen.

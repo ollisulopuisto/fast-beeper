@@ -2640,12 +2640,6 @@ pub enum Action {
     /// Restricts the in-chat search to a local calendar day.
     SetChatSearchDay(Option<jiff::civil::Date>),
     CloseChat,
-    /// Closes one chat tab; the active tab's neighbor takes over, or the
-    /// conversation closes when it was the last one.
-    CloseTab(ChatId),
-    /// Cycles the chat tabs; with fewer than two open these do nothing.
-    NextTab,
-    PreviousTab,
     SendText {
         chat: ChatId,
         text: String,
