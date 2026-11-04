@@ -125,9 +125,9 @@ pub enum ChatFilter {
     #[default]
     All,
     Unread,
-    /// Flagged to reply to later; person-level local marks, Beeper only.
+    /// Flagged to reply to later; per-chat local marks.
     ReplyLater,
-    /// Flagged to read later; person-level local marks, Beeper only.
+    /// Flagged to read later; per-chat local marks.
     ReadLater,
     /// One-to-one chats: neither groups nor broadcasts.
     Private,
@@ -158,6 +158,8 @@ impl ListFilter {
         let key = match chip {
             ChatFilter::All => return None,
             ChatFilter::Unread => "unread",
+            ChatFilter::ReplyLater => "reply-later",
+            ChatFilter::ReadLater => "read-later",
             ChatFilter::Private => "private",
             ChatFilter::Favorites => "favorites",
             ChatFilter::Groups => "groups",
@@ -174,6 +176,8 @@ impl ListFilter {
         }
         let chip = match key {
             "unread" => ChatFilter::Unread,
+            "reply-later" => ChatFilter::ReplyLater,
+            "read-later" => ChatFilter::ReadLater,
             "private" => ChatFilter::Private,
             "favorites" => ChatFilter::Favorites,
             "groups" => ChatFilter::Groups,
@@ -226,7 +230,7 @@ impl ChatFilter {
         match self {
             Self::All => !chat.is_channel(),
             Self::Unread => chat.looks_unread() && !chat.is_channel(),
-            // Person-level marks live in settings; App::filter_matches tests
+            // Per-chat marks live in settings; App::filter_matches tests
             // them against the saved lists, never this chat-only check.
             Self::ReplyLater | Self::ReadLater => false,
             Self::Private => chat.kind == ChatKind::Direct,
