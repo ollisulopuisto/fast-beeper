@@ -111,10 +111,7 @@ fn main() {
     app.settings.save(&path).unwrap();
     let loaded = Settings::load(&path);
     assert_eq!(loaded.beeper.reply_later, app.settings.beeper.reply_later);
-    app.apply(
-        zapfast::model::Action::SetChatFilter(zapfast::model::ChatFilter::ReplyLater),
-        &ctx,
-    );
+    app.chat_filter = zapfast::model::ChatFilter::ReplyLater;
     assert_eq!(app.visible_chats().len(), 1);
     // A send in the linked chat leaves this chat's mark alone.
     events
