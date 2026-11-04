@@ -583,16 +583,50 @@ impl Drop for StopUploads {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
-/// A pasted image's send encoding: JPEG, as the native backend encodes
-/// pasted images. Kept local so the portable adapter check, which stages
-/// this module without the native worker, covers the same bytes.
-fn encode_jpeg(image: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
-    let mut bytes = Vec::new();
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality);
-    encoder
-        .encode_image(&image.to_rgb8())
+/// A pasted image's send encoding: lossless PNG, so the clipboard's
+/// detail and alpha survive the send. Kept local so the portable adapter
+/// check, which stages this module without the native worker, covers the
+/// same bytes.
+fn encode_png(image: &image::DynamicImage) -> Result<Vec<u8>, String> {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut bytes, image::ImageFormat::Png)
         .map_err(|error| error.to_string())?;
-    Ok(bytes)
+    Ok(bytes.into_inner())
+}
+
+/// Temporary files this process created for the upload pipeline, so a kept
+/// file that the composer sends again is still recognised as ours: a
+/// successful retry deletes it instead of leaking it.
+static TEMP_UPLOADS: std::sync::Mutex<Option<std::collections::HashSet<std::path::PathBuf>>> =
+    std::sync::Mutex::new(None);
+
+fn register_temp_upload(path: &std::path::Path) {
+    if let Some(set) = TEMP_UPLOADS.lock().unwrap().as_mut() {
+        set.insert(path.to_path_buf());
+    } else {
+        *TEMP_UPLOADS.lock().unwrap() = Some(std::collections::HashSet::from([path.to_path_buf()]));
+    }
+}
+
+/// Claims a temporary file for deletion: true at most once per file.
+fn take_temp_upload(path: &std::path::Path) -> bool {
+    TEMP_UPLOADS
+        .lock()
+        .unwrap()
+        .as_mut()
+        .is_some_and(|set| set.remove(path))
+}
+
+/// Encodes pasted pixels into a temporary PNG for the upload pipeline.
+fn encode_pasted_image(width: u32, height: u32, rgba: &[u8]) -> Result<std::path::PathBuf, String> {
+    let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+        .ok_or("Clipboard image data is invalid")?;
+    let bytes = encode_png(&image::DynamicImage::ImageRgba8(image))?;
+    let path = std::env::temp_dir().join(format!("pasted-image-{}.png", crate::util::now()));
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    register_temp_upload(&path);
+    Ok(path)
 }
 
 /// Removes an app-created temporary file - a voice recording or a pasted
@@ -2426,7 +2460,10 @@ pub fn run(
                         Ok(accepted) => {
                             // A sent recording is no longer needed; a failed upload
                             // returns its raw samples to the composer instead.
-                            discard_sent_recording(voice.is_some() || temporary, path);
+                            discard_sent_recording(
+                                voice.is_some() || temporary || take_temp_upload(path),
+                                path,
+                            );
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
                             } else {
@@ -3246,16 +3283,7 @@ pub fn run(
                     // same upload pipeline as a picked file. The unsupported
                     // gate has already returned quotes, mentions and
                     // view-once, so this arm only sees a plain image.
-                    let encoded = image::RgbaImage::from_raw(width, height, rgba.clone())
-                        .ok_or("Clipboard image data is invalid".to_owned())
-                        .and_then(|image| encode_jpeg(&image::DynamicImage::ImageRgba8(image), 88))
-                        .and_then(|bytes| {
-                            let path = std::env::temp_dir()
-                                .join(format!("pasted-image-{}.jpg", crate::util::now()));
-                            std::fs::write(&path, bytes)
-                                .map(|()| path)
-                                .map_err(|error| error.to_string())
-                        });
+                    let encoded = encode_pasted_image(width, height, &rgba);
                     match encoded {
                         Ok(path) => {
                             if let Err(error) = upload_tx.try_send((
@@ -4239,6 +4267,27 @@ mod tests {
     }
 
     #[test]
+    fn pasted_image_encodes_a_lossless_png_with_alpha() {
+        let rgba = vec![10, 20, 30, 128];
+        let path = encode_pasted_image(1, 1, &rgba).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(take_temp_upload(&path), "the file is ours to clean");
+        assert!(!take_temp_upload(&path), "the claim is spent");
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(&bytes[..4], b"\x89PNG");
+        let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(decoded.get_pixel(0, 0).0, [10, 20, 30, 128]);
+    }
+
+    #[test]
+    fn pasted_image_with_invalid_pixels_is_rejected() {
+        let error = encode_pasted_image(2, 2, &[1, 2, 3, 255]).unwrap_err();
+        assert_eq!(error, "Clipboard image data is invalid");
+    }
+
+    #[test]
     fn plain_image_send_passes_the_unsupported_gate() {
         let command = Command::SendImage {
             chat: "work".into(),
@@ -4543,7 +4592,7 @@ mod tests {
         })
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let image = dir.path().join("pasted-image-1.jpg");
+        let image = dir.path().join("pasted-image-1.png");
         std::fs::write(&image, b"jpeg").unwrap();
         let result = api
             .send_attachment(
@@ -4560,7 +4609,7 @@ mod tests {
         // Beeper picks the type from the uploaded file; the client sends no
         // override, and the caption is the message's text.
         assert!(
-            request.contains(r#""fileName":"pasted-image-1.jpg""#),
+            request.contains(r#""fileName":"pasted-image-1.png""#),
             "{request}"
         );
         assert!(!request.contains(r#""type":"#), "{request}");
