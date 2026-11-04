@@ -1038,6 +1038,12 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Walk the open chat's search results and jump to one",
     ),
     ("Ctrl+L", "Focus the message input"),
+    ("PageUp / PageDown", "Scroll the open chat a screen at a time"),
+    (
+        "Home / End",
+        "Jump to the oldest loaded / newest message (with the input empty)",
+    ),
+    ("Ctrl+End", "Jump to the newest message"),
     ("Alt+↑ / Alt+↓", "Previous / next chat"),
     ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
     ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
