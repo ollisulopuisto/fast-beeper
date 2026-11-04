@@ -121,7 +121,7 @@ jobs:
           python contrib/beeper-tools/package_app_dmg.py \
             --binary 'target/${{ matrix.target }}/release/zapfast' \
             --scheduler-binary 'target/${{ matrix.target }}/release/zapfast-scheduler' \
-            --output app-dist --version 2026.11.4.2 --commit "$GITHUB_SHA"
+            --output app-dist --version 2026.11.4.3 --commit "$GITHUB_SHA"
       # A maintainer enables uploads after checking account storage/no-spend
       # settings. Compilation still runs with this unset, without paid storage.
       - name: Downloadable binary and checksums
