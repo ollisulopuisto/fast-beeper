@@ -259,6 +259,7 @@ fn chat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Chat> {
         network: None,
         backend_account: None,
         backend_origin: None,
+        poll_capability: None,
         backend_network: None,
         id: row.get(0)?,
         name: row.get(1)?,

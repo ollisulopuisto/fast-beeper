@@ -1568,6 +1568,7 @@ mod tests {
         Chat {
             kind: ChatKind::Direct,
             backend_origin: Some("local".into()),
+            poll_capability: None,
             backend_account: Some(account.into()),
             ..Chat::new(id.into(), format!("Ada {account}"))
         }
@@ -1633,6 +1634,7 @@ mod tests {
         let group = Chat {
             kind: ChatKind::Group,
             backend_origin: Some("local".into()),
+            poll_capability: None,
             backend_account: Some("whatsapp".into()),
             ..Chat::new("family@g.us".into(), "Family".into())
         };
@@ -1640,6 +1642,7 @@ mod tests {
         locked.locked = true;
         let other_origin = Chat {
             backend_origin: Some("elsewhere".into()),
+            poll_capability: None,
             ..member_chat("ada-elsewhere@s.whatsapp.net", "whatsapp")
         };
         let free = member_chat("ada-free@signal", "signal");

@@ -131,6 +131,18 @@ struct BeeperChat {
     participants: Option<BeeperParticipants>,
     #[serde(default)]
     preview: Option<BeeperMessage>,
+    #[serde(default)]
+    capabilities: Option<BeeperCapabilities>,
+}
+
+/// The chat capabilities the Server reports. Only `poll` is read today:
+/// polls are the one advertised capability the API gives no endpoint for.
+#[derive(Debug, Deserialize)]
+struct BeeperCapabilities {
+    /// Network poll support: -2 rejected, -1 dropped, 0 unsupported,
+    /// 1 partial, 2 full (per the Desktop API reference).
+    #[serde(default)]
+    poll: Option<i8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1883,6 +1895,9 @@ fn body_of(m: &BeeperMessage) -> (String, bool) {
         "STICKER" => "[sticker]".to_string(),
         "LOCATION" => "[location]".to_string(),
         "REACTION" => "[reaction]".to_string(),
+        // The bridge may type a poll without any text; the API carries no
+        // options or votes, so the row stays an honest non-interactive note.
+        "POLL" => "[poll]".to_string(),
         other => format!("[{}]", if other.is_empty() { "message" } else { other }),
     };
     (label, true)
@@ -2101,6 +2116,7 @@ fn map_chat(c: &BeeperChat, network_label: &dyn Fn(&BeeperChat) -> String) -> Ch
     chat.pinned = c.is_pinned;
     chat.muted_until = if c.is_muted { Some(0) } else { None };
     chat.read_only = c.is_read_only;
+    chat.poll_capability = c.capabilities.as_ref().and_then(|caps| caps.poll);
     if let Some(participants) = &c.participants {
         chat.participants = participants.items.iter().map(|u| u.id.clone()).collect();
         // Members who never sent a loaded message have no other name
@@ -3285,7 +3301,9 @@ pub fn run(
                 | Command::SetGroupName { .. }
                 | Command::SetGroupPicture { .. }
                 | Command::Forward { .. }
-                | Command::CreatePoll { .. } => {
+                | Command::CreatePoll { .. }
+                | Command::VotePoll { .. }
+                | Command::RefreshPoll { .. } => {
                     emit(Event::Info("This action is not supported by the Beeper client. Nothing was sent or changed.".into()));
                 }
                 _ => {}
@@ -6732,6 +6750,41 @@ mod tests {
         assert_eq!(body_of(&m).0, "[video: clip.mp4]");
         m.text = Some("caption wins".to_string());
         assert_eq!(body_of(&m).0, "caption wins");
+    }
+
+    #[test]
+    fn a_poll_without_text_gets_an_honest_placeholder() {
+        let m: BeeperMessage = serde_json::from_str(
+            r#"{"id":"x","senderID":"s","sortKey":"1","timestamp":"2026-10-27T00:00:00Z","type":"POLL"}"#,
+        )
+        .unwrap();
+        assert_eq!(body_of(&m).0, "[poll]");
+    }
+
+    #[test]
+    fn undocumented_message_fields_are_tolerated() {
+        // A bridge may already send poll payloads the schema does not
+        // document; unknown fields must never break the mapping.
+        let m: BeeperMessage = serde_json::from_str(
+            r#"{"id":"x","senderID":"s","sortKey":"1","timestamp":"2026-10-27T00:00:00Z","type":"POLL","poll":{"question":"q","options":["a","b"]},"futureField":1}"#,
+        )
+        .unwrap();
+        assert_eq!(body_of(&m).0, "[poll]");
+    }
+
+    #[test]
+    fn chat_poll_capability_is_carried() {
+        let label = |c: &BeeperChat| c.network.clone();
+        let with: BeeperChat = serde_json::from_str(
+            r#"{"id":"!a:b","accountID":"acc","network":"WhatsApp","title":"T","capabilities":{"poll":2}}"#,
+        )
+        .unwrap();
+        assert_eq!(map_chat(&with, &label).poll_capability, Some(2));
+        let without: BeeperChat = serde_json::from_str(
+            r#"{"id":"!a:b","accountID":"acc","network":"WhatsApp","title":"T"}"#,
+        )
+        .unwrap();
+        assert_eq!(map_chat(&without, &label).poll_capability, None);
     }
 
     #[test]
