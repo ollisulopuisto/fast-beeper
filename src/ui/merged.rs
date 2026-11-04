@@ -778,10 +778,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                         let source_chat = app.chat(&message.chat).unwrap().clone();
                         let on_screen = top >= viewport.top();
                         // The day alone earns a text line, where it changes.
-                        // The source reads from the bubble's network tint and
-                        // the small network icon beside the bubble, so colour
-                        // is never the only cue; the icon's hover carries the
-                        // full label with the exact time.
+                        // The source reads from the bubble's network tint,
+                        // and from the small network icon beside the bubble
+                        // where the network changes (or history starts), so
+                        // colour is never the only cue; the icon's hover
+                        // carries the full label with the exact time.
                         ui.push_id((&message.chat, &message.id), |ui| {
                             let sender = if message.from_me {
                                 "You"
@@ -793,25 +794,43 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             } else if boundary {
                                 ui.add_space(4.0);
                             }
-                            let exact = jiff::Timestamp::from_second(message.timestamp)
-                                .map(|t| {
-                                    let zoned = t.to_zoned(jiff::tz::TimeZone::system());
-                                    format!(
-                                        "{} {:02}:{:02}",
-                                        zoned.date(),
-                                        zoned.time().hour(),
-                                        zoned.time().minute()
-                                    )
-                                })
-                                .unwrap_or_default();
-                            let meta = format!(
-                                "{exact} · {}{} · {sender}",
-                                network_label(&source_chat),
-                                account_name(app, &source_chat),
+                            // The mark earns its place only where the
+                            // network changes from the previous message (or
+                            // history starts); a sender or direction change
+                            // alone never repeats it. The gutter room below
+                            // stays reserved either way, so every bubble
+                            // keeps the same column.
+                            let network = network_label(&source_chat);
+                            let show_mark = crate::merged::shows_network_mark(
+                                previous_fields
+                                    .as_ref()
+                                    .and_then(|(chat, _, _, _)| app.chat(chat))
+                                    .map(network_label),
+                                network,
                             );
-                            let tint = crate::theme::network_tint(network_label(&source_chat))
+                            // The hover label is computed only for a row
+                            // that shows the mark.
+                            let meta = show_mark.then(|| {
+                                let exact = jiff::Timestamp::from_second(message.timestamp)
+                                    .map(|t| {
+                                        let zoned = t.to_zoned(jiff::tz::TimeZone::system());
+                                        format!(
+                                            "{} {:02}:{:02}",
+                                            zoned.date(),
+                                            zoned.time().hour(),
+                                            zoned.time().minute()
+                                        )
+                                    })
+                                    .unwrap_or_default();
+                                format!(
+                                    "{exact} · {}{} · {sender}",
+                                    network,
+                                    account_name(app, &source_chat),
+                                )
+                            });
+                            let tint = crate::theme::network_tint(network)
                                 .unwrap_or(app.conversation_palette().secondary);
-                            let icon = crate::theme::network_icon(network_label(&source_chat));
+                            let icon = crate::theme::network_icon(network);
                             let before = actions.len();
                             // The bubble is laid out in the plain column, as in an
                             // ordinary chat, so rows keep its rhythm. The chip is
@@ -841,7 +860,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     },
                                 )
                                 .inner;
-                            if let Some(rect) = bubble_rect {
+                            if show_mark && let Some(rect) = bubble_rect {
                                 let side = if message.from_me {
                                     area.max.x + ui.spacing().item_spacing.x
                                 } else {
@@ -857,7 +876,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     egui::Sense::hover(),
                                 );
                                 crate::theme::paint_network_mark(ui, icon, slot, chip, tint);
-                                response.on_hover_text(&meta);
+                                if let Some(meta) = &meta {
+                                    response.on_hover_text(meta);
+                                }
                             }
                             let reply = actions.drain(before..).collect::<Vec<_>>();
                             for action in reply {
