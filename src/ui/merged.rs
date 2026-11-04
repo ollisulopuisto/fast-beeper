@@ -538,6 +538,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                     });
             });
     }
+    // Home/End and PageUp/PageDown from the key map land here: the linked
+    // timeline owns its scroll area, and the single-chat message list never
+    // runs while this view is up.
+    let pending_scroll = app.scroll_page.take();
+    let forced_bottom = std::mem::take(&mut app.scroll_to_bottom_forced);
     let messages = crate::merged::ordered_refs(
         valid
             .iter()
@@ -638,6 +643,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         .scope_builder(egui::UiBuilder::new().max_rect(scroll_rect), |ui| {
             crate::theme::shot_bars(ui);
             let remaining = ui.available_height().max(100.0);
+            // The bottom jump applies after the pass, once the content's
+            // height is known; everything else is an offset the area can
+            // clamp itself.
+            if pending_scroll.is_some() || forced_bottom {
+                let scroll_id =
+                    ui.make_persistent_id(egui::IdSalt::new(("person-timeline", &person.members)));
+                let mut state =
+                    egui::scroll_area::State::load(ui.ctx(), scroll_id).unwrap_or_default();
+                let page = remaining * 0.9;
+                match pending_scroll {
+                    Some(crate::model::Scroll::Top) => state.offset.y = 0.0,
+                    Some(crate::model::Scroll::PageUp) => {
+                        state.offset.y = (state.offset.y - page).max(0.0)
+                    }
+                    Some(crate::model::Scroll::PageDown) => state.offset.y += page,
+                    _ => {}
+                }
+                state.store(ui.ctx(), scroll_id);
+            }
             egui::ScrollArea::vertical()
                 .id_salt(("person-timeline", &person.members))
                 .stick_to_bottom(!filtered)
@@ -863,7 +887,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         })
         .inner;
     let bottom = (output.content_size.y - output.inner_rect.height()).max(0.0);
-    if grew_above.abs() > 0.5 && output.state.offset.y > 1.0 && output.state.offset.y < bottom - 2.0
+    if matches!(pending_scroll, Some(crate::model::Scroll::Bottom)) || forced_bottom {
+        let mut scroll = output.state;
+        scroll.offset.y = bottom;
+        scroll.store(ui.ctx(), output.id);
+        ui.ctx()
+            .request_discard("linked view jumps to the newest message");
+    } else if grew_above.abs() > 0.5
+        && output.state.offset.y > 1.0
+        && output.state.offset.y < bottom - 2.0
     {
         let mut scroll = output.state;
         scroll.offset.y = (scroll.offset.y + grew_above).max(0.0);
