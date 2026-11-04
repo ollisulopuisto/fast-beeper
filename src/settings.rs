@@ -1632,18 +1632,21 @@ mod giphy_tests {
         let root = std::env::temp_dir().join(format!("zapfast-migrate-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("settings.json");
-        let mut settings = Settings {
+        // A legacy file: one saved member flagged the person's every chat.
+        let settings = Settings {
             version: 1,
+            beeper: BeeperPreferences {
+                people: vec![crate::merged::Person {
+                    name: "Ada".to_owned(),
+                    members: vec![member("chat-1"), member("chat-2")],
+                    primary: None,
+                }],
+                reply_later: vec![member("chat-1")],
+                read_later: vec![member("chat-3")],
+                ..BeeperPreferences::default()
+            },
             ..Settings::default()
         };
-        settings.beeper.people = vec![crate::merged::Person {
-            name: "Ada".to_owned(),
-            members: vec![member("chat-1"), member("chat-2")],
-            primary: None,
-        }];
-        // A legacy file: one saved member flagged the person's every chat.
-        settings.beeper.reply_later = vec![member("chat-1")];
-        settings.beeper.read_later = vec![member("chat-3")];
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
         assert_eq!(loaded.version, SETTINGS_VERSION);
