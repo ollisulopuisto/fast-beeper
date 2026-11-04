@@ -1620,6 +1620,8 @@ pub struct BeeperPreferences {
     /// Local display names for single chats, by chat id. Never sent anywhere.
     pub chat_names: std::collections::HashMap<String, String>,
     pub reply_later: Vec<crate::merged::Member>,
+    /// Flagged to read later, same local person-level shape as reply_later.
+    pub read_later: Vec<crate::merged::Member>,
     pub incognito: bool,
     pub compact_list: bool,
     pub show_previews: bool,
@@ -1639,6 +1641,7 @@ impl Default for BeeperPreferences {
             people: Vec::new(),
             chat_names: std::collections::HashMap::new(),
             reply_later: Vec::new(),
+            read_later: Vec::new(),
             incognito: false,
             compact_list: false,
             show_previews: true,

@@ -135,7 +135,6 @@ fn execute(app: &mut App, row: &PaletteRow) {
         }
         PaletteRow::Filter(filter) => {
             app.beeper_unreplied = false;
-            app.beeper_reply_later_filter = false;
             app.actions.push(Action::SetChatFilter(*filter));
             app.actions.push(Action::Open(Page::Chats));
         }
@@ -144,14 +143,13 @@ fn execute(app: &mut App, row: &PaletteRow) {
             PaletteCommand::NewChat => app.actions.push(Action::ShowDialog(Dialog::NewChat)),
             PaletteCommand::Unreplied => {
                 app.beeper_unreplied = true;
-                app.beeper_reply_later_filter = false;
                 app.actions.push(Action::SetChatFilter(ChatFilter::All));
                 app.actions.push(Action::Open(Page::Chats));
             }
             PaletteCommand::ReplyLater => {
-                app.beeper_reply_later_filter = true;
                 app.beeper_unreplied = false;
-                app.actions.push(Action::SetChatFilter(ChatFilter::All));
+                app.actions
+                    .push(Action::SetChatFilter(ChatFilter::ReplyLater));
                 app.actions.push(Action::Open(Page::Chats));
             }
             PaletteCommand::Settings => app.actions.push(Action::ToggleSettings),

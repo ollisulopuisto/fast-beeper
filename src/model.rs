@@ -125,6 +125,10 @@ pub enum ChatFilter {
     #[default]
     All,
     Unread,
+    /// Flagged to reply to later; person-level local marks, Beeper only.
+    ReplyLater,
+    /// Flagged to read later; person-level local marks, Beeper only.
+    ReadLater,
     /// One-to-one chats: neither groups nor broadcasts.
     Private,
     /// Chats marked as a favorite, here or on the phone.
@@ -184,6 +188,8 @@ impl ChatFilter {
     pub const EVERY: [Self; 6] = [
         Self::All,
         Self::Unread,
+        Self::ReplyLater,
+        Self::ReadLater,
         Self::Private,
         Self::Favorites,
         Self::Groups,
@@ -195,6 +201,8 @@ impl ChatFilter {
         match self {
             Self::All => gettext(locale, "All"),
             Self::Unread => gettext(locale, "Unread"),
+            Self::ReplyLater => gettext(locale, "Reply later"),
+            Self::ReadLater => gettext(locale, "Read later"),
             Self::Private => gettext(locale, "Private"),
             Self::Favorites => gettext(locale, "Favorites"),
             Self::Groups => gettext(locale, "Groups"),
@@ -206,6 +214,9 @@ impl ChatFilter {
         match self {
             Self::All => !chat.is_channel(),
             Self::Unread => chat.looks_unread() && !chat.is_channel(),
+            // Person-level marks live in settings; App::filter_matches tests
+            // them against the saved lists, never this chat-only check.
+            Self::ReplyLater | Self::ReadLater => false,
             Self::Private => chat.kind == ChatKind::Direct,
             Self::Favorites => chat.favorite && !chat.is_channel(),
             Self::Groups => chat.kind == ChatKind::Group,
@@ -3045,6 +3056,12 @@ pub enum Action {
     },
     /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),
+    /// Flags a chat to reply to later, or clears the flag. Local only:
+    /// person-level, persisted in settings, never sent anywhere.
+    ToggleReplyLater(ChatId),
+    /// Flags a chat to read later, or clears the flag. Local only:
+    /// person-level, persisted in settings, never sent anywhere.
+    ToggleReadLater(ChatId),
     ShowDialog(Dialog),
     CloseDialog,
     ToggleSidebar,

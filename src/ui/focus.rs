@@ -47,6 +47,8 @@ pub enum Stop {
     /// The Calls page's Missed chip.
     Missed,
     Unread,
+    ReplyLater,
+    ReadLater,
     Private,
     Favorites,
     Groups,

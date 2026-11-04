@@ -133,7 +133,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             .visible_chats()
                             .into_iter()
                             .filter(|chat| {
-                                app.beeper_reply_later_filter
+                                app.chat_filter == crate::model::ChatFilter::ReplyLater
                                     || !pins.iter().any(|pin| pin.id == chat.id)
                             })
                             .map(|chat| chat.id.clone())
@@ -143,7 +143,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                         }
                     }
                     3 => {
-                        app.beeper_reply_later_filter = false;
                         app.beeper_unreplied = false;
                         app.actions.push(Action::SetChatFilter(
                             if app.chat_filter == crate::model::ChatFilter::Unread {
@@ -154,7 +153,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                         ));
                     }
                     4 => {
-                        app.beeper_reply_later_filter = false;
                         app.beeper_unreplied = !app.beeper_unreplied;
                         app.actions
                             .push(Action::SetChatFilter(crate::model::ChatFilter::All));
@@ -1820,6 +1818,12 @@ mod tests {
         );
         app.actions.clear();
         assert!(!press(&mut app, &ctx, Key::Num7, Modifiers::ALT));
+        assert!(
+            app.actions
+                .contains(&Action::SetChatFilter(ChatFilter::EVERY[6]))
+        );
+        app.actions.clear();
+        assert!(!press(&mut app, &ctx, Key::Num8, Modifiers::ALT));
         assert!(app.actions.is_empty());
     }
 
