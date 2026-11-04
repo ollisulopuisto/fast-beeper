@@ -609,8 +609,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
             // height is known; everything else is an offset the area can
             // clamp itself.
             if pending_scroll.is_some() || forced_bottom {
-                let scroll_id = ui
-                    .make_persistent_id(egui::IdSalt::new(("person-timeline", &person.members)));
+                let scroll_id =
+                    ui.make_persistent_id(egui::IdSalt::new(("person-timeline", &person.members)));
                 let mut state =
                     egui::scroll_area::State::load(ui.ctx(), scroll_id).unwrap_or_default();
                 let page = remaining * 0.9;
@@ -835,7 +835,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         let mut scroll = output.state;
         scroll.offset.y = bottom;
         scroll.store(ui.ctx(), output.id);
-        ui.ctx().request_discard("linked view jumps to the newest message");
+        ui.ctx()
+            .request_discard("linked view jumps to the newest message");
     } else if grew_above.abs() > 0.5
         && output.state.offset.y > 1.0
         && output.state.offset.y < bottom - 2.0
