@@ -521,6 +521,9 @@ fn transport_error(error: &reqwest::Error) -> &'static str {
 fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
     use super::{Refusal, Unsent};
     let (chat, quoting, unsent) = match command {
+        // A pasted image takes the upload pipeline like a picked file.
+        // What that pipeline cannot carry - a quote, mentions or view-once -
+        // is refused here, exactly as picked files are.
         Command::SendImage {
             chat,
             width,
@@ -528,9 +531,10 @@ fn refuse_unsupported_payload(command: Command) -> Result<Command, Box<Event>> {
             rgba,
             view_once,
             caption,
+            mentions,
             quoting,
             ..
-        } => (
+        } if view_once || !mentions.is_empty() || quoting.is_some() => (
             chat,
             quoting,
             Unsent::Image {
@@ -579,10 +583,57 @@ impl Drop for StopUploads {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
-/// Removes a voice recording's temporary file once its message was accepted.
-/// Other attachments are the user's own files and are never deleted.
-fn discard_sent_recording(voice: bool, path: &std::path::Path) {
-    if voice {
+/// A pasted image's send encoding: lossless PNG, so the clipboard's
+/// detail and alpha survive the send. Kept local so the portable adapter
+/// check, which stages this module without the native worker, covers the
+/// same bytes.
+fn encode_png(image: &image::DynamicImage) -> Result<Vec<u8>, String> {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    Ok(bytes.into_inner())
+}
+
+/// Temporary files this process created for the upload pipeline, so a kept
+/// file that the composer sends again is still recognised as ours: a
+/// successful retry deletes it instead of leaking it.
+static TEMP_UPLOADS: std::sync::Mutex<Option<std::collections::HashSet<std::path::PathBuf>>> =
+    std::sync::Mutex::new(None);
+
+fn register_temp_upload(path: &std::path::Path) {
+    TEMP_UPLOADS
+        .lock()
+        .unwrap()
+        .get_or_insert_with(std::collections::HashSet::new)
+        .insert(path.to_path_buf());
+}
+
+/// Claims a temporary file for deletion: true at most once per file.
+fn take_temp_upload(path: &std::path::Path) -> bool {
+    TEMP_UPLOADS
+        .lock()
+        .unwrap()
+        .as_mut()
+        .is_some_and(|set| set.remove(path))
+}
+
+/// Encodes pasted pixels into a temporary PNG for the upload pipeline.
+fn encode_pasted_image(width: u32, height: u32, rgba: &[u8]) -> Result<std::path::PathBuf, String> {
+    let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+        .ok_or("Clipboard image data is invalid")?;
+    let bytes = encode_png(&image::DynamicImage::ImageRgba8(image))?;
+    let path = std::env::temp_dir().join(format!("pasted-image-{}.png", crate::util::now()));
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    register_temp_upload(&path);
+    Ok(path)
+}
+
+/// Removes an app-created temporary file - a voice recording or a pasted
+/// image - once its message was accepted. Other attachments are the user's
+/// own files and are never deleted.
+fn discard_sent_recording(temporary: bool, path: &std::path::Path) {
+    if temporary {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -2372,6 +2423,9 @@ pub fn run(
         bool,
         Option<String>,
         Option<(u32, Option<crate::model::ReplyTarget>, Vec<f32>)>,
+        // App-created temporary file (voice recording, pasted image):
+        // deleted once its message is accepted, never the user's own files.
+        bool,
     );
     let (upload_tx, upload_rx) = std::sync::mpsc::sync_channel::<UploadBatch>(2);
     let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<(ChatId, String)>();
@@ -2381,7 +2435,7 @@ pub fn run(
     std::thread::Builder::new()
         .name("beeper-upload".into())
         .spawn(move || {
-            while let Ok((chat, paths, documents, caption, voice)) = upload_rx.recv() {
+            while let Ok((chat, paths, documents, caption, voice, temporary)) = upload_rx.recv() {
                 for (index, path) in paths.iter().enumerate() {
                     if upload_stopped(Some(&upload_cancel)) {
                         return;
@@ -2406,7 +2460,10 @@ pub fn run(
                         Ok(accepted) => {
                             // A sent recording is no longer needed; a failed upload
                             // returns its raw samples to the composer instead.
-                            discard_sent_recording(voice.is_some(), path);
+                            discard_sent_recording(
+                                voice.is_some() || temporary || take_temp_upload(path),
+                                path,
+                            );
                             let target = if accepted.chat.is_empty() {
                                 chat.clone()
                             } else {
@@ -2473,6 +2530,9 @@ pub fn run(
                     }),
                     Ok(Command::SendVoice { chat, samples, quoting }) => emit(Event::SendRefused {
                         chat, quoting, unsent: crate::backend::Unsent::Voice(samples), reason: crate::backend::Refusal::Offline,
+                    }),
+                    Ok(Command::SendImage { chat, width, height, rgba, view_once, caption, quoting, .. }) => emit(Event::SendRefused {
+                        chat, quoting, unsent: crate::backend::Unsent::Image { width, height, rgba, view_once, caption }, reason: crate::backend::Refusal::Offline,
                     }),
                     Ok(command) => match refuse_unsupported_payload(command) {
                         Err(event)=>emit(*event),
@@ -3193,9 +3253,10 @@ pub fn run(
                         emit(Event::BeeperFilesUncertain { chat, paths, documents, caption, message: "Beeper attachment replies, mentions and view-once are not supported; files kept".into() });
                         continue;
                     }
-                    if let Err(error) = upload_tx.try_send((chat, paths, documents, caption, None))
+                    if let Err(error) =
+                        upload_tx.try_send((chat, paths, documents, caption, None, false))
                     {
-                        let (chat, paths, documents, caption, _) = match error {
+                        let (chat, paths, documents, caption, ..) = match error {
                             std::sync::mpsc::TrySendError::Full(batch)
                             | std::sync::mpsc::TrySendError::Disconnected(batch) => batch,
                         };
@@ -3206,6 +3267,59 @@ pub fn run(
                             caption,
                             message: "Upload queue is busy; files kept without sending".into(),
                         });
+                    }
+                }
+                Command::SendImage {
+                    chat,
+                    width,
+                    height,
+                    rgba,
+                    view_once,
+                    caption,
+                    quoting,
+                    ..
+                } => {
+                    // A pasted image encodes to a temporary JPEG and takes the
+                    // same upload pipeline as a picked file. The unsupported
+                    // gate has already returned quotes, mentions and
+                    // view-once, so this arm only sees a plain image.
+                    let encoded = encode_pasted_image(width, height, &rgba);
+                    match encoded {
+                        Ok(path) => {
+                            if let Err(error) = upload_tx.try_send((
+                                chat.clone(),
+                                vec![path],
+                                false,
+                                caption.clone(),
+                                None,
+                                true,
+                            )) {
+                                let batch = match error {
+                                    std::sync::mpsc::TrySendError::Full(batch)
+                                    | std::sync::mpsc::TrySendError::Disconnected(batch) => batch,
+                                };
+                                emit(Event::BeeperFilesUncertain {
+                                    chat: batch.0,
+                                    paths: batch.1,
+                                    documents: false,
+                                    caption: batch.3,
+                                    message: "Upload queue is busy; image kept without sending"
+                                        .into(),
+                                });
+                            }
+                        }
+                        Err(_) => emit(Event::SendRefused {
+                            chat,
+                            quoting,
+                            unsent: crate::backend::Unsent::Image {
+                                width,
+                                height,
+                                rgba,
+                                view_once,
+                                caption,
+                            },
+                            reason: crate::backend::Refusal::UnsupportedBackend,
+                        }),
                     }
                 }
                 Command::SendVoice {
@@ -3240,7 +3354,7 @@ pub fn run(
                     match file {
                         Ok(path) => {
                             let voice = Some((seconds, quoting.clone(), samples.clone()));
-                            let batch = (chat.clone(), vec![path], false, None, voice);
+                            let batch = (chat.clone(), vec![path], false, None, voice, true);
                             if upload_tx.try_send(batch).is_err() {
                                 emit(Event::SendRefused {
                                     chat,
@@ -4153,6 +4267,43 @@ mod tests {
     }
 
     #[test]
+    fn pasted_image_encodes_a_lossless_png_with_alpha() {
+        let rgba = vec![10, 20, 30, 128];
+        let path = encode_pasted_image(1, 1, &rgba).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(take_temp_upload(&path), "the file is ours to clean");
+        assert!(!take_temp_upload(&path), "the claim is spent");
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(&bytes[..4], b"\x89PNG");
+        let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(decoded.get_pixel(0, 0).0, [10, 20, 30, 128]);
+    }
+
+    #[test]
+    fn pasted_image_with_invalid_pixels_is_rejected() {
+        let error = encode_pasted_image(2, 2, &[1, 2, 3, 255]).unwrap_err();
+        assert_eq!(error, "Clipboard image data is invalid");
+    }
+
+    #[test]
+    fn plain_image_send_passes_the_unsupported_gate() {
+        let command = Command::SendImage {
+            chat: "work".into(),
+            width: 1,
+            height: 1,
+            rgba: vec![1, 2, 3, 255],
+            view_once: false,
+            caption: Some("caption".into()),
+            mentions: vec![],
+            quoting: None,
+        };
+        let command = refuse_unsupported_payload(command).expect("plain image passes");
+        assert!(matches!(command, Command::SendImage { .. }));
+    }
+
+    #[test]
     fn unsupported_image_send_retains_pixels_caption_and_reply() {
         let reply = crate::model::ReplyTarget {
             id: "source".into(),
@@ -4390,6 +4541,79 @@ mod tests {
         let result =
             api.send_attachment("chat", file.path(), Attachment::Voice(7), None, reply, None);
         (result, worker.join().unwrap())
+    }
+
+    #[test]
+    fn image_send_uploads_the_file_name_and_caption_without_a_type_override() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let mut sent = String::new();
+            for body in [
+                r#"{"uploadID":"up1"}"#,
+                r#"{"pendingMessageID":"p1","chatID":"chat"}"#,
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut chunk).unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&request).to_string();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                        continue;
+                    };
+                    let want = head
+                        .to_ascii_lowercase()
+                        .split("content-length:")
+                        .nth(1)
+                        .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
+                        .unwrap_or(0usize);
+                    if body.len() >= want {
+                        break;
+                    }
+                }
+                sent = String::from_utf8_lossy(&request).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            sent
+        });
+        let api = Api::new(&BeeperConfig {
+            base_url,
+            token: "fixture".into(),
+        })
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("pasted-image-1.png");
+        std::fs::write(&image, b"jpeg").unwrap();
+        let result = api
+            .send_attachment(
+                "chat",
+                &image,
+                Attachment::Auto,
+                Some("a caption"),
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.pending_id, "p1");
+        let request = worker.join().unwrap();
+        // Beeper picks the type from the uploaded file; the client sends no
+        // override, and the caption is the message's text.
+        assert!(
+            request.contains(r#""fileName":"pasted-image-1.png""#),
+            "{request}"
+        );
+        assert!(!request.contains(r#""type":"#), "{request}");
+        assert!(request.contains(r#""text":"a caption""#), "{request}");
     }
 
     #[test]
