@@ -7,7 +7,34 @@ use crate::{
 #[derive(Clone, Default)]
 struct RowCache {
     width: f32,
-    heights: std::collections::HashMap<(String, String), f32>,
+    /// Row heights by chat and message id, so a lookup borrows the two
+    /// strings instead of copying them for every loaded row of every frame.
+    heights: std::collections::HashMap<String, std::collections::HashMap<String, f32>>,
+    count: usize,
+}
+
+impl RowCache {
+    fn height(&self, chat: &str, id: &str) -> Option<f32> {
+        self.heights.get(chat)?.get(id).copied()
+    }
+
+    fn note_height(&mut self, chat: &str, id: &str, height: f32) {
+        let by_id = self.heights.entry(chat.to_owned()).or_default();
+        self.count += usize::from(!by_id.contains_key(id));
+        by_id.insert(id.to_owned(), height);
+    }
+
+    fn clear(&mut self) {
+        self.heights.clear();
+        self.count = 0;
+    }
+}
+
+/// The local calendar day a timestamp falls on, for day headers.
+fn day_stamp(timestamp: i64) -> String {
+    jiff::Timestamp::from_second(timestamp)
+        .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
+        .unwrap_or_default()
 }
 #[derive(Clone, Default)]
 struct State {
@@ -274,8 +301,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         + 2.0 * ui.spacing().item_spacing.x;
     let actions_inline = identity_width + actions_width <= ui.available_width();
     let actions = |ui: &mut egui::Ui, app: &mut App, state: &mut State| {
+        // A load over the tunnel is otherwise invisible: while one runs, the
+        // button rests and a spinner beside it says the fetch is on its way.
+        let fetching = state.catch_up.is_some()
+            || valid.iter().any(|member| {
+                app.conversations
+                    .get(&member.chat)
+                    .is_some_and(|c| c.loading_older || c.fetching_phone)
+            });
         if ui
-            .button("Load older")
+            .add_enabled(!fetching, egui::Button::new("Load older"))
             .on_hover_text(format!(
                 "Load older from each chat. {message_count} loaded messages · Each member pages independently; this is not the full remote history."
             ))
@@ -288,6 +323,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                 .min();
             state.older_note = None;
             state.catch_up = oldest.map(crate::merged::CatchUp::new);
+        }
+        if fetching {
+            crate::theme::spinner(ui, 14.0, app.conversation_palette().accent);
         }
         if ui
             .selectable_label(searching, "Search")
@@ -589,14 +627,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     );
     if (cache.width - timeline.width()).abs() > 0.5 {
         cache.width = timeline.width();
-        cache.heights.clear();
+        cache.clear();
     }
     // Cap retained layout metadata, not the user's loaded history.
-    if cache.heights.len() > 20_000 {
-        cache.heights.clear();
+    if cache.count > 20_000 {
+        cache.clear();
     }
     let mut grew_above = 0.0;
-    let mut previous_header = None;
+    let mut previous: Option<&crate::model::Message> = None;
     let mut previous_laid_out = false;
     let mut previous_on_screen = false;
     let output = ui
@@ -643,37 +681,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                         });
                     }
                     for original_message in visible {
-                        let day = jiff::Timestamp::from_second(original_message.timestamp)
-                            .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
-                            .unwrap_or_default();
-                        let header = (
-                            original_message.chat.clone(),
-                            original_message.sender.clone(),
-                            day.clone(),
-                            original_message.from_me,
-                        );
-                        let boundary = crate::merged::header_boundary(
-                            previous_header.as_ref().map(
-                                |(chat, sender, day, from_me): &(String, String, String, bool)| {
-                                    (chat.as_str(), sender.as_str(), day.as_str(), *from_me)
-                                },
-                            ),
-                            (&header.0, &header.1, &header.2, header.3),
-                        );
-                        let day_boundary = previous_header.as_ref().is_none_or(
-                            |(_, _, previous_day, _): &(String, String, String, bool)| {
-                                *previous_day != day
-                            },
-                        );
-                        previous_header = Some(header);
-                        let row_key = (original_message.chat.clone(), original_message.id.clone());
                         let top = ui.cursor().top();
-                        let height = cache.heights.get(&row_key).copied().unwrap_or_else(|| {
-                            super::conversation::linked_estimated_height(
-                                original_message,
-                                cache.width,
-                            )
-                        });
+                        // A row the reader cannot see costs its cached or
+                        // estimated height and nothing else: no timezone
+                        // math and no string copies. The day and the header
+                        // boundary are computed only for rows actually laid
+                        // out, from the previous row's message whether that
+                        // row was laid out or skipped.
+                        let height =
+                            match cache.height(&original_message.chat, &original_message.id) {
+                                Some(height) => height,
+                                None => {
+                                    let height = super::conversation::linked_estimated_height(
+                                        original_message,
+                                        cache.width,
+                                    );
+                                    cache.note_height(
+                                        &original_message.chat,
+                                        &original_message.id,
+                                        height,
+                                    );
+                                    height
+                                }
+                            };
                         if !crate::merged::row_near_view(
                             top,
                             height,
@@ -681,12 +711,38 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                             viewport.bottom(),
                             250.0,
                         ) {
-                            cache.heights.entry(row_key).or_insert(height);
                             ui.add_space(height);
                             previous_laid_out = false;
                             previous_on_screen = false;
+                            previous = Some(original_message);
                             continue;
                         }
+                        let day = day_stamp(original_message.timestamp);
+                        let previous_fields = previous.map(|message| {
+                            (
+                                message.chat.as_str(),
+                                message.sender.as_str(),
+                                day_stamp(message.timestamp),
+                                message.from_me,
+                            )
+                        });
+                        let boundary = crate::merged::header_boundary(
+                            previous_fields
+                                .as_ref()
+                                .map(|(chat, sender, day, from_me)| {
+                                    (*chat, *sender, day.as_str(), *from_me)
+                                }),
+                            (
+                                original_message.chat.as_str(),
+                                original_message.sender.as_str(),
+                                day.as_str(),
+                                original_message.from_me,
+                            ),
+                        );
+                        let day_boundary = previous_fields
+                            .as_ref()
+                            .is_none_or(|(_, _, previous_day, _)| previous_day != &day);
+                        previous = Some(original_message);
                         let mut updated;
                         let message = if let Some(quote) = &original_message.quoted {
                             if quote
@@ -823,7 +879,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                         if top < viewport.top() {
                             grew_above += measured - height;
                         }
-                        cache.heights.insert(row_key, measured);
+                        cache.note_height(&message.chat, &message.id, measured);
                     }
                     // Keep the last bubble/hover actions above the fixed composer.
                     ui.add_space(20.0);
