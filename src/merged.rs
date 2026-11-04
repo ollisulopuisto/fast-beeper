@@ -60,6 +60,13 @@ pub fn header_boundary(
 ) -> bool {
     previous != Some(current)
 }
+/// Whether a linked-timeline bubble earns its network mark: the first loaded
+/// message always shows it; after that only a change from the previous
+/// message's network does. A sender or direction change alone never repeats
+/// the mark.
+pub fn shows_network_mark(previous_network: Option<&str>, network: &str) -> bool {
+    previous_network != Some(network)
+}
 /// Overlapping rows and a small overscan are measured; distant rows use cached heights.
 pub fn row_near_view(
     top: f32,
@@ -202,6 +209,17 @@ pub fn ordered(mut messages: Vec<Message>) -> Vec<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn network_mark_shows_on_first_and_on_network_change_only() {
+        // First loaded message always carries the mark.
+        assert!(shows_network_mark(None, "WhatsApp"));
+        // A change of network earns the mark again...
+        assert!(shows_network_mark(Some("WhatsApp"), "Instagram"));
+        assert!(shows_network_mark(Some("Instagram"), "WhatsApp"));
+        // ...but the same network never repeats it, whether the sender or
+        // the direction changed or not.
+        assert!(!shows_network_mark(Some("WhatsApp"), "WhatsApp"));
+    }
     #[test]
     fn keyboard_reply_uses_last_matching_exact_source_and_skips_revoked() {
         let mut chat = Chat::new("work".into(), "Work".into());
