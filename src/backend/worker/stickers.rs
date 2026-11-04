@@ -138,6 +138,7 @@ async fn prepare_sticker_pack(
         bytes: zip.zip_bytes,
         mime: "application/zip".to_owned(),
         file_name: None,
+        note: None,
     })
 }
 
