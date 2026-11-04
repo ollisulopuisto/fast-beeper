@@ -6810,8 +6810,15 @@ impl App {
         // without one it is capped so it cannot grow for a whole session.
         if !self.open_tabs.contains(&id) {
             self.open_tabs.push(id.clone());
+            // The open chat is never evicted; drafts live outside this
+            // list, so eviction never loses one.
             while self.open_tabs.len() > 20 {
-                self.open_tabs.remove(0);
+                let oldest = self
+                    .open_tabs
+                    .iter()
+                    .position(|tab| Some(tab) != self.open_chat.as_ref())
+                    .unwrap_or(0);
+                self.open_tabs.remove(oldest);
             }
             self.persist_open_tabs();
         }
@@ -24101,6 +24108,31 @@ mod tests {
         // Reopening the active chat adds no duplicate.
         app.open_chat("24@s.whatsapp.net".into());
         assert_eq!(app.open_tabs.len(), 20);
+        // Eviction never touches drafts, and never the open chat.
+        app.drafts
+            .insert("6@s.whatsapp.net".into(), "half-written".into());
+        app.open_chat("6@s.whatsapp.net".into());
+        for n in 25..29 {
+            let id = format!("{n}@s.whatsapp.net");
+            app.chats.push(Chat::new(id.clone(), "Chat".into()));
+            app.open_chat(id);
+        }
+        app.open_chat("6@s.whatsapp.net".into());
+        for n in 29..32 {
+            let id = format!("{n}@s.whatsapp.net");
+            app.chats.push(Chat::new(id.clone(), "Chat".into()));
+            app.open_chat(id);
+        }
+        assert_eq!(app.open_tabs.len(), 20);
+        assert!(
+            app.open_tabs.contains(&"6@s.whatsapp.net".to_owned()),
+            "the open chat is never evicted"
+        );
+        assert_eq!(
+            app.drafts.get("6@s.whatsapp.net").map(String::as_str),
+            Some("half-written"),
+            "eviction from the recent list never loses a draft"
+        );
     }
 
     #[test]
