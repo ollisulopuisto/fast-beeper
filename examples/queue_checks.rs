@@ -105,18 +105,33 @@ fn main() {
         primary: None,
     });
     app.toggle_reply_later();
-    assert!(app.reply_later_contains(&other));
+    // The mark is per chat: the linked person's other chat stays unmarked.
+    assert!(!app.reply_later_contains(&other));
     let path = root.path().join("saved-settings.json");
     app.settings.save(&path).unwrap();
     let loaded = Settings::load(&path);
     assert_eq!(loaded.beeper.reply_later, app.settings.beeper.reply_later);
-    app.beeper_reply_later_filter = true;
+    app.apply(
+        zapfast::model::Action::SetChatFilter(zapfast::model::ChatFilter::ReplyLater),
+        &ctx,
+    );
     assert_eq!(app.visible_chats().len(), 1);
+    // A send in the linked chat leaves this chat's mark alone.
     events
         .send(Event::BeeperSendConfirmed {
             origin: linked.origin,
             account: linked.account,
             chat: linked.chat,
+        })
+        .unwrap();
+    app.background_frame(&ctx);
+    assert!(app.reply_later_contains(&chat));
+    // A send in the marked chat clears its own mark.
+    events
+        .send(Event::BeeperSendConfirmed {
+            origin: "http://127.0.0.1:8077".into(),
+            account: "work".into(),
+            chat: "chat".into(),
         })
         .unwrap();
     app.background_frame(&ctx);
