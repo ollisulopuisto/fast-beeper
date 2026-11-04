@@ -2329,6 +2329,9 @@ pub enum Dialog {
     /// Keyboard-first command palette: find chats, apply filters, run
     /// common actions. Message search stays in the search fields.
     Palette,
+    /// Jump between the chats already open as tabs (Ctrl+K). Closed
+    /// chats stay out: the palette and the list search find those.
+    JumpToChat,
     /// Release notes: automatically once after an upgrade, and any time
     /// from Help.
     WhatsNew,

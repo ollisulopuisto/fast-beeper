@@ -217,7 +217,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                 Action::LockApp,
             );
         }
-        key(Modifiers::COMMAND, Key::K, Action::FocusSearch);
+        key(
+            Modifiers::COMMAND,
+            Key::K,
+            Action::ShowDialog(Dialog::JumpToChat),
+        );
         key(
             Modifiers::COMMAND,
             Key::P,
@@ -1030,7 +1034,8 @@ const MESSAGES_KEYS: &str = "Control+2";
 
 /// Shortcuts shown in the help dialog.
 pub const SHORTCUTS: &[(&str, &str)] = &[
-    ("Ctrl+K / Ctrl+Shift+F", "Search chats"),
+    ("Ctrl+K", "Jump between the open chats"),
+    ("Ctrl+Shift+F", "Search chats"),
     ("Ctrl+P", "Command palette: chats, filters, actions"),
     ("Ctrl+F", "Search the open chat or the settings"),
     (

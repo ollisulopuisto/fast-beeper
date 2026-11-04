@@ -25,6 +25,7 @@ pub mod picker;
 pub mod polls;
 pub mod rail;
 pub mod settings;
+pub mod switcher;
 pub mod update;
 pub mod widgets;
 

@@ -523,6 +523,10 @@ pub struct App {
     pub chat_lock_confirm: String,
     pub chat_lock_error: bool,
     pub new_chat_search: String,
+    /// Open-chat switcher query text.
+    pub jump_query: String,
+    /// Highlighted row in the open-chat switcher.
+    pub jump_selected: usize,
     /// Command palette query text.
     pub palette_query: String,
     /// Highlighted row in the command palette.
@@ -1528,6 +1532,8 @@ impl App {
             chat_lock_confirm: String::new(),
             chat_lock_error: false,
             new_chat_search: String::new(),
+            jump_query: String::new(),
+            jump_selected: 0,
             palette_query: String::new(),
             palette_selected: 0,
             chat_lock_check: Default::default(),
@@ -9588,6 +9594,11 @@ impl App {
                     self.palette_query.clear();
                     self.palette_selected = 0;
                 }
+                if dialog == Dialog::JumpToChat {
+                    self.jump_query.clear();
+                    let rows = crate::ui::switcher::entries(self, "");
+                    self.jump_selected = crate::ui::switcher::default_selected(self, &rows);
+                }
                 if let Dialog::AddGroupMembers(chat) = &dialog {
                     let Some(existing) = self
                         .chat(chat)
@@ -9850,8 +9861,9 @@ impl App {
                     self.unread_kept.insert(id);
                 }
             }
-            // Ctrl+K and Ctrl+Shift+F search the chat list everywhere; Ctrl+F
-            // searches the open chat when there is one.
+            // Ctrl+Shift+F searches the chat list everywhere; Ctrl+F
+            // searches the open chat when there is one. Ctrl+K jumps
+            // between the open tabs.
             Action::FocusSearch => self.actions.push(Action::FocusChatList),
             Action::FocusChatList => {
                 // The list search takes over Escape and Enter from the chat's.
@@ -22386,7 +22398,7 @@ mod tests {
         assert!(app.chat_search_visible());
         assert!(app.focus_chat_search);
         assert!(!app.focus_composer, "the pane's field takes the keyboard");
-        // Ctrl+K searches the chat list, and closes the pane.
+        // The list search (Ctrl+Shift+F) closes the pane.
         app.apply(Action::FocusSearch, &ctx);
         app.apply_actions(&ctx);
         assert!(app.focus_search);

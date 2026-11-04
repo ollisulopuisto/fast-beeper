@@ -12942,7 +12942,10 @@ mod tests {
         frame_with(
             &mut app,
             &ctx,
-            vec![key(egui::Key::K, egui::Modifiers::COMMAND)],
+            vec![key(
+                egui::Key::K,
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            )],
         );
         render(&mut app, &ctx);
         assert!(ctx.memory(|memory| memory.has_focus(egui::Id::new("chat-search"))));
@@ -12977,7 +12980,10 @@ mod tests {
         frame_with(
             &mut app,
             &ctx,
-            vec![key(egui::Key::K, egui::Modifiers::COMMAND)],
+            vec![key(
+                egui::Key::K,
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            )],
         );
         render(&mut app, &ctx);
         frame_with(&mut app, &ctx, vec![egui::Event::Text("Forsaken".into())]);
@@ -18405,7 +18411,10 @@ mod tests {
         frame_with(
             &mut app,
             &ctx,
-            vec![key(egui::Key::K, egui::Modifiers::COMMAND)],
+            vec![key(
+                egui::Key::K,
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            )],
         );
         render(&mut app, &ctx);
         frame_with(

@@ -426,8 +426,11 @@ fn empty(app: &mut App, ui: &mut egui::Ui) {
             center + vec2(0.0, 56.0),
             Align2::CENTER_CENTER,
             super::keys::label(
-                crate::i18n::gettext(app.locale, "Ctrl+K to search · ? for keyboard shortcuts")
-                    .as_ref(),
+                crate::i18n::gettext(
+                    app.locale,
+                    "Ctrl+K for open chats · Ctrl+Shift+F to search · ? for keyboard shortcuts",
+                )
+                .as_ref(),
             ),
             theme::regular(12.5),
             palette.dim,
