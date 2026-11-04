@@ -1,149 +1,112 @@
-<p align="center">
-  <img src="docs/assets/images/logo.svg" alt="ZapFast logo" width="88" height="88">
-</p>
+# fast-beeper
 
-<h1 align="center">ZapFast</h1>
+A fast, native macOS client for [Beeper](https://www.beeper.com). It pairs
+the egui interface from [ZapFast](https://github.com/crmne/zapfast) with a
+Beeper Client API backend instead of a direct WhatsApp connection, so chats
+from every network connected to your Beeper account live in one lightweight
+native window. No browser engine.
 
-<p align="center"><strong>WhatsApp, native and fast.</strong><br>A lightweight WhatsApp app for Linux, macOS, and Windows.</p>
+This is a personal tester build, not a product release: the app is unsigned
+(ad-hoc signed, not notarized), targets Apple Silicon (arm64, macOS 11+),
+and is distributed as versioned DMGs on this repository's
+[Releases](https://github.com/ollisulopuisto/fast-beeper/releases) page.
 
-<p align="center">
-  <a href="https://zapfast.rocks/download/"><strong>Download</strong></a> ·
-  <a href="https://zapfast.rocks/getting-started/">Getting started</a> ·
-  <a href="https://zapfast.rocks/using-zapfast/">User guide</a> ·
-  <a href="CONTRIBUTING.md">Contribute</a>
-</p>
+## How it works
 
-<p align="center">
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/Built_with-Rust-00a884" alt="Built with Rust"></a>
-  <a href="https://zapfast.rocks/download/"><img src="https://img.shields.io/badge/Linux_%C2%B7_macOS_%C2%B7_Windows-24292f" alt="Linux, macOS, and Windows"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-00a884" alt="MIT license"></a>
-</p>
+```
+ZapFast Beeper.app (your Mac)
+        |  SSH tunnel, fixed command, loopback only
+        v
+127.0.0.1:23374 - Beeper Server API (your Server Mac)
+        |  Beeper bridges
+        v
+WhatsApp and your other connected networks
+```
 
-ZapFast is a WhatsApp client written in Rust with
-[egui](https://www.egui.rs) and [fastframe](https://fastframe.dev), the
-framework behind a family of native desktop apps. It links to your phone as a
-companion device through
-[whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) and has no browser
-engine. In our Linux test it opens in under a second and uses about 200 MB of
-idle RAM, against 1.13 GB for WhatsApp Web.
-[See the measurements](https://zapfast.rocks/benchmarks/).
-
-The interface is available in English, Chinese (Simplified and Traditional),
-French, German, Indonesian, Italian, Portuguese (Brazil), Russian, Spanish,
-and Turkish.
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
-  <img src="docs/screenshot.png" alt="ZapFast showing a conversation with an attachment, voice messages, reactions, a quoted reply, and a link preview">
-</picture>
-
-<details>
-<summary><strong>Watch ZapFast in action</strong></summary>
-
-https://github.com/user-attachments/assets/2bf86b54-45fc-4add-8de7-c426c3cdad9b
-
-</details>
-
-[Features](#your-chats-on-your-desktop) · [Install](#install) · [Link your phone](#link-your-phone) · [Help](#guides-and-help)
-
-## Your chats, on your desktop
-
-| Feature | What you can do |
-|---|---|
-| **Messages** | Send formatted text, replies, edits, reactions, forwards, pictures, files, stickers, GIFs, polls, and voice messages. |
-| **Media in the chat** | Play voice messages, videos, round video messages, GIFs, and animated stickers in place. |
-| **Your history** | Keep your chats in an encrypted archive on this computer, and fetch older messages from your phone as you scroll. |
-| **Several numbers** | Link more than one WhatsApp number and switch between them in one window. |
-| **Desktop controls** | Use keyboard shortcuts, select and copy text across messages, and stay linked in the tray with notifications. |
-| **Themes** | Choose light, dark, system appearance, or custom colours. On Omarchy, follow your desktop theme. |
-| **Privacy** | Hide locked chats behind a code, or the whole window behind an app lock. Nothing goes to a server of ours. |
+The Beeper Server runs on a second Mac (installed with the official Beeper
+CLI). The app never talks to a public interface: it opens an SSH tunnel to
+the Server Mac and reaches the Server API on loopback port 23374. A Linux
+Server host is prepared but not yet in use - see
+[contrib/linux-server/README.md](contrib/linux-server/README.md). iMessage
+is not part of the Linux setup.
 
 ## Install
 
-| Platform | Installation |
-|---|---|
-| **macOS** | `brew install --cask crmne/tap/zapfast`, or [download the Mac app](https://zapfast.rocks/download/#macos). |
-| **Arch Linux** | `yay -S zapfast-bin` |
-| **Windows** | Choose your build on the [Download page](https://zapfast.rocks/download/#windows). |
-| **Other Linux** | Find Nix, AppImage, and other options on the [Download page](https://zapfast.rocks/download/#linux). |
-| **From source** | Follow [Getting started](https://zapfast.rocks/getting-started/) for dependencies and commands. |
+1. Download `ZapFast-Beeper-<version>-<commit>.dmg` from the latest
+   [release](https://github.com/ollisulopuisto/fast-beeper/releases) and
+   check it against the attached `.sha256`.
+2. Drag **ZapFast Beeper.app** to Applications. Because the build is
+   unsigned, open it the first time with right-click > Open.
 
-## Link your phone
+## First run
 
-1. Open ZapFast. It shows a QR code.
-2. On your phone, open WhatsApp, then **Settings**, **Linked devices**,
-   **Link a device**, and scan the code. Or click **Link with phone number**
-   and enter the eight-character code on your phone.
-3. Your recent chats arrive from the phone. Older messages follow as you
-   scroll up.
+The Connect window asks for two things only:
 
-The link survives restarts, and your phone does not need to stay online to
-read what ZapFast has already stored. See
-[Getting started](https://zapfast.rocks/getting-started/) for the full
-walkthrough and [How it links](https://zapfast.rocks/how-it-links/) for the
-details.
+- the Server Mac's SSH hostname or Tailscale IP, and
+- your SSH username on it.
 
-## Guides and help
+Existing SSH key trust between the two Macs is required. The app never asks
+for or saves an SSH password, installs nothing on the Server Mac without
+your approval, and does not link or reset any account. Close any old manual
+tunnel using port 23374 before connecting.
 
-The complete guide lives at **[zapfast.rocks](https://zapfast.rocks/)**.
+The client starts read-only. Choose write mode explicitly when you want to
+send. Your Beeper access token is stored in the macOS keychain; no tokens
+live in this repository.
 
-| You want to… | Read |
-|---|---|
-| Know what ZapFast does and does not do yet | [What is ZapFast?](https://zapfast.rocks/what-is-zapfast/) |
-| Link your phone or build from source | [Getting started](https://zapfast.rocks/getting-started/) |
-| Learn messages, stickers, polls, and shortcuts | [Using ZapFast](https://zapfast.rocks/using-zapfast/) |
-| Find settings, stored files, encryption, the app lock, and updates | [Settings and files](https://zapfast.rocks/settings-and-files/) |
-| Make your own theme | [Making a theme](https://zapfast.rocks/themes/) |
-| Understand what stays on this computer | [How it links](https://zapfast.rocks/how-it-links/) |
-| Understand account risk | [Account safety](https://zapfast.rocks/what-is-zapfast/#account-safety) |
-| Report a bug or propose a feature | Read [Contributing](CONTRIBUTING.md), then use the [issue forms](https://github.com/crmne/zapfast/issues/new/choose). |
+## What you get
 
-## Contributing
+- Chats from every network connected to your Beeper account, including
+  multiple accounts on one network.
+- Chat tabs: keep several conversations open and switch between them.
+- Replies with exact-source quoting, avatars, unread badges, and search over
+  loaded history.
+- Send Later: schedule messages; a small `zapfast-scheduler` daemon on the
+  Server Mac owns the durable queue, so scheduled messages go out even while
+  the app is closed. The app offers a one-time, approval-gated install;
+  details in [contrib/send-later/README.md](contrib/send-later/README.md).
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull
-request. To look at the interface without a WhatsApp account, run:
+Feature-by-feature status and known gaps live in [PARITY.md](PARITY.md);
+treat it as a living ledger that can lag development.
+
+## Build from source
+
+Requires the pinned Rust toolchain (1.98.0, see `rust-toolchain.toml`) and a
+macOS build host for the app bundle:
 
 ```sh
-cargo run --features demo -- --demo
+cargo build --locked --release --bin zapfast
+cargo build --locked --release --bin zapfast-scheduler
+python contrib/beeper-tools/package_app_dmg.py \
+  --binary target/aarch64-apple-darwin/release/zapfast \
+  --scheduler-binary target/aarch64-apple-darwin/release/zapfast-scheduler \
+  --output app-dist --version <version> --commit <full-commit-sha>
 ```
 
-[AGENTS.md](AGENTS.md) describes the architecture, [DEMO.md](DEMO.md) the
-demo pages, screenshots, and recorded tours, and
-[PACKAGING.md](PACKAGING.md) releases and packages.
+For interface work without a Server, the mock speaks the same API with
+generic data:
 
-Native notifications use Fastframe on Linux, macOS and Windows. ZapFast keeps
-its account/chat routing, privacy settings, notification limits and sound
-previews. Clicks open the announced message; reading a chat withdraws its
-tracked notifications. OS permissions and notification presentation still apply.
+```sh
+uv run contrib/beeper-mock/mock_server.py
+ZAPFAST_BACKEND=beeper BEEPER_DESKTOP_BASE_URL=http://127.0.0.1:8077 \
+  BEEPER_ACCESS_TOKEN=mock cargo run
+```
 
+`./contrib/beeper-tools/check-source.sh` stages the current adapter/model
+sources into a portable harness and runs its checks; CI runs the full test
+suite and an explicit on-demand trial build (`trial-binaries` workflow)
+packages the unsigned DMG. None of these replace native on-Mac acceptance.
 
-## More native apps
+## More docs
 
-**Want Spotify just as fast and native?** [Spotifast](https://spotifast.rocks)
-is ZapFast's sibling. Both are built on
-[fastframe](https://fastframe.dev).
+- [BACKEND.md](BACKEND.md) - backend routes and deployment status.
+- [HEADLESS-SETUP.md](HEADLESS-SETUP.md) - a separate read-only Server trial.
+- [MAC-TRIAL.md](MAC-TRIAL.md) - Mac build/assembly helper and acceptance log.
+- [contrib/linux-server/README.md](contrib/linux-server/README.md) - moving
+  the Server to a Linux host (prepared, not run).
+- [README-BEEPER.md](README-BEEPER.md) - the original backend-swap checkpoint.
 
-## Acknowledgements
+## License
 
-ZapFast uses [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust),
-[egui](https://www.egui.rs), [fastframe](https://fastframe.dev), the
-[Inter](https://rsms.me/inter/) typeface and Noto Color Emoji (OFL), and
-[Lucide](https://lucide.dev) icons (ISC), also used for the chat wallpaper
-doodles. The notification sounds are [Pidgin](https://pidgin.im)'s, under the
-GPL-2.0 (see `assets/sounds/`).
-
-ZapFast is an unofficial client and is not affiliated with WhatsApp or Meta.
-Using an unofficial client may be against WhatsApp's terms of service and
-could get an account suspended. Use it at your own risk. WhatsApp is a
-trademark of WhatsApp LLC.
-
-Licensed under the [MIT License](LICENSE).
-
-## Star history
-
-<a href="https://www.star-history.com/?repos=crmne%2Fzapfast&amp;type=date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=crmne/zapfast&amp;type=date&amp;theme=dark">
-    <img alt="ZapFast GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/zapfast&amp;type=date">
-  </picture>
-</a>
+MIT, as upstream ZapFast. See [LICENSE](LICENSE) and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
