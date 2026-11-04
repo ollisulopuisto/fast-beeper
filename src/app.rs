@@ -26236,6 +26236,7 @@ mod person_tests {
         Chat {
             kind: ChatKind::Direct,
             backend_origin: Some("local".into()),
+            poll_capability: None,
             backend_account: Some(account.into()),
             unread,
             last_activity: activity,
@@ -26614,6 +26615,7 @@ mod network_tint_tests {
         Chat {
             backend_account: Some("wa".into()),
             backend_origin: Some("beeper".into()),
+            poll_capability: None,
             backend_network: Some("WhatsApp".into()),
             ..Chat::new("ada@s.whatsapp.net".into(), "Ada".into())
         }
@@ -26680,6 +26682,7 @@ mod network_tint_tests {
         let chat = Chat {
             backend_account: Some("irc".into()),
             backend_origin: Some("beeper".into()),
+            poll_capability: None,
             backend_network: Some("IRC".into()),
             ..Chat::new("ada@s.whatsapp.net".into(), "Ada".into())
         };
