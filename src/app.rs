@@ -3269,7 +3269,7 @@ impl App {
     /// else the app account and chat id. An empty origin never collides
     /// with a real backend origin, and the app account keeps identical
     /// chat ids on different accounts apart.
-    fn later_key(&self, chat: &Chat) -> crate::merged::Member {
+    pub(crate) fn later_key(&self, chat: &Chat) -> crate::merged::Member {
         crate::merged::Member::of(chat).unwrap_or_else(|| crate::merged::Member {
             origin: String::new(),
             account: self.account().id.0.clone(),
