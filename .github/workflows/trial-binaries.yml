@@ -178,6 +178,9 @@ jobs:
           shot chat-1180x780 1180x780 chat
           shot chat-menu-1180x780 1180x780 chat,chat-menu
           shot chat-menu-beeper-1180x780 1180x780 chat,chat-menu-beeper
+          # Reply later / Read later: chips in the filter row and the
+          # marks on flagged chat rows.
+          shot chat-later-1180x780 1180x780 chat,later
           shot chat-960x780 960x780 chat
           shot chat-700x600 700x600 chat
           shot chat-640x780 640x780 chat

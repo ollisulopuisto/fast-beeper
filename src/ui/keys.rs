@@ -133,7 +133,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             .visible_chats()
                             .into_iter()
                             .filter(|chat| {
-                                app.beeper_reply_later_filter
+                                app.chat_filter == crate::model::ChatFilter::ReplyLater
                                     || !pins.iter().any(|pin| pin.id == chat.id)
                             })
                             .map(|chat| chat.id.clone())
@@ -143,7 +143,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                         }
                     }
                     3 => {
-                        app.beeper_reply_later_filter = false;
                         app.beeper_unreplied = false;
                         app.actions.push(Action::SetChatFilter(
                             if app.chat_filter == crate::model::ChatFilter::Unread {
@@ -154,7 +153,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                         ));
                     }
                     4 => {
-                        app.beeper_reply_later_filter = false;
                         app.beeper_unreplied = !app.beeper_unreplied;
                         app.actions
                             .push(Action::SetChatFilter(crate::model::ChatFilter::All));
@@ -512,7 +510,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     } else {
         (None, None)
     };
-    if let Some(filter) = filter_number.and_then(|index| crate::model::ChatFilter::EVERY.get(index))
+    if let Some(filter) =
+        filter_number.and_then(|index| crate::model::ChatFilter::ALT_DIGIT.get(index))
     {
         actions.push(Action::SetChatFilter(*filter));
     }
@@ -1802,15 +1801,16 @@ mod tests {
         assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::EVERY[0]))
+                .contains(&Action::SetChatFilter(ChatFilter::ALT_DIGIT[0]))
         );
         app.actions.clear();
         assert!(!press(&mut app, &ctx, Key::Num6, Modifiers::ALT));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::EVERY[5]))
+                .contains(&Action::SetChatFilter(ChatFilter::ALT_DIGIT[5]))
         );
         app.actions.clear();
+        // The later chips have no positional binding: Alt+7 stays free.
         assert!(!press(&mut app, &ctx, Key::Num7, Modifiers::ALT));
         assert!(app.actions.is_empty());
     }

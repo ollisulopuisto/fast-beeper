@@ -2304,6 +2304,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "phone-menu" => phone_menu_sample(app),
             "short-chat" => short_chat_sample(app),
             "chat-menu" => app.open_chat_menu = Some(app.chats[0].id.clone()),
+            // Reply later / Read later: flagged rows carry the clock and
+            // list marks, and the chip row shows both filters.
+            "later" => {
+                let reply = app.later_key(&app.chats[0]);
+                app.settings.beeper.reply_later.push(reply);
+                let read = app.later_key(&app.chats[1]);
+                app.settings.beeper.read_later.push(read);
+            }
             // A Beeper-account chat that is not yet a favorite: its menu
             // must offer "Add to favorites".
             "chat-menu-beeper" => {
@@ -14146,10 +14154,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("no {prefix} row"))
                 .clone()
         };
-        for status in ["Sent ", "Delivered ", "Read "] {
+        for status in ["Sent", "Delivered", "Read"] {
             assert!(
-                nodes.iter().all(|(label, _, _)| !label.starts_with(status)),
-                "the menu has no {status}row"
+                nodes.iter().all(|(label, _, _)| label != status),
+                "the menu has no {status} row"
             );
         }
         assert_eq!(find("Message info").1, Role::Button);
@@ -19934,6 +19942,8 @@ mod tests {
                 Stop::Search,
                 Stop::All,
                 Stop::Unread,
+                Stop::ReplyLater,
+                Stop::ReadLater,
                 Stop::Private,
                 Stop::Favorites,
                 Stop::Groups,

@@ -671,7 +671,7 @@ impl Default for Settings {
 ///
 /// 1. The wallpaper colours that were the defaults (Beige, and Black in dark
 ///    mode) become [`WallpaperColor::Theme`], the new default.
-pub const SETTINGS_VERSION: u32 = 1;
+pub const SETTINGS_VERSION: u32 = 2;
 
 /// Optional build-time GIPHY key from `ZAPFAST_GIPHY_KEY`.
 /// The previous name remains accepted for existing build setups.
@@ -800,6 +800,30 @@ impl Settings {
     fn migrate(&mut self) {
         if std::mem::take(&mut self.messages_theme) && self.theme == ThemeChoice::System {
             self.theme = ThemeChoice::Messages;
+        }
+        if self.version < 2 {
+            // Later marks were keyed by a linked person: one saved member
+            // flagged every chat of that person. They are per chat now, so
+            // each saved member expands to its person's chats once. A
+            // member in no person stays its own mark. Nothing is lost.
+            let people = std::mem::take(&mut self.beeper.people);
+            for list in [&mut self.beeper.reply_later, &mut self.beeper.read_later] {
+                let mut expanded: Vec<crate::merged::Member> = Vec::new();
+                for member in list.drain(..) {
+                    let members = people
+                        .iter()
+                        .find(|person| person.members.contains(&member))
+                        .map(|person| person.members.clone())
+                        .unwrap_or_else(|| vec![member]);
+                    for member in members {
+                        if !expanded.contains(&member) {
+                            expanded.push(member);
+                        }
+                    }
+                }
+                *list = expanded;
+            }
+            self.beeper.people = people;
         }
         if self.version < 1 {
             // Old files store every field, so a default colour cannot be told
@@ -1601,6 +1625,47 @@ mod giphy_tests {
     }
 
     #[test]
+    fn person_keyed_later_marks_expand_to_each_chat() {
+        let member = |chat: &str| crate::merged::Member {
+            origin: "local".to_owned(),
+            account: "account".to_owned(),
+            chat: chat.to_owned(),
+        };
+        let root = std::env::temp_dir().join(format!("zapfast-migrate-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        // A legacy file: one saved member flagged the person's every chat.
+        let settings = Settings {
+            version: 1,
+            beeper: BeeperPreferences {
+                people: vec![crate::merged::Person {
+                    name: "Ada".to_owned(),
+                    members: vec![member("chat-1"), member("chat-2")],
+                    primary: None,
+                }],
+                reply_later: vec![member("chat-1")],
+                read_later: vec![member("chat-3")],
+                ..BeeperPreferences::default()
+            },
+            ..Settings::default()
+        };
+        settings.save(&path).unwrap();
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.version, SETTINGS_VERSION);
+        assert_eq!(
+            loaded.beeper.reply_later,
+            vec![member("chat-1"), member("chat-2")],
+            "the person's chats each keep the mark they showed"
+        );
+        assert_eq!(
+            loaded.beeper.read_later,
+            vec![member("chat-3")],
+            "a member in no person stays its own mark"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_notification_limit_names_the_chats_it_applies_to() {
         for (limit, direct, group) in [
             (NotificationLimit::Off, false, false),
@@ -1622,6 +1687,8 @@ pub struct BeeperPreferences {
     /// Local display names for single chats, by chat id. Never sent anywhere.
     pub chat_names: std::collections::HashMap<String, String>,
     pub reply_later: Vec<crate::merged::Member>,
+    /// Flagged to read later, same local per-chat shape as reply_later.
+    pub read_later: Vec<crate::merged::Member>,
     pub incognito: bool,
     pub compact_list: bool,
     pub show_previews: bool,
@@ -1641,6 +1708,7 @@ impl Default for BeeperPreferences {
             people: Vec::new(),
             chat_names: std::collections::HashMap::new(),
             reply_later: Vec::new(),
+            read_later: Vec::new(),
             incognito: false,
             compact_list: false,
             show_previews: true,

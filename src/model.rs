@@ -125,6 +125,10 @@ pub enum ChatFilter {
     #[default]
     All,
     Unread,
+    /// Flagged to reply to later; per-chat local marks.
+    ReplyLater,
+    /// Flagged to read later; per-chat local marks.
+    ReadLater,
     /// One-to-one chats: neither groups nor broadcasts.
     Private,
     /// Chats marked as a favorite, here or on the phone.
@@ -154,6 +158,8 @@ impl ListFilter {
         let key = match chip {
             ChatFilter::All => return None,
             ChatFilter::Unread => "unread",
+            ChatFilter::ReplyLater => "reply-later",
+            ChatFilter::ReadLater => "read-later",
             ChatFilter::Private => "private",
             ChatFilter::Favorites => "favorites",
             ChatFilter::Groups => "groups",
@@ -170,6 +176,8 @@ impl ListFilter {
         }
         let chip = match key {
             "unread" => ChatFilter::Unread,
+            "reply-later" => ChatFilter::ReplyLater,
+            "read-later" => ChatFilter::ReadLater,
             "private" => ChatFilter::Private,
             "favorites" => ChatFilter::Favorites,
             "groups" => ChatFilter::Groups,
@@ -181,7 +189,21 @@ impl ListFilter {
 }
 
 impl ChatFilter {
-    pub const EVERY: [Self; 6] = [
+    pub const EVERY: [Self; 8] = [
+        Self::All,
+        Self::Unread,
+        Self::ReplyLater,
+        Self::ReadLater,
+        Self::Private,
+        Self::Favorites,
+        Self::Groups,
+        Self::Channels,
+    ];
+
+    /// The Alt+digit chip bindings, in their long-standing order. The
+    /// later chips joined the row after these were established, so they
+    /// get no positional binding and the existing ones never move.
+    pub const ALT_DIGIT: [Self; 6] = [
         Self::All,
         Self::Unread,
         Self::Private,
@@ -195,6 +217,8 @@ impl ChatFilter {
         match self {
             Self::All => gettext(locale, "All"),
             Self::Unread => gettext(locale, "Unread"),
+            Self::ReplyLater => gettext(locale, "Reply later"),
+            Self::ReadLater => gettext(locale, "Read later"),
             Self::Private => gettext(locale, "Private"),
             Self::Favorites => gettext(locale, "Favorites"),
             Self::Groups => gettext(locale, "Groups"),
@@ -206,6 +230,9 @@ impl ChatFilter {
         match self {
             Self::All => !chat.is_channel(),
             Self::Unread => chat.looks_unread() && !chat.is_channel(),
+            // Per-chat marks live in settings; App::filter_matches tests
+            // them against the saved lists, never this chat-only check.
+            Self::ReplyLater | Self::ReadLater => false,
             Self::Private => chat.kind == ChatKind::Direct,
             Self::Favorites => chat.favorite && !chat.is_channel(),
             Self::Groups => chat.kind == ChatKind::Group,
@@ -3039,6 +3066,12 @@ pub enum Action {
     },
     /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),
+    /// Flags a chat to reply to later, or clears the flag. Local only:
+    /// person-level, persisted in settings, never sent anywhere.
+    ToggleReplyLater(ChatId),
+    /// Flags a chat to read later, or clears the flag. Local only:
+    /// person-level, persisted in settings, never sent anywhere.
+    ToggleReadLater(ChatId),
     ShowDialog(Dialog),
     CloseDialog,
     ToggleSidebar,

@@ -760,7 +760,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
         // accessibility label.
         ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
         ui.vertical_centered(|ui| {
-            for (index, filter) in ChatFilter::EVERY.into_iter().enumerate() {
+            for filter in ChatFilter::EVERY {
                 let count = match filter {
                     ChatFilter::All => 0,
                     _ => app.unread_chats(filter),
@@ -772,20 +772,27 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 let icon = match filter {
                     ChatFilter::All => Icon::MessageCircle,
                     ChatFilter::Unread => Icon::Bell,
+                    ChatFilter::ReplyLater => Icon::Clock,
+                    ChatFilter::ReadLater => Icon::ListChecks,
                     ChatFilter::Private => Icon::User,
                     ChatFilter::Favorites => Icon::Star,
                     ChatFilter::Groups => Icon::Users,
                     ChatFilter::Channels => Icon::Volume2,
                 };
                 let name = filter.label(app.locale);
-                let tooltip = format!(
-                    "{name} ({})",
-                    super::keys::label(&format!("Alt+{}", index + 1))
-                );
+                let tooltip = match ChatFilter::ALT_DIGIT.iter().position(|f| f == &filter) {
+                    Some(position) => format!(
+                        "{name} ({})",
+                        super::keys::label(&format!("Alt+{}", position + 1))
+                    ),
+                    None => name.to_string(),
+                };
                 let row = filter_icon(ui, &palette, icon, count, selected, &tooltip).tab_stop(
                     match filter {
                         ChatFilter::All => Stop::All,
                         ChatFilter::Unread => Stop::Unread,
+                        ChatFilter::ReplyLater => Stop::ReplyLater,
+                        ChatFilter::ReadLater => Stop::ReadLater,
                         ChatFilter::Private => Stop::Private,
                         ChatFilter::Favorites => Stop::Favorites,
                         ChatFilter::Groups => Stop::Groups,
@@ -818,7 +825,6 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                     // A second click on the active filter returns to every chat.
                     let next = if selected { ChatFilter::All } else { filter };
                     app.beeper_unreplied = false;
-                    app.beeper_reply_later_filter = false;
                     app.actions.push(Action::SetChatFilter(next));
                 }
             }
@@ -836,7 +842,6 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 "Unreplied\nLatest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R",
             );
             if unreplied.clicked() {
-                app.beeper_reply_later_filter = false;
                 app.beeper_unreplied = !app.beeper_unreplied;
                 app.actions.push(Action::SetChatFilter(ChatFilter::All));
             }
@@ -845,8 +850,8 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 Icon::Clock,
                 0,
-                app.beeper_reply_later_filter,
-                "Reply later\nLocal queue. Reading does not clear it. Linked people count as one item. Cmd+Shift+L toggles current chat. Right-click: add or remove the open chat.",
+                app.chat_filter == ChatFilter::ReplyLater,
+                "Reply later\nLocal marks, one chat at a time. Reading does not clear them. Cmd+Shift+L toggles the open chat. Right-click a chat: add or remove its mark.",
             );
             // Toggling the open chat's place in the queue was the wide
             // rail's text button; the icon's menu keeps it one click away.
@@ -872,9 +877,13 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 });
             }
             if later.clicked() {
-                app.beeper_reply_later_filter = !app.beeper_reply_later_filter;
+                let next = if app.chat_filter == ChatFilter::ReplyLater {
+                    ChatFilter::All
+                } else {
+                    ChatFilter::ReplyLater
+                };
                 app.beeper_unreplied = false;
-                app.actions.push(Action::SetChatFilter(ChatFilter::All));
+                app.actions.push(Action::SetChatFilter(next));
             }
         }
         ui.add_space(4.0);
@@ -1405,6 +1414,8 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
         } else if app.chat_filter != ChatFilter::All {
             let title = match app.chat_filter {
                 ChatFilter::Unread => "No unread chats",
+                ChatFilter::ReplyLater => "Nothing marked to reply to later",
+                ChatFilter::ReadLater => "Nothing marked to read later",
                 ChatFilter::Private => "No private chats",
                 ChatFilter::Channels => "No channels",
                 ChatFilter::Favorites => {
@@ -2110,6 +2121,20 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
             Icon::Pin.image(palette.dim, 14.0).paint_at(ui, icon_rect);
             badge_right -= 20.0;
         }
+        if app.reply_later_contains(chat) {
+            let icon_rect =
+                Rect::from_center_size(pos2(badge_right - 8.0, line_y + 8.0), Vec2::splat(14.0));
+            Icon::Clock.image(palette.dim, 14.0).paint_at(ui, icon_rect);
+            badge_right -= 20.0;
+        }
+        if app.read_later_contains(chat) {
+            let icon_rect =
+                Rect::from_center_size(pos2(badge_right - 8.0, line_y + 8.0), Vec2::splat(14.0));
+            Icon::ListChecks
+                .image(palette.dim, 14.0)
+                .paint_at(ui, icon_rect);
+            badge_right -= 20.0;
+        }
         let mut x = left;
         let typing = app.typing_in(&chat.id);
         let preview_color = if unread && !muted {
@@ -2623,6 +2648,29 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
         )
     {
         app.actions.push(Action::MarkUnread(chat.id.clone()));
+    }
+    // Local later flags, one chat at a time: the chat's state decides
+    // the label, and nothing leaves this computer. Any chat can be
+    // marked - Beeper chats by backend member, others by app account.
+    {
+        let queued_reply = app.reply_later_contains(chat);
+        let reply_label = if queued_reply {
+            crate::i18n::gettext(locale, "Clear reply later")
+        } else {
+            crate::i18n::gettext(locale, "Reply later")
+        };
+        if widgets::menu_item(ui, palette, Some(Icon::Clock), reply_label.as_ref()) {
+            app.actions.push(Action::ToggleReplyLater(chat.id.clone()));
+        }
+        let queued_read = app.read_later_contains(chat);
+        let read_label = if queued_read {
+            crate::i18n::gettext(locale, "Clear read later")
+        } else {
+            crate::i18n::gettext(locale, "Read later")
+        };
+        if widgets::menu_item(ui, palette, Some(Icon::ListChecks), read_label.as_ref()) {
+            app.actions.push(Action::ToggleReadLater(chat.id.clone()));
+        }
     }
     let pin_label = if chat.pinned {
         crate::i18n::gettext(locale, "Unpin")

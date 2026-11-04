@@ -344,6 +344,18 @@ pub(crate) fn can_select(content: &Content) -> bool {
 /// A quote the server described only by the original's id: no author, or
 /// the generic placeholder preview the Beeper backend writes until the
 /// original is known.
+/// Adds the member to a later list, or removes every linked member when any
+/// is there: one person's flag lives and clears as one.
+/// One chat's mark on, or off. Nothing about linked people: each chat of
+/// a person carries its own mark.
+fn toggle_later(list: &mut Vec<crate::merged::Member>, member: crate::merged::Member) {
+    if list.contains(&member) {
+        list.retain(|saved| saved != &member);
+    } else {
+        list.push(member);
+    }
+}
+
 fn unresolved_quote(quoted: &crate::model::Quoted) -> bool {
     !quoted.id.is_empty()
         && (quoted.sender.is_empty() || quoted.summary == "Reply to earlier message")
@@ -390,7 +402,6 @@ pub struct App {
     pub beeper_signin: crate::beeper_signin::SignIn,
     pub beeper_network_filter: Option<String>,
     pub beeper_unreplied: bool,
-    pub beeper_reply_later_filter: bool,
     /// Origin+account tuple, never just a display name or network.
     pub beeper_account_filter: Option<String>,
     pub beeper_accounts: std::collections::BTreeMap<String, Vec<crate::backend::BeeperAccountInfo>>,
@@ -1460,7 +1471,6 @@ impl App {
             beeper_signin: crate::beeper_signin::SignIn::startup(),
             beeper_network_filter: None,
             beeper_unreplied: false,
-            beeper_reply_later_filter: false,
             beeper_account_filter: None,
             beeper_accounts: Default::default(),
             local_ai: Default::default(),
@@ -3254,50 +3264,81 @@ impl App {
         self.show_starred = false;
     }
 
-    /// Local person-level triage, scoped to the exact configured members.
-    fn reply_later_members(&self, member: &crate::merged::Member) -> Vec<crate::merged::Member> {
-        self.settings
-            .beeper
-            .people
-            .iter()
-            .find(|person| person.members.contains(member))
-            .map(|person| person.members.clone())
-            .unwrap_or_else(|| vec![member.clone()])
+    /// Local per-chat triage, scoped to the exact configured members.
+    /// The mark key for any chat: the Beeper member when the chat has one,
+    /// else the app account and chat id. An empty origin never collides
+    /// with a real backend origin, and the app account keeps identical
+    /// chat ids on different accounts apart.
+    pub(crate) fn later_key(&self, chat: &Chat) -> crate::merged::Member {
+        crate::merged::Member::of(chat).unwrap_or_else(|| crate::merged::Member {
+            origin: String::new(),
+            account: self.account().id.0.clone(),
+            chat: chat.id.clone(),
+        })
     }
+
     pub fn toggle_reply_later(&mut self) {
         let Some(chat) = self.current_chat() else {
             return;
         };
-        let Some(member) = crate::merged::Member::of(chat) else {
+        let member = self.later_key(chat);
+        self.toggle_reply_later_member(member);
+    }
+
+    /// Flags one chat to reply to later, or clears the flag. The mark is
+    /// this chat's alone: a linked person's other chats keep their own.
+    /// Local only; nothing is sent to the server, and reading or replying
+    /// never clears it - the reader clears it.
+    pub fn toggle_reply_later_chat(&mut self, chat: &Chat) {
+        let member = self.later_key(chat);
+        self.toggle_reply_later_member(member);
+    }
+
+    fn toggle_reply_later_member(&mut self, member: crate::merged::Member) {
+        toggle_later(&mut self.settings.beeper.reply_later, member);
+        self.mark_settings_dirty();
+    }
+
+    /// Flags the open chat to read later, or clears the flag. Local only.
+    pub fn toggle_read_later(&mut self) {
+        let Some(chat) = self.current_chat() else {
             return;
         };
-        let members = self.reply_later_members(&member);
-        if self
-            .settings
-            .beeper
-            .reply_later
-            .iter()
-            .any(|saved| members.contains(saved))
-        {
-            self.settings
-                .beeper
-                .reply_later
-                .retain(|saved| !members.contains(saved));
-        } else {
-            self.settings.beeper.reply_later.push(member);
-        }
+        let member = self.later_key(chat);
+        self.toggle_read_later_member(member);
+    }
+
+    /// Flags one chat to read later, or clears the flag. Same local
+    /// per-chat shape as reply later.
+    pub fn toggle_read_later_chat(&mut self, chat: &Chat) {
+        let member = self.later_key(chat);
+        self.toggle_read_later_member(member);
+    }
+
+    fn toggle_read_later_member(&mut self, member: crate::merged::Member) {
+        toggle_later(&mut self.settings.beeper.read_later, member);
         self.mark_settings_dirty();
     }
     pub fn reply_later_contains(&self, chat: &Chat) -> bool {
-        let Some(member) = crate::merged::Member::of(chat) else {
-            return false;
-        };
-        let members = self.reply_later_members(&member);
-        self.settings
-            .beeper
-            .reply_later
-            .iter()
-            .any(|saved| members.contains(saved))
+        self.later_contains(&self.settings.beeper.reply_later, chat)
+    }
+
+    pub fn read_later_contains(&self, chat: &Chat) -> bool {
+        self.later_contains(&self.settings.beeper.read_later, chat)
+    }
+
+    fn later_contains(&self, list: &[crate::merged::Member], chat: &Chat) -> bool {
+        list.contains(&self.later_key(chat))
+    }
+
+    /// The active chip's test. The later filters are per-chat marks in
+    /// settings, which ChatFilter::matches cannot see.
+    fn filter_matches(&self, filter: ChatFilter, chat: &Chat) -> bool {
+        match filter {
+            ChatFilter::ReplyLater => self.reply_later_contains(chat),
+            ChatFilter::ReadLater => self.read_later_contains(chat),
+            other => other.matches(chat),
+        }
     }
 
     /// Whether the main list drops pinned chats into the sidebar's Pinned
@@ -3306,7 +3347,6 @@ impl App {
     /// count and the list agree.
     pub fn dedups_pins(&self) -> bool {
         !self.show_archived
-            && !self.beeper_reply_later_filter
             && self.chat_filter == ChatFilter::All
             && self.label_filter.is_none()
             && self.chats.iter().any(|c| c.backend_account.is_some())
@@ -3610,8 +3650,10 @@ impl App {
                     .is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key))
             })
             .filter(|chat| {
-                self.beeper_reply_later_filter
-                    || !needle.is_empty()
+                matches!(
+                    self.chat_filter,
+                    ChatFilter::ReplyLater | ChatFilter::ReadLater
+                ) || !needle.is_empty()
                     || self.show_archived
                     || match self
                         .settings
@@ -3624,7 +3666,6 @@ impl App {
                         crate::settings::BeeperInbox::None => false,
                     }
             })
-            .filter(|chat| !self.beeper_reply_later_filter || self.reply_later_contains(chat))
             .filter(|chat| {
                 !self.beeper_unreplied
                     || chat.last.as_ref().is_some_and(|last| {
@@ -3642,6 +3683,7 @@ impl App {
                 !needle.is_empty()
                     || self.open_chat.as_deref() == Some(chat.id.as_str())
                     || self.reply_later_contains(chat)
+                    || self.read_later_contains(chat)
                     || !self.unlisted_stranger(chat)
             })
             .filter(|chat| match &self.label_filter {
@@ -3650,7 +3692,7 @@ impl App {
                 _ if !filtering => true,
                 Some(label) => self.chat_wears(chat, label),
                 None => {
-                    self.chat_filter.matches(chat)
+                    self.filter_matches(self.chat_filter, chat)
                         || (self.chat_filter == ChatFilter::Unread
                             && self.unread_kept.contains(&chat.id))
                 }
@@ -3763,7 +3805,7 @@ impl App {
                 !chat.archived
                     && !chat.locked
                     && chat.looks_unread()
-                    && filter.matches(chat)
+                    && self.filter_matches(filter, chat)
                     && self
                         .beeper_network_filter
                         .as_ref()
@@ -5311,23 +5353,18 @@ impl App {
                 account,
                 chat,
             } => {
+                // Established queue behavior: a successful send clears the
+                // chat's reply-later mark. Read-later stays manual.
                 let member = crate::merged::Member {
                     origin,
                     account,
                     chat,
                 };
-                let members = self.reply_later_members(&member);
-                if self
-                    .settings
-                    .beeper
-                    .reply_later
-                    .iter()
-                    .any(|saved| members.contains(saved))
-                {
+                if self.settings.beeper.reply_later.contains(&member) {
                     self.settings
                         .beeper
                         .reply_later
-                        .retain(|saved| !members.contains(saved));
+                        .retain(|saved| saved != &member);
                     self.mark_settings_dirty();
                 }
             }
@@ -9530,6 +9567,28 @@ impl App {
                     known.favorite_position = u32::MAX;
                 }
                 self.backend.send(Command::SetFavorite(chat, favorite));
+            }
+            Action::ToggleReplyLater(id) => {
+                let Some(chat) = self.chat(&id) else {
+                    return;
+                };
+                let queued = self.reply_later_contains(chat);
+                let member = self.later_key(chat);
+                self.toggle_reply_later_member(member);
+                if !queued {
+                    self.toast(crate::i18n::gettext(self.locale, "Marked to reply later"));
+                }
+            }
+            Action::ToggleReadLater(id) => {
+                let Some(chat) = self.chat(&id) else {
+                    return;
+                };
+                let queued = self.read_later_contains(chat);
+                let member = self.later_key(chat);
+                self.toggle_read_later_member(member);
+                if !queued {
+                    self.toast(crate::i18n::gettext(self.locale, "Marked to read later"));
+                }
             }
             Action::ShowDialog(dialog) => {
                 self.cancel_contact_dialog_request();
@@ -26749,6 +26808,177 @@ mod conversation_palette_tests {
         let mut chat = Chat::new(id.to_owned(), "Chat".to_owned());
         chat.backend_account = Some("account".to_owned());
         chat
+    }
+
+    fn later_chat(id: &str, activity: i64) -> Chat {
+        let mut chat = Chat::new(id.to_owned(), "Chat".to_owned());
+        chat.backend_origin = Some("local".to_owned());
+        chat.backend_account = Some("account".to_owned());
+        chat.last_activity = activity;
+        chat
+    }
+
+    #[test]
+    fn later_flags_toggle_per_chat_and_clear_independently() {
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10)];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        assert!(app.reply_later_contains(&app.chats[0]));
+        assert!(!app.read_later_contains(&app.chats[0]));
+        assert_eq!(app.settings.beeper.reply_later.len(), 1);
+        app.apply(Action::ToggleReadLater("chat-1".into()), &ctx);
+        assert!(app.read_later_contains(&app.chats[0]));
+        // Clearing one flag keeps the other, and clearing stays quiet.
+        let toasts = app.toasts.len();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        assert!(!app.reply_later_contains(&app.chats[0]));
+        assert!(app.read_later_contains(&app.chats[0]));
+        assert_eq!(app.toasts.len(), toasts);
+        assert!(app.settings.beeper.reply_later.is_empty());
+        assert_eq!(app.settings.beeper.read_later.len(), 1);
+    }
+
+    #[test]
+    fn later_chips_filter_by_the_saved_marks() {
+        let mut app = app();
+        app.chats = vec![
+            later_chat("chat-1", 10),
+            later_chat("chat-2", 9),
+            later_chat("chat-3", 8),
+        ];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReadLater("chat-2".into()), &ctx);
+        let ids = |app: &App| -> Vec<String> {
+            app.visible_chats()
+                .iter()
+                .map(|chat| chat.id.clone())
+                .collect()
+        };
+        app.chat_filter = ChatFilter::ReplyLater;
+        assert_eq!(ids(&app), ["chat-1"]);
+        app.chat_filter = ChatFilter::ReadLater;
+        assert_eq!(ids(&app), ["chat-2"]);
+        app.chat_filter = ChatFilter::All;
+        assert_eq!(ids(&app), ["chat-1", "chat-2", "chat-3"]);
+    }
+
+    fn later_person(name: &str, ids: [&str; 2]) -> crate::merged::Person {
+        let member = |id: &str| crate::merged::Member {
+            origin: "local".to_owned(),
+            account: "account".to_owned(),
+            chat: id.to_owned(),
+        };
+        crate::merged::Person {
+            name: name.to_owned(),
+            members: vec![member(ids[0]), member(ids[1])],
+            primary: None,
+        }
+    }
+
+    #[test]
+    fn later_marks_are_per_chat_even_for_linked_people() {
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10), later_chat("chat-2", 9)];
+        app.settings.beeper.people = vec![later_person("Ada", ["chat-1", "chat-2"])];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        assert!(app.reply_later_contains(&app.chats[0]));
+        assert!(
+            !app.reply_later_contains(&app.chats[1]),
+            "a linked person's other chat keeps its own state"
+        );
+    }
+
+    #[test]
+    fn later_marks_survive_a_settings_roundtrip() {
+        let root = std::env::temp_dir().join(format!("zapfast-later-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10)];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReadLater("chat-1".into()), &ctx);
+        app.settings.save(&path).unwrap();
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.beeper.reply_later.len(), 1);
+        assert_eq!(loaded.beeper.read_later.len(), 1);
+        let chat = later_chat("chat-1", 10);
+        assert!(
+            loaded
+                .beeper
+                .reply_later
+                .contains(&crate::merged::Member::of(&chat).unwrap())
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn later_marks_are_independent_of_unread() {
+        let mut app = app();
+        let mut unread = later_chat("chat-1", 10);
+        unread.unread = 2;
+        let mut read = later_chat("chat-2", 9);
+        read.unread = 0;
+        app.chats = vec![unread, read];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReplyLater("chat-2".into()), &ctx);
+        // Flagging never touches the unread state.
+        assert_eq!(app.chats[0].unread, 2);
+        // Unread chip: only the unread chat; Reply later: both flags,
+        // including the fully read one.
+        app.chat_filter = ChatFilter::Unread;
+        let unread_ids: Vec<_> = app.visible_chats().iter().map(|c| c.id.clone()).collect();
+        assert_eq!(unread_ids, ["chat-1"]);
+        app.chat_filter = ChatFilter::ReplyLater;
+        let later_ids: Vec<_> = app.visible_chats().iter().map(|c| c.id.clone()).collect();
+        assert_eq!(later_ids, ["chat-1", "chat-2"]);
+    }
+
+    #[test]
+    fn sending_clears_reply_later_but_keeps_read_later() {
+        let mut app = app();
+        app.chats = vec![later_chat("chat-1", 10)];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReplyLater("chat-1".into()), &ctx);
+        app.apply(Action::ToggleReadLater("chat-1".into()), &ctx);
+        let member = crate::merged::Member::of(&app.chats[0]).unwrap();
+        app.apply_backend_event(
+            Event::BeeperSendConfirmed {
+                origin: member.origin.clone(),
+                account: member.account.clone(),
+                chat: member.chat.clone(),
+            },
+            true,
+        );
+        // Established queue behavior: a successful send clears reply later;
+        // read later is an explicit manual mark with no auto-clear.
+        assert!(!app.reply_later_contains(&app.chats[0]));
+        assert!(app.read_later_contains(&app.chats[0]));
+    }
+
+    #[test]
+    fn native_chats_mark_per_app_account() {
+        let mut app = app();
+        // A WhatsApp-backend chat: no Beeper origin or account.
+        let mut chat = Chat::new("42@s.whatsapp.net".into(), "Ada".into());
+        chat.last_activity = 10;
+        app.chats = vec![chat];
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleReadLater("42@s.whatsapp.net".into()), &ctx);
+        assert!(app.read_later_contains(&app.chats[0]));
+        // The same chat id under another app account is unmarked: the key
+        // is (app account, chat id), so accounts never share marks.
+        app.account_mut().id = AccountId("other-account".into());
+        assert!(!app.read_later_contains(&app.chats[0]));
+        // And a Beeper chat reusing the same chat id is distinct again:
+        // its origin is a real backend URL, never empty.
+        let beeper = later_chat("42@s.whatsapp.net", 9);
+        app.account_mut().id = AccountId("account".into());
+        assert!(!app.read_later_contains(&beeper));
     }
 
     #[test]
