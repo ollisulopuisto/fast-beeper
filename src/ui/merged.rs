@@ -808,10 +808,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     .map(network_label),
                                 network,
                             );
-                            let exact;
-                            let meta;
-                            if show_mark {
-                                exact = jiff::Timestamp::from_second(message.timestamp)
+                            // The hover label is computed only for a row
+                            // that shows the mark.
+                            let meta = show_mark.then(|| {
+                                let exact = jiff::Timestamp::from_second(message.timestamp)
                                     .map(|t| {
                                         let zoned = t.to_zoned(jiff::tz::TimeZone::system());
                                         format!(
@@ -822,15 +822,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                         )
                                     })
                                     .unwrap_or_default();
-                                meta = format!(
+                                format!(
                                     "{exact} · {}{} · {sender}",
                                     network,
                                     account_name(app, &source_chat),
-                                );
-                            } else {
-                                exact = String::new();
-                                meta = String::new();
-                            }
+                                )
+                            });
                             let tint = crate::theme::network_tint(network)
                                 .unwrap_or(app.conversation_palette().secondary);
                             let icon = crate::theme::network_icon(network);
@@ -863,26 +860,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                     },
                                 )
                                 .inner;
-                            if show_mark {
-                                if let Some(rect) = bubble_rect {
-                                    let side = if message.from_me {
-                                        area.max.x + ui.spacing().item_spacing.x
-                                    } else {
-                                        area.min.x - room
-                                    };
-                                    let y = rect.top() + (rect.height() / 2.0).min(chip);
-                                    let centre = egui::pos2(side + chip / 2.0, y);
-                                    let slot = egui::Rect::from_center_size(
-                                        centre,
-                                        egui::Vec2::splat(chip),
-                                    );
-                                    let response = ui.interact(
-                                        slot,
-                                        ui.id().with(("network-chip", &message.chat, &message.id)),
-                                        egui::Sense::hover(),
-                                    );
-                                    crate::theme::paint_network_mark(ui, icon, slot, chip, tint);
-                                    response.on_hover_text(&meta);
+                            if show_mark && let Some(rect) = bubble_rect {
+                                let side = if message.from_me {
+                                    area.max.x + ui.spacing().item_spacing.x
+                                } else {
+                                    area.min.x - room
+                                };
+                                let y = rect.top() + (rect.height() / 2.0).min(chip);
+                                let centre = egui::pos2(side + chip / 2.0, y);
+                                let slot =
+                                    egui::Rect::from_center_size(centre, egui::Vec2::splat(chip));
+                                let response = ui.interact(
+                                    slot,
+                                    ui.id().with(("network-chip", &message.chat, &message.id)),
+                                    egui::Sense::hover(),
+                                );
+                                crate::theme::paint_network_mark(ui, icon, slot, chip, tint);
+                                if let Some(meta) = &meta {
+                                    response.on_hover_text(meta);
                                 }
                             }
                             let reply = actions.drain(before..).collect::<Vec<_>>();
