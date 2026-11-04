@@ -3545,9 +3545,12 @@ mod tests {
         );
     }
 
-    /// The user requested no horizontal scrollbars. The six filters stack
-    /// one icon per row down the rail's column with the label dots below,
-    /// keeping every filter/label reachable instead of the old scrolling UI.
+    /// No horizontal scrollbars in a narrow rail. The rail's four category
+    /// filters (Private, Favorites, Groups, Channels) stack one icon per row
+    /// down the rail's column with the label dots below, keeping every
+    /// filter/label reachable instead of the old scrolling UI. The labeled
+    /// All/Unread/Reply later/Read later facets live in the row above the
+    /// chat list; the demo's geometry test covers that row.
     #[test]
     fn narrow_chip_rows_stack_within_the_viewport_without_horizontal_scrolling() {
         let directory = tempfile::tempdir().unwrap();
@@ -3575,10 +3578,16 @@ mod tests {
             output.textures_delta.clear();
             output.shapes
         };
+        // The rail's filters after the primary facets moved above the list.
+        const RAIL: [ChatFilter; 4] = [
+            ChatFilter::Private,
+            ChatFilter::Favorites,
+            ChatFilter::Groups,
+            ChatFilter::Channels,
+        ];
         let rects = || {
             ctx.data(|data| {
-                ChatFilter::EVERY
-                    .into_iter()
+                RAIL.into_iter()
                     .map(|filter| data.get_temp::<Rect>(filter_chip_id(filter)).unwrap())
                     .chain((0..8).map(|index| {
                         data.get_temp::<Rect>(super::labels::chip_id(&index.to_string()))
@@ -3589,7 +3598,7 @@ mod tests {
         };
         frame(vec![]);
         let before = rects();
-        assert_eq!(before.len(), ChatFilter::EVERY.len() + 8);
+        assert_eq!(before.len(), RAIL.len() + 8);
         for rect in &before {
             assert!(
                 rect.is_positive() && rect.left() >= 0.0 && rect.right() <= 220.0,
@@ -3599,7 +3608,7 @@ mod tests {
         // One icon per row: every filter starts below the one before, the
         // whole column shares one center line, and the label dots follow.
         let column_x = before[0].center().x;
-        for pair in before[..ChatFilter::EVERY.len()].windows(2) {
+        for pair in before[..RAIL.len()].windows(2) {
             assert!(
                 pair[1].top() >= pair[0].bottom() - 1.0,
                 "filters stack one per row: {pair:?}"
@@ -3611,8 +3620,8 @@ mod tests {
                 "one centered column: {rect:?}"
             );
         }
-        assert!(before.last().unwrap().top() > before[ChatFilter::EVERY.len()].top());
-        for pointer in [before[0].center(), before[ChatFilter::EVERY.len()].center()] {
+        assert!(before.last().unwrap().top() > before[RAIL.len()].top());
+        for pointer in [before[0].center(), before[RAIL.len()].center()] {
             for _ in 0..5 {
                 frame(vec![egui::Event::PointerMoved(pointer)]);
             }
