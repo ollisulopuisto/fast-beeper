@@ -821,6 +821,50 @@ mod tests {
     /// of a group bubble. The same name can paint elsewhere - a typing
     /// line, a quote block - and only the bubble's name opens the panel.
     fn click_sender(app: &mut App, tour: &mut Tour, ctx: &egui::Context, message: &str) {
+        // The name sits at the bubble's top. A chat with unread messages
+        // opens at its divider rather than its end, and tabs make the
+        // transcript one bar shorter, so the bubble can start off screen in
+        // either direction: scroll until it shows before clicking, as a
+        // reader would.
+        for _ in 0..16 {
+            let id = crate::ui::conversation::bubble_id(
+                app.open_chat.as_deref().expect("a chat is open"),
+                message,
+            )
+            .with("rect");
+            let Some(full) = ctx.data(|d| d.get_temp::<Rect>(id)) else {
+                break;
+            };
+            let view = (*app.selection_view.lock().unwrap_or_else(|p| p.into_inner()))
+                .expect("the transcript is on screen");
+            let below = full.bottom() - view.bottom();
+            let above = view.top() - full.top();
+            // The wheel is negative downward: content under the pointer
+            // follows the wheel.
+            let delta = if below > 0.0 {
+                -below.max(8.0)
+            } else if above > 0.0 {
+                above.max(8.0)
+            } else {
+                break;
+            };
+            for _ in 0..2 {
+                frame(
+                    app,
+                    tour,
+                    ctx,
+                    vec![
+                        Event::PointerMoved(view.center()),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0.0, delta),
+                            modifiers: Modifiers::NONE,
+                            phase: egui::TouchPhase::Move,
+                        },
+                    ],
+                );
+            }
+        }
         let rect = Tour::bubble(app, ctx, message).expect("the bubble is on screen");
         let pos = rect.left_top() + egui::vec2(18.0, 14.0);
         for pressed in [true, false] {
