@@ -1,4 +1,4 @@
-//! Harness stub. Real: zapfast src/app_lock.rs.
+//! Harness stub. Real: solmu src/app_lock.rs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormMode {
     Set,

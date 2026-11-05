@@ -8,14 +8,14 @@ enabled or granted.
 - In Beeper mode every chat the app shows comes from one Beeper API, and
   each chat records that API's base URL as `backend_origin`. People links
   (`beeper.people`) are made only from chats with an origin. So for a user
-  running the app against his Server, `zapfast-reader` plus
-  `ZAPFAST_READER_ORIGINS` set to the app's recorded URL covers the chats
+  running the app against his Server, `solmu-reader` plus
+  `SOLMU_READER_ORIGINS` set to the app's recorded URL covers the chats
   AND the linked-person view. No app-owned broker is needed for that.
 - A person can still link chats recorded under two different origins (two
   API backends, e.g. a Server and a local Desktop API). One reader serves
   one Server. Serving a second origin means a second upstream in the reader
   (its own token file, configured by the user); not built.
-- ZapFast's native WhatsApp mode (no Beeper backend) keeps chats in the
+- Solmu's native WhatsApp mode (no Beeper backend) keeps chats in the
   app's encrypted archive, with no origin, and they cannot be linked
   people. They are not reachable through any Server API.
 

@@ -1,12 +1,12 @@
 # SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR ZapFast contributors
-# This file is distributed under the same license as the ZapFast package.
+# Copyright (C) YEAR Solmu contributors
+# This file is distributed under the same license as the Solmu package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: ZapFast\n"
+"Project-Id-Version: Solmu\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
 "POT-Creation-Date: 2026-10-25 23:16+0100\n"
@@ -571,7 +571,7 @@ msgid "You left this channel"
 msgstr ""
 
 #: src/ui/conversation.rs:1378
-msgid "Channels are read-only in ZapFast"
+msgid "Channels are read-only in Solmu"
 msgstr ""
 
 #: src/ui/conversation.rs:1401
@@ -927,12 +927,12 @@ msgstr ""
 #: src/ui/dialogs.rs:338
 msgid ""
 "Choose a local code to open the Locked tab. It is separate from your phone's "
-"code. This hides chats in ZapFast, it does not add another encryption layer."
+"code. This hides chats in Solmu, it does not add another encryption layer."
 msgstr ""
 
 #: src/ui/dialogs.rs:343
 msgid ""
-"Enter your local ZapFast code. Leaving the Locked tab or closing the window "
+"Enter your local Solmu code. Leaving the Locked tab or closing the window "
 "locks it again."
 msgstr ""
 
@@ -972,7 +972,7 @@ msgstr ""
 msgid ""
 "This moves the chat to the Locked tab, hiding it from the normal chat list, "
 "search, unread badges, and notifications. The lock status also syncs to your "
-"phone. Open Locked with a separate local ZapFast code to read it."
+"phone. Open Locked with a separate local Solmu code to read it."
 msgstr ""
 
 #: src/ui/dialogs.rs:469
@@ -1177,9 +1177,9 @@ msgstr ""
 
 #: src/ui/dialogs.rs:1423
 msgid ""
-"ZapFast keeps your unreadable archive as a separate file, creates a new one, "
+"Solmu keeps your unreadable archive as a separate file, creates a new one, "
 "and asks you to link again. Linking again brings back recent history from "
-"your phone. Afterwards, remove the old ZapFast entry under Linked devices on "
+"your phone. Afterwards, remove the old Solmu entry under Linked devices on "
 "your phone."
 msgstr ""
 
@@ -1472,7 +1472,7 @@ msgstr ""
 
 #: src/ui/settings.rs:424
 msgid ""
-"Draw ZapFast's own title bar and window buttons instead of the desktop's."
+"Draw Solmu's own title bar and window buttons instead of the desktop's."
 msgstr ""
 
 #: src/ui/settings.rs:430 src/ui/rail.rs:293
@@ -1595,7 +1595,7 @@ msgstr ""
 
 #: src/ui/settings.rs:600
 msgid ""
-"Could not load your account privacy. Trying again when ZapFast reconnects."
+"Could not load your account privacy. Trying again when Solmu reconnects."
 msgstr ""
 
 #: src/ui/settings.rs:605
@@ -1635,7 +1635,7 @@ msgid "Check for updates"
 msgstr ""
 
 #: src/ui/settings.rs:688
-msgid "Asks GitHub once a day, sending only the ZapFast version."
+msgid "Asks GitHub once a day, sending only the Solmu version."
 msgstr ""
 
 #: src/ui/settings.rs:693
@@ -1645,7 +1645,7 @@ msgstr ""
 #: src/ui/settings.rs:696
 msgid ""
 "You still choose when to restart. Package managers and Flatpak update "
-"ZapFast themselves."
+"Solmu themselves."
 msgstr ""
 
 #: src/ui/settings.rs:709
@@ -1791,7 +1791,7 @@ msgstr ""
 
 #: src/ui/settings.rs:937
 msgid ""
-"Time without using ZapFast, also counted while it is in the tray. "
+"Time without using Solmu, also counted while it is in the tray. "
 "Ctrl+Shift+L locks it at once."
 msgstr ""
 
@@ -2193,14 +2193,14 @@ msgstr ""
 #: src/app/calls.rs:613
 #, rust-format
 msgid ""
-"{caller} is calling {group}. ZapFast can't join group calls yet: answer on "
+"{caller} is calling {group}. Solmu can't join group calls yet: answer on "
 "your phone."
 msgstr ""
 
 #: src/app/calls.rs:621
 #, rust-format
 msgid ""
-"{caller} is calling you and others. ZapFast can't join group calls yet: "
+"{caller} is calling you and others. Solmu can't join group calls yet: "
 "answer on your phone."
 msgstr ""
 
@@ -2334,7 +2334,7 @@ msgid ""
 msgstr ""
 
 #: src/app.rs:4288 src/app.rs:7032
-msgid "ZapFast can't join group calls yet: open the link on your phone."
+msgid "Solmu can't join group calls yet: open the link on your phone."
 msgstr ""
 
 #: src/app.rs:4379
@@ -2342,7 +2342,7 @@ msgid "Connecting"
 msgstr ""
 
 #: src/app.rs:5019
-msgid "Not sent: ZapFast is not connected to WhatsApp."
+msgid "Not sent: Solmu is not connected to WhatsApp."
 msgstr ""
 
 #: src/app.rs:5023
@@ -2369,7 +2369,7 @@ msgstr ""
 
 #: src/app.rs:8210 src/ui/labels.rs:257
 #, rust-format
-msgid "You have {limit} labels, the most ZapFast keeps."
+msgid "You have {limit} labels, the most Solmu keeps."
 msgstr ""
 
 #: src/app.rs:8365
@@ -2825,7 +2825,7 @@ msgid "Play motion photo"
 msgstr ""
 
 #: src/ui/image_preview.rs:701
-msgid "This image could not be displayed in ZapFast."
+msgid "This image could not be displayed in Solmu."
 msgstr ""
 
 #: src/ui/image_preview.rs:704
@@ -2837,7 +2837,7 @@ msgid "Play or pause the video"
 msgstr ""
 
 #: src/ui/lock.rs:17
-msgid "ZapFast is locked"
+msgid "Solmu is locked"
 msgstr ""
 
 #: src/ui/lock.rs:23
@@ -3191,7 +3191,7 @@ msgstr ""
 
 #: src/ui/mod.rs:554
 #, rust-format
-msgid "ZapFast {version} is available"
+msgid "Solmu {version} is available"
 msgstr ""
 
 #: src/ui/mod.rs:571
@@ -3477,7 +3477,7 @@ msgid "Participant details are not available yet"
 msgstr ""
 
 #: src/ui/update.rs:25 src/ui/update.rs:38
-msgid "Update ZapFast"
+msgid "Update Solmu"
 msgstr ""
 
 #: src/ui/update.rs:49
@@ -3507,7 +3507,7 @@ msgstr ""
 
 #: src/ui/update.rs:113
 msgid ""
-"Finish any unsent messages or recordings before restarting. ZapFast will "
+"Finish any unsent messages or recordings before restarting. Solmu will "
 "briefly disconnect, then reconnect automatically."
 msgstr ""
 

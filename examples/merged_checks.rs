@@ -1,4 +1,4 @@
-use zapfast::{
+use solmu::{
     app::App,
     backend::BeeperAccountInfo,
     model::{Chat, ChatFilter},
@@ -6,7 +6,7 @@ use zapfast::{
     settings::Settings,
 };
 fn main() {
-    let shortcut = zapfast::ui::merged::latest_reply_shortcut();
+    let shortcut = solmu::ui::merged::latest_reply_shortcut();
     assert_eq!(shortcut.logical_key, egui::Key::R);
     for actual in [
         egui::Modifiers {
@@ -74,7 +74,7 @@ fn main() {
     assert_eq!(app.unread_chats(ChatFilter::Unread), 1);
     app.search = "Shared".into();
     assert_eq!(app.visible_chats().len(), 1);
-    let message = zapfast::model::Message {
+    let message = solmu::model::Message {
         id: "hit".into(),
         chat: "work".into(),
         sender: "x".into(),
@@ -82,8 +82,8 @@ fn main() {
         from_me: false,
         timestamp: 1,
         history_order: None,
-        content: zapfast::model::Content::text("Shared hit"),
-        status: zapfast::model::Delivery::Sent,
+        content: solmu::model::Content::text("Shared hit"),
+        status: solmu::model::Delivery::Sent,
         delivered_at: None,
         read_at: None,
         quoted: None,
@@ -130,11 +130,11 @@ fn main() {
     assert_eq!(app.beeper_browse_accounts().len(), 0);
     app.beeper_network_filter = None;
     app.search.clear();
-    app.settings.beeper.people.push(zapfast::merged::Person {
+    app.settings.beeper.people.push(solmu::merged::Person {
         name: "Manual".into(),
         members: vec![
-            zapfast::merged::Member::of(&app.chats[0]).unwrap(),
-            zapfast::merged::Member::of(&app.chats[2]).unwrap(),
+            solmu::merged::Member::of(&app.chats[0]).unwrap(),
+            solmu::merged::Member::of(&app.chats[2]).unwrap(),
         ],
         primary: None,
     });
@@ -153,9 +153,9 @@ fn main() {
     assert_eq!(settings.beeper.people, app.settings.beeper.people);
     let source = app.settings.beeper.people[0].members[0].clone();
     let other = app.settings.beeper.people[0].members[1].clone();
-    assert!(zapfast::merged::reply_route(&source, &other, "collision").is_none());
+    assert!(solmu::merged::reply_route(&source, &other, "collision").is_none());
     assert_eq!(
-        zapfast::merged::reply_route(&source, &source, "collision")
+        solmu::merged::reply_route(&source, &source, "collision")
             .unwrap()
             .id,
         "collision"
@@ -163,7 +163,7 @@ fn main() {
     let mut late = app.search_hits[0].clone();
     late.chat = "signal".into();
     late.timestamp = 9999999999;
-    late.content = zapfast::model::Content::text("Latest member message");
+    late.content = solmu::model::Content::text("Latest member message");
     app.conversations
         .entry("signal".into())
         .or_default()

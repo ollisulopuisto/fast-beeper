@@ -1,6 +1,6 @@
 # Send Later end-to-end tests
 
-Runs the real `zapfast-scheduler` daemon, built from this repo's sources,
+Runs the real `solmu-scheduler` daemon, built from this repo's sources,
 against a stub Beeper Server API, and checks the behaviors Send Later's
 safety rules promise. No network, no credentials, no real chats.
 

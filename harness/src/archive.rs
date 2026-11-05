@@ -1,5 +1,5 @@
 //! Harness stub: opaque payloads plus the key-copy signature paths.rs
-//! names. Real: zapfast src/archive.rs (rusqlite + keyring).
+//! names. Real: solmu src/archive.rs (rusqlite + keyring).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pinned;
 

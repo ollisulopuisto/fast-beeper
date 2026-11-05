@@ -3094,7 +3094,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 });
                 app.show_update = true;
                 let installation = Installation {
-                    executable: "/demo/zapfast".into(),
+                    executable: "/demo/solmu".into(),
                     kind: Kind::Portable,
                 };
                 app.update_support = Some(Ok(installation.clone()));
@@ -4599,7 +4599,7 @@ mod tests {
 
     pub(super) fn app() -> App {
         let root = tempfile::Builder::new()
-            .prefix("zapfast-demo-")
+            .prefix("solmu-demo-")
             .tempdir()
             .unwrap();
         let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
@@ -6535,7 +6535,7 @@ mod tests {
             .filter_map(|(_, node)| node.label().or_else(|| node.value()))
             .collect();
         assert!(
-            !labels.contains(&"Locked chats are read-only in ZapFast"),
+            !labels.contains(&"Locked chats are read-only in Solmu"),
             "{labels:?}"
         );
         assert!(!labels.contains(&"admins"));
@@ -8458,7 +8458,7 @@ mod tests {
         }
     }
 
-    /// With the title bar ZapFast draws on Windows and Linux, no header
+    /// With the title bar Solmu draws on Windows and Linux, no header
     /// control lies under the caption buttons, at either end of the top edge
     /// and in each layout: GNOME's buttons at the right or the left, and
     /// Windows' taller row. Headers that reach a corner leave the buttons
@@ -11787,7 +11787,7 @@ mod tests {
         std::path::PathBuf,
     ) {
         let root = tempfile::Builder::new()
-            .prefix("zapfast-demo-")
+            .prefix("solmu-demo-")
             .tempdir()
             .unwrap();
         let (mut app, events) = App::headless(AppDirs::under(root.path()), Settings::default());
@@ -16127,7 +16127,7 @@ mod tests {
         std::sync::mpsc::Sender<crate::backend::Event>,
     ) {
         let root = tempfile::Builder::new()
-            .prefix("zapfast-demo-")
+            .prefix("solmu-demo-")
             .tempdir()
             .unwrap();
         let (mut app, events) = App::headless(AppDirs::under(root.path()), Settings::default());
@@ -20274,7 +20274,7 @@ mod tests {
         render(&mut app, &ctx);
         let texture = ctx
             .data_mut(|data| {
-                data.get_temp::<egui::TextureHandle>(egui::Id::new(("zapfast-mark", 44_usize)))
+                data.get_temp::<egui::TextureHandle>(egui::Id::new(("solmu-mark", 44_usize)))
             })
             .expect("the mark was drawn at 44 pixels");
         assert_eq!(texture.size(), [44, 44]);
@@ -20472,7 +20472,7 @@ mod tests {
 
     impl egui::load::ImageLoader for CountingImages {
         fn id(&self) -> &str {
-            "zapfast::demo::tests::CountingImages"
+            "solmu::demo::tests::CountingImages"
         }
 
         fn load(
@@ -20598,7 +20598,7 @@ mod tests {
         );
     }
 
-    /// A video sent before ZapFast made thumbnails has none. With its file
+    /// A video sent before Solmu made thumbnails has none. With its file
     /// here it still shows as a video; only without either is it a file card.
     #[test]
     fn a_video_without_a_thumbnail_shows_from_its_file() {
@@ -21370,7 +21370,7 @@ mod bubble_detail_tests {
 
     /// The `bubbles` page in both Messages palettes: every message of the
     /// sample is drawn, and only each run's last balloon curls a tail out of
-    /// its side, as far as Apple's reaches at ZapFast's text size; a lone
+    /// its side, as far as Apple's reaches at Solmu's text size; a lone
     /// photo leaves the tail to the balloon after it. All of it fits a 1280
     /// by 800 window.
     #[test]

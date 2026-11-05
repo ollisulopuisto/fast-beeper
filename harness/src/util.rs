@@ -1,5 +1,5 @@
 //! Harness stub: the two helpers model.rs uses, bodies verbatim from
-//! zapfast src/util.rs. The real module also renders SVG icons via egui.
+//! solmu src/util.rs. The real module also renders SVG icons via egui.
 use crate::i18n::Locale;
 
 pub fn duration(seconds: u32) -> String {
@@ -20,7 +20,7 @@ pub fn call_length(locale: Locale, seconds: u64) -> String {
         .replace("{minutes}", &minutes.to_string())
         .replace("{seconds}", &seconds.to_string())
 }
-// ---- real bodies copied from zapfast src/util.rs (verbatim) ----
+// ---- real bodies copied from solmu src/util.rs (verbatim) ----
 pub fn now() -> i64 {
     jiff::Timestamp::now().as_second()
 }

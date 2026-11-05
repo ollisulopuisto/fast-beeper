@@ -1,4 +1,4 @@
-//! HTTP-level tests for zapfast-reader: a real loopback socket in front,
+//! HTTP-level tests for solmu-reader: a real loopback socket in front,
 //! a real HTTP mock Server behind it (through ServerSender). Synthetic
 //! data only.
 
@@ -8,9 +8,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use zapfast::read_api::{RateLimiter, Registry};
-use zapfast::read_http::{Shared, run};
-use zapfast::scheduler_api::ServerSender;
+use solmu::read_api::{RateLimiter, Registry};
+use solmu::read_http::{Shared, run};
+use solmu::scheduler_api::ServerSender;
 
 type Log = Arc<Mutex<Vec<String>>>;
 

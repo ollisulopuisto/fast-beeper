@@ -8,7 +8,7 @@ MinimumOSVersion: 10.0.0.0
 UpgradeBehavior: install
 ReleaseDate: @RELEASE_DATE@
 InstallationMetadata:
-  DefaultInstallLocation: '%LocalAppData%\Programs\ZapFast'
+  DefaultInstallLocation: '%LocalAppData%\Programs\Solmu'
 AppsAndFeaturesEntries:
 - UpgradeCode: '{AC7FEAEC-54FA-4A71-95A5-532EE484B6A9}'
 Installers:

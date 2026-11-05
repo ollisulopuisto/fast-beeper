@@ -1,5 +1,5 @@
 //! Query-scoped search failure/recovery checks with real App event handling.
-use zapfast::{
+use solmu::{
     app::App,
     backend::{Event, LinkStatus},
     paths::AppDirs,

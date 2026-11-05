@@ -349,12 +349,12 @@ fn unlock_locked_chats(app: &mut App, ui: &mut egui::Ui) {
     let desc_text = if setup {
         crate::i18n::gettext(
             app.locale,
-            "Choose a local code to open the Locked tab. It is separate from your phone's code. This hides chats in ZapFast, it does not add another encryption layer.",
+            "Choose a local code to open the Locked tab. It is separate from your phone's code. This hides chats in Solmu, it does not add another encryption layer.",
         )
     } else {
         crate::i18n::gettext(
             app.locale,
-            "Enter your local ZapFast code. Leaving the Locked tab or closing the window locks it again.",
+            "Enter your local Solmu code. Leaving the Locked tab or closing the window locks it again.",
         )
     };
     theme::paragraph(ui, desc_text, theme::regular(13.0), palette.secondary);
@@ -440,7 +440,7 @@ fn confirm_lock_chat(app: &mut App, ui: &mut egui::Ui, id: &str) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            "This moves the chat to the Locked tab, hiding it from the normal chat list, search, unread badges, and notifications. The lock status also syncs to your phone. Open Locked with a separate local ZapFast code to read it.",
+            "This moves the chat to the Locked tab, hiding it from the normal chat list, search, unread badges, and notifications. The lock status also syncs to your phone. Open Locked with a separate local Solmu code to read it.",
         ),
         theme::regular(13.0),
         palette.secondary,
@@ -1091,16 +1091,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         let (logo, _) = ui.allocate_exact_size(egui::Vec2::splat(44.0), egui::Sense::hover());
         theme::mark(ui, logo.center(), 44.0);
         ui.vertical(|ui| {
-            theme::text(
-                ui,
-                if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                    "Fast Beeper"
-                } else {
-                    "ZapFast"
-                },
-                theme::bold(17.0),
-                palette.text,
-            );
+            theme::text(ui, "Solmu", theme::bold(17.0), palette.text);
             let version_label = crate::i18n::gettext(app.locale, "Version {version}")
                 .replace("{version}", env!("CARGO_PKG_VERSION"));
             theme::text(ui, version_label, theme::regular(13.0), palette.secondary);
@@ -1112,7 +1103,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         crate::i18n::gettext(
             app.locale,
             if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                "A native Beeper client based on ZapFast, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper."
+                "A native Beeper client based on Solmu, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper."
             } else {
                 "A native WhatsApp client written in Rust with egui. It connects through whatsapp-rust. Messages are end-to-end encrypted on this device."
             },
@@ -1523,7 +1514,7 @@ fn confirm_start_over(app: &mut App, ui: &mut egui::Ui) {
         &[
             &crate::i18n::gettext(
                 locale,
-                "ZapFast keeps your unreadable archive as a separate file, creates a new one, and asks you to link again. Linking again brings back recent history from your phone. Afterwards, remove the old ZapFast entry under Linked devices on your phone.",
+                "Solmu keeps your unreadable archive as a separate file, creates a new one, and asks you to link again. Linking again brings back recent history from your phone. Afterwards, remove the old Solmu entry under Linked devices on your phone.",
             ),
             &crate::i18n::gettext(
                 locale,
@@ -2489,13 +2480,13 @@ mod deletion_count_tests {
 }
 
 /// Send Later: schedule the composer's message through the
-/// zapfast-scheduler companion service. Presets cover the common cases;
+/// solmu-scheduler companion service. Presets cover the common cases;
 /// custom entry takes a local date and time. The scheduler delivers even
-/// while fast-beeper is closed.
+/// while Solmu is closed.
 fn send_later(app: &mut App, ui: &mut egui::Ui) {
     title(ui, app, &crate::i18n::gettext(app.locale, "Send Later"));
     ui.label(
-        "The scheduler service sends the message at the chosen time, even while fast-beeper is closed. Times are this device's local time.",
+        "The scheduler service sends the message at the chosen time, even while Solmu is closed. Times are this device's local time.",
     );
     ui.add_space(6.0);
 
@@ -2664,7 +2655,7 @@ fn scheduled_list(app: &mut App, ui: &mut egui::Ui) {
         &crate::i18n::gettext(app.locale, "Send Later queue"),
     );
     let palette = app.palette;
-    ui.label("The scheduler service sends these at their times, even while fast-beeper is closed.");
+    ui.label("The scheduler service sends these at their times, even while Solmu is closed.");
     ui.add_space(6.0);
     let Some(items) = &app.scheduled_messages else {
         ui.label(egui::RichText::new(crate::i18n::gettext(

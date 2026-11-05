@@ -11,7 +11,7 @@ class SendLaterSafetyTests(unittest.TestCase):
         # the cached file is removed, and removal happens before the client
         # binary is launched.
         removal = SOURCE.index('try manager.removeItem(at: cachedSchedulerToken)')
-        launch = SOURCE.index('Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")')
+        launch = SOURCE.index('Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/solmu-client")')
         guard = SOURCE.index('let cachedSchedulerToken =')
         self.assertLess(guard, removal)
         self.assertLess(removal, launch)

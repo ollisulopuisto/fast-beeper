@@ -1100,7 +1100,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Ctrl+Shift+L",
         "Reply later in Beeper; lock elsewhere (add Alt in Beeper)",
     ),
-    ("Ctrl+W", "Close the window (ZapFast remains in the tray)"),
+    ("Ctrl+W", "Close the window (Solmu remains in the tray)"),
     ("Ctrl+Q", "Quit"),
 ];
 

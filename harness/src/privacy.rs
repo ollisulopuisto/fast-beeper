@@ -1,4 +1,4 @@
-//! Harness stub: the two enums, verbatim from zapfast src/privacy.rs,
+//! Harness stub: the two enums, verbatim from solmu src/privacy.rs,
 //! without the wacore wire conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PrivacyKind {
@@ -22,6 +22,6 @@ pub enum PrivacyChoice {
 }
 
 /// Harness stub: account.rs only holds a default Snapshot.
-/// Real: zapfast src/privacy.rs.
+/// Real: solmu src/privacy.rs.
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot;

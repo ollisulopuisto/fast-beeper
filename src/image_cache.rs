@@ -159,7 +159,7 @@ mod tests {
 
     impl egui::load::ImageLoader for ReadyLoader {
         fn id(&self) -> &str {
-            "zapfast::image_cache::tests::ReadyLoader"
+            "solmu::image_cache::tests::ReadyLoader"
         }
 
         fn load(

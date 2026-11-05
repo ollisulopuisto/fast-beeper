@@ -211,7 +211,7 @@ pub(crate) struct Canceller {
     /// The reference's and the microphone's energy since the last report, for the log's levels.
     reference: Level,
     capture: Level,
-    /// Where the canceller's input and output are saved, when `ZAPFAST_CALL_AUDIO_DUMP` asks.
+    /// Where the canceller's input and output are saved, when `SOLMU_CALL_AUDIO_DUMP` asks.
     dump: Option<super::dump::AudioDump>,
     /// Reference chunks fed since the last microphone chunk, for the dump's order.
     fed: u32,
@@ -673,17 +673,17 @@ mod tests {
     /// and a voice mixed into the microphone must still come through.
     ///
     /// The recording is of real voices, so it is never in the repository: set
-    /// `ZAPFAST_ECHO_RECORDING` to a dump's `…-reference.wav` (`ZAPFAST_CALL_AUDIO_DUMP`) and
-    /// `ZAPFAST_ECHO_RECORDING_SECONDS` to its far-end-only seconds (`0-25` by default). Without
+    /// `SOLMU_ECHO_RECORDING` to a dump's `…-reference.wav` (`SOLMU_CALL_AUDIO_DUMP`) and
+    /// `SOLMU_ECHO_RECORDING_SECONDS` to its far-end-only seconds (`0-25` by default). Without
     /// the variable the test passes without looking at anything.
     #[test]
     fn a_recorded_room_echo_is_taken_out() {
-        let Some(path) = std::env::var_os("ZAPFAST_ECHO_RECORDING") else {
-            println!("ZAPFAST_ECHO_RECORDING is not set; nothing to replay");
+        let Some(path) = std::env::var_os("SOLMU_ECHO_RECORDING") else {
+            println!("SOLMU_ECHO_RECORDING is not set; nothing to replay");
             return;
         };
         let seconds =
-            std::env::var("ZAPFAST_ECHO_RECORDING_SECONDS").unwrap_or_else(|_| "0-25".to_owned());
+            std::env::var("SOLMU_ECHO_RECORDING_SECONDS").unwrap_or_else(|_| "0-25".to_owned());
         let (from, to) = seconds
             .split_once('-')
             .map(|(a, b)| {

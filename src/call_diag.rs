@@ -4,7 +4,7 @@
 //! keyframes (the largest thing a call sends), and how many of the peer's frames decoded. They are
 //! counts and sizes only.
 //!
-//! The dump is for working on a call's video, never on by default: with `ZAPFAST_CALL_VIDEO_DUMP`
+//! The dump is for working on a call's video, never on by default: with `SOLMU_CALL_VIDEO_DUMP`
 //! set to a folder, each call writes the access units it sent and the ones it received there, as
 //! raw H.264 that ffmpeg and other tools read (`ffmpeg -i received.h264 out.mp4`). That is the
 //! picture of both people on the call, so only set it for a call whose other side agreed.
@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The environment variable that names the folder a call's video is dumped to.
-pub const DUMP_VARIABLE: &str = "ZAPFAST_CALL_VIDEO_DUMP";
+pub const DUMP_VARIABLE: &str = "SOLMU_CALL_VIDEO_DUMP";
 
 /// The NAL units of an Annex-B access unit, each without its start code.
 pub fn nal_units(access_unit: &[u8]) -> impl Iterator<Item = &[u8]> {

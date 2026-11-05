@@ -1,4 +1,4 @@
-# fast-beeper
+# Solmu
 
 A fast, native macOS client for [Beeper](https://www.beeper.com). It pairs
 the egui interface from [ZapFast](https://github.com/crmne/zapfast) with a
@@ -14,7 +14,7 @@ and is distributed as versioned DMGs on this repository's
 ## How it works
 
 ```
-ZapFast Beeper.app (your Mac)
+Solmu.app (your Mac)
         |  SSH tunnel, fixed command, loopback only
         v
 127.0.0.1:23374 - Beeper Server API (your Server Mac)
@@ -32,10 +32,10 @@ is not part of the Linux setup.
 
 ## Install
 
-1. Download `ZapFast-Beeper-<version>-<commit>.dmg` from the latest
+1. Download `Solmu-Beeper-<version>-<commit>.dmg` from the latest
    [release](https://github.com/ollisulopuisto/fast-beeper/releases) and
    check it against the attached `.sha256`.
-2. Drag **ZapFast Beeper.app** to Applications. Because the build is
+2. Drag **Solmu.app** to Applications. Because the build is
    unsigned, open it the first time with right-click > Open.
 
 ## First run
@@ -61,7 +61,7 @@ live in this repository.
 - Chat tabs: keep several conversations open and switch between them.
 - Replies with exact-source quoting, avatars, unread badges, and search over
   loaded history.
-- Send Later: schedule messages; a small `zapfast-scheduler` daemon on the
+- Send Later: schedule messages; a small `solmu-scheduler` daemon on the
   Server Mac owns the durable queue, so scheduled messages go out even while
   the app is closed. The app offers a one-time, approval-gated install;
   details in [contrib/send-later/README.md](contrib/send-later/README.md).
@@ -75,11 +75,11 @@ Requires the pinned Rust toolchain (1.98.0, see `rust-toolchain.toml`) and a
 macOS build host for the app bundle:
 
 ```sh
-cargo build --locked --release --bin zapfast
-cargo build --locked --release --bin zapfast-scheduler
+cargo build --locked --release --bin solmu
+cargo build --locked --release --bin solmu-scheduler
 python contrib/beeper-tools/package_app_dmg.py \
-  --binary target/aarch64-apple-darwin/release/zapfast \
-  --scheduler-binary target/aarch64-apple-darwin/release/zapfast-scheduler \
+  --binary target/aarch64-apple-darwin/release/solmu \
+  --scheduler-binary target/aarch64-apple-darwin/release/solmu-scheduler \
   --output app-dist --version <version> --commit <full-commit-sha>
 ```
 
@@ -88,7 +88,7 @@ generic data:
 
 ```sh
 uv run contrib/beeper-mock/mock_server.py
-ZAPFAST_BACKEND=beeper BEEPER_DESKTOP_BASE_URL=http://127.0.0.1:8077 \
+SOLMU_BACKEND=beeper BEEPER_DESKTOP_BASE_URL=http://127.0.0.1:8077 \
   BEEPER_ACCESS_TOKEN=mock cargo run
 ```
 

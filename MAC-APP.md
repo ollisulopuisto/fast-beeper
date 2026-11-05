@@ -1,13 +1,13 @@
-# ZapFast Beeper - native Finder app
+# Solmu - native Finder app
 
 This is a source-backed tester app, not a verified native installer yet. The
 current main CI/Nix package is not this Finder app or DMG.
 
 On an Apple Silicon Mac with the Rust/Xcode prerequisites already installed:
 
-    cargo build --locked --release --bin zapfast
+    cargo build --locked --release --bin solmu
     python3 contrib/beeper-tools/package_app_dmg.py \
-      --binary target/release/zapfast --output dist/beeper-app-2026.10.30.1 \
+      --binary target/release/solmu --output dist/beeper-app-2026.10.30.1 \
       --version 2026.10.30.1 --commit "$(git rev-parse HEAD)"
 
 This uses the committed original icon and native bundle tooling. The app has a
@@ -18,7 +18,7 @@ signed, unsigned by a Developer ID, and not notarized. Do not disable Gatekeeper
 system-wide. Runtime, Dock identity, drag installation and SSH lifecycle still
 need native verification.
 
-Drag `ZapFast Beeper.app` to Applications. On first open, enter the existing
+Drag `Solmu.app` to Applications. On first open, enter the existing
 Server Mac's hostname/IP and SSH user. SSH key authentication and trusted host
 keys must already work. Close the previous manual tunnel on local port23374;
 the app refuses to use an occupied port instead of borrowing an unverified
@@ -35,7 +35,7 @@ launcher does not print private Server output. The first-run checkbox defaults
 to read-only; enable it for sending, typing and marking chats read.
 
 The existing icon is preserved, not a claim of new branding. The upstream
-bundle/login-agent identity is not reused. Existing stock ZapFast is not replaced.
+bundle/login-agent identity is not reused. Existing stock Solmu is not replaced.
 The Beeper backend does not implement stock updater commands; a fork-specific
 update feed is not configured, so install future verified fork DMGs manually.
 
@@ -53,7 +53,7 @@ keychain only after the next successful password unlock; turning the setting
 off or changing the password forgets it. Every unlock still runs the same
 PBKDF2 verifier - Touch ID fills the password, it never skips the check.
 
-ZapFast holds an NSProcessInfo activity from start, so macOS does not put it
+Solmu holds an NSProcessInfo activity from start, so macOS does not put it
 into App Nap and messaging plus the managed connection keep working in the
 background (idle system sleep stays allowed). Settings > System > "Allow App
 Nap" trades that for battery savings.

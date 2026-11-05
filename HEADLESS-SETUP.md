@@ -23,7 +23,7 @@ List existing targets first, without dumping private auth files:
 If a dedicated trial target already exists, reuse it. Otherwise create a unique
 name (example below), without --default. Stop if that name is already in use:
 
-    beeper targets add server zapfast-headless
+    beeper targets add server solmu-headless
 
 It uses a separate data directory/profile and selects a local port. Do not
 assume Desktop's23373 or another guessed port. Every later command below names
@@ -34,7 +34,7 @@ this target explicitly. Existing Desktop target stays unchanged.
 Use the actual email for the user's existing Beeper account, not an assumed
 email from another service. Replace YOUR_BEEPER_EMAIL locally:
 
-    beeper setup --server --install --target zapfast-headless --email YOUR_BEEPER_EMAIL
+    beeper setup --server --install --target solmu-headless --email YOUR_BEEPER_EMAIL
 
 This installs/starts the separate Server, requests an emailed code, and guides
 device verification. Enter code locally. Approve verification from the existing
@@ -44,22 +44,22 @@ instead asks to create an account, accept new commercial terms or pay.
 
 Inspect accounts already available to this Server:
 
-    beeper --target zapfast-headless --read-only accounts list
+    beeper --target solmu-headless --read-only accounts list
 
 Cloud connections may already appear. On-device connections require setup in
 this new session. To add one via the supported guided chooser:
 
-    beeper --target zapfast-headless accounts add
+    beeper --target solmu-headless accounts add
 
 Choose the intended existing network account in that local flow. Start with
 one network. Network-specific device limits/history availability still apply.
 Do not recreate the entire mix until the first network survives restart.
 
-## 3. Point ZapFast at exactly that target, read-only
+## 3. Point Solmu at exactly that target, read-only
 
 From the new source package's client directory:
 
-    uv run contrib/beeper-tools/run_client.py --beeper-target zapfast-headless
+    uv run contrib/beeper-tools/run_client.py --beeper-target solmu-headless
 
 Or reuse an existing built binary with --binary and its actual path. The
 launcher reads only that existing target's baseURL/token via the official CLI,
@@ -68,12 +68,12 @@ If CLI inspection supplies no token, the launcher asks locally rather than
 using a Desktop token. Do not paste targets show/config JSON into chat.
 
 Verify one chat opens and history is present. Quit Desktop normally (don't
-log out or delete anything), then check ZapFast can still refresh history.
+log out or delete anything), then check Solmu can still refresh history.
 This separates live Server behavior from already-loaded UI content.
 
 For a redacted read-only inventory/history check on the exact same target:
 
-    uv run contrib/beeper-tools/check_endpoint.py --beeper-target zapfast-headless --label headless --sample-history
+    uv run contrib/beeper-tools/check_endpoint.py --beeper-target solmu-headless --label headless --sample-history
 
 It emits only counts, whitelisted network/provider/status labels and a sample
 message count, not account IDs, people, chat titles, message text or tokens.
@@ -87,22 +87,22 @@ locally. A history sample covers one chat, not every account's health.
 
 Restart only the named trial Server:
 
-    beeper targets restart zapfast-headless
+    beeper targets restart solmu-headless
 
 Then inspect account/history availability again on that target. The official
 open issue38 reports local Instagram/Facebook disappearing after Server
 restart. Readiness/connected alone is not enough. Do not delete/relink accounts
 in response; preserve the failure and stop expanding that network trial.
 
-Compare total Server + bridge + ZapFast memory/CPU against the full Desktop
+Compare total Server + bridge + Solmu memory/CPU against the full Desktop
 process tree at the same accounts/history/workload after sync settles. A single
-ZapFast process snapshot is not a total saving. Disk includes Server DB/media,
+Solmu process snapshot is not a total saving. Disk includes Server DB/media,
 bridge state, client cache and build artifacts. The UI's cache cap only controls
 its own disposable media, not Server storage.
 
-If the trial fails, quit ZapFast and stop only the trial target:
+If the trial fails, quit Solmu and stop only the trial target:
 
-    beeper targets stop zapfast-headless
+    beeper targets stop solmu-headless
 
 Reopen the unchanged Desktop. Do not remove targets/data or undo network
 connections blindly. Some network connection flows can affect other sessions;

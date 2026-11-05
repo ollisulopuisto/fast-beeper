@@ -2,7 +2,7 @@
 """Mock Beeper Client API for the beeper-backend demo: no Beeper account needed.
 
 Run:  uv run contrib/beeper-mock/mock_server.py
-Then: ZAPFAST_BACKEND=beeper \
+Then: SOLMU_BACKEND=beeper \
       BEEPER_DESKTOP_BASE_URL=http://127.0.0.1:8077 \
       BEEPER_ACCESS_TOKEN=mock \
       cargo run

@@ -27,7 +27,7 @@ Rollback is a focused PR revert; no runtime/storage migrations are involved.
 ## Active packaging lane - October 29, 2026
 
 Claim: local trial packaging and its verification, owned by the current
-fast-beeper packaging contributor. PR6 merged on main e4a2e03. Follow-up PR7
+Solmu packaging contributor. PR6 merged on main e4a2e03. Follow-up PR7
 (`fix/verify-mounted-trial-dmg`) adds mounted-image verification and detach
 cleanup; it is review/CI work, not a native acceptance or release claim.
 Coordinate before changing the same packaging helpers. No new messaging,

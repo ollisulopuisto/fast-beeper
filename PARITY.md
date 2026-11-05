@@ -107,7 +107,7 @@ notifications, reaction/typing alerts, delay, repeat and sound-volume parity are
 not complete. Per-account privacy tests confirm suppressed previews do not
 expose sender or text.
 
-Existing ZapFast shortcuts are not full Beeper keyboard parity. App/chat/
+Existing Solmu shortcuts are not full Beeper keyboard parity. App/chat/
 message/composer bindings, account/filter/space navigation and Texts.app presets
 need an action registry, persisted remapping and conflict detection. Bindings
 for unavailable features must not pretend to work.
@@ -260,7 +260,7 @@ The user confirms v4 compiled/started on Apple Silicon and runs with Beeper
 Desktop open. The initial transport failure resolved when Desktop was open.
 This is real Desktop-backed startup evidence, not all-network mutation, native
 keyring, headless or performance acceptance. User Activity Monitor snapshot
-shows ZapFast208.2MB plus Desktop339.4MB and one renderer311.3MB. This is a
+shows Solmu208.2MB plus Desktop339.4MB and one renderer311.3MB. This is a
 partial single snapshot, not a total-process comparative benchmark. Keeping
 Desktop running adds this UI rather than demonstrating a memory saving.
 

@@ -17,7 +17,7 @@ From the source root, check only:
 
 Explicit local compile/assembly into a new directory:
 
-    uv run --no-project python contrib/beeper-tools/build_macos.py --build --out ./dist/zapfast-local-trial
+    uv run --no-project python contrib/beeper-tools/build_macos.py --build --out ./dist/solmu-local-trial
 
 It chooses arm64 or Intel from the actual Mac, runs a locked release build and
 assembles the binary, launcher/diagnostic scripts and backend/trial documentation.
@@ -28,7 +28,7 @@ this fork and the inherited bundle identity is not an approved release identity.
 
 From the assembled trial directory, use a pre-existing explicitly chosen target:
 
-    uv run --no-project python contrib/beeper-tools/run_client.py --beeper-target zapfast-headless --binary ./zapfast
+    uv run --no-project python contrib/beeper-tools/run_client.py --beeper-target solmu-headless --binary ./solmu
 
 This launcher is read-only by default. It inspects one target, validates access,
 uses an isolated prototype profile and launches the binary. It does not create,
@@ -51,7 +51,7 @@ recovery keys or private target JSON into the report.
 
 - [ ] Locked native build completed without stubs; binary architecture checked.
 - [ ] Actual UI launched, resize/keyboard/source routing inspected.
-- [ ] Prototype state is separate from installed stock ZapFast/Beeper state.
+- [ ] Prototype state is separate from installed stock Solmu/Beeper state.
 - [ ] Encrypted draft saved, app restarted and same draft restored via Keychain.
 - [ ] Exact Server target signed in and encrypted device verified.
 - [ ] Intended account inventory and real chat history available read-only.

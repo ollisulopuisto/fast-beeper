@@ -690,9 +690,9 @@ impl Downloadable for PhoneSticker {
 fn device_name() -> String {
     let host = crate::util::hostname();
     if host.is_empty() {
-        "ZapFast".to_owned()
+        "Solmu".to_owned()
     } else {
-        format!("ZapFast ({host})")
+        format!("Solmu ({host})")
     }
 }
 
@@ -780,7 +780,7 @@ pub async fn run(
     let privacy_snapshot =
         !privacy_confirmed && archive.chats().is_ok_and(|chats| !chats.is_empty());
     // A new link receives the phone's favorites and its "Keep chats archived"
-    // with its first sync; only an archive filled before ZapFast followed
+    // with its first sync; only an archive filled before Solmu followed
     // them needs them replayed.
     let replayed = [
         stickers::FAVORITES_RECOVERED,
@@ -820,7 +820,7 @@ pub async fn run(
             && archive
                 .set_meta(contact_names::FIRST_NAMES_RECOVERED, "complete")
                 .is_ok());
-    // Only stars synced before ZapFast followed them were consumed unseen.
+    // Only stars synced before Solmu followed them were consumed unseen.
     let stars_recovered = archive
         .meta(star_recovery::STARS_RECOVERED)
         .ok()
@@ -1117,13 +1117,13 @@ fn invite_error(error: &str) -> String {
 /// unconfirmed. A healthy sync answers well within this.
 const PRIVACY_GRACE: Duration = Duration::from_secs(10);
 
-/// How long ZapFast stays "available" after the window loses focus.
+/// How long Solmu stays "available" after the window loses focus.
 const PRESENCE_LINGER: Duration = Duration::from_secs(10);
 
 /// The window owns every presence transition (#461). Left at the default
 /// `Automatic` policy, the client announces "available" whenever it connects
 /// or the push name syncs, so an account whose window sits in the tray still
-/// shows online and the phone holds back its own notifications. ZapFast
+/// shows online and the phone holds back its own notifications. Solmu
 /// announces through `Command::SetOnline` instead.
 ///
 /// Public so the integration test in `tests/presence.rs` drives the same
@@ -1386,7 +1386,7 @@ struct Worker {
     favorites_pushing: bool,
     /// More favorite changes arrived while a push was running.
     favorites_again: bool,
-    /// The phone's favorites from before ZapFast followed them were replayed.
+    /// The phone's favorites from before Solmu followed them were replayed.
     favorites_recovered: bool,
     /// That replay is running.
     favorites_recovering: bool,
@@ -1394,7 +1394,7 @@ struct Worker {
     first_names_recovered: bool,
     /// That replay is running.
     first_names_recovering: bool,
-    /// The phone's stars from before ZapFast followed them were replayed.
+    /// The phone's stars from before Solmu followed them were replayed.
     stars_recovered: bool,
     /// That replay is running.
     stars_recovering: bool,
@@ -3730,7 +3730,7 @@ impl Worker {
             }
             E::ClientOutdated(_) => {
                 self.set_status(LinkStatus::Failed(
-                    "WhatsApp rejected this version of ZapFast. Update the app".to_owned(),
+                    "WhatsApp rejected this version of Solmu. Update the app".to_owned(),
                 ));
             }
             E::Messages(batch) => {
@@ -3805,7 +3805,7 @@ impl Worker {
                         .set_ephemeral(&chat, *expiration, timestamp)
                         .unwrap_or(false);
                     log::debug!(
-                        target: "zapfast::disappearing",
+                        target: "solmu::disappearing",
                         "group timer update: duration={expiration}s timestamp={timestamp} accepted={accepted}"
                     );
                     if accepted {
@@ -4512,7 +4512,7 @@ impl Worker {
                         .set_ephemeral(&chat, expiration, timestamp)
                         .unwrap_or(false);
                     log::debug!(
-                        target: "zapfast::disappearing",
+                        target: "solmu::disappearing",
                         "protocol timer update: duration={expiration}s timestamp={timestamp} fallback_timestamp={used_fallback} accepted={accepted}"
                     );
                     if accepted {
@@ -4520,7 +4520,7 @@ impl Worker {
                     }
                 } else {
                     log::debug!(
-                        target: "zapfast::disappearing",
+                        target: "solmu::disappearing",
                         "protocol timer update missing expiration"
                     );
                 }
@@ -6502,7 +6502,7 @@ impl Worker {
         if let Some(chat) = destination
             && !writable(chat)
         {
-            let error = "This conversation is read-only in ZapFast".to_owned();
+            let error = "This conversation is read-only in Solmu".to_owned();
             if matches!(&command, Command::CreatePoll { .. }) {
                 self.emit(Event::PollCreated {
                     chat: chat.clone(),
@@ -7537,7 +7537,7 @@ impl Worker {
                 let Some(client) = self.client.clone() else {
                     self.emit(Event::InvitePreview {
                         code,
-                        result: Err("ZapFast is not connected to WhatsApp".to_owned()),
+                        result: Err("Solmu is not connected to WhatsApp".to_owned()),
                     });
                     return;
                 };
@@ -7566,7 +7566,7 @@ impl Worker {
                 let Some(client) = self.client.clone() else {
                     self.emit(Event::InviteJoined {
                         code,
-                        result: Err("ZapFast is not connected to WhatsApp".to_owned()),
+                        result: Err("Solmu is not connected to WhatsApp".to_owned()),
                     });
                     return;
                 };
@@ -7843,7 +7843,7 @@ impl Worker {
                         // The phone has cleared it; say so rather than leave
                         // the messages here looking as if nothing happened.
                         self.emit(Event::Error(
-                            "The phone cleared this chat, but ZapFast could not clear it here"
+                            "The phone cleared this chat, but Solmu could not clear it here"
                                 .to_owned(),
                         ));
                     }
@@ -8882,7 +8882,7 @@ impl Worker {
             self.emit_chat(&job.0);
             if !reported_read_only {
                 self.emit(Event::Error(
-                    "This conversation is read-only in ZapFast".to_owned(),
+                    "This conversation is read-only in Solmu".to_owned(),
                 ));
                 reported_read_only = true;
             }
@@ -10314,7 +10314,7 @@ impl Worker {
                 }
             }
             Err(_) => self.emit(Event::Error(
-                "WhatsApp accepted the deletion, but ZapFast could not remove its copy. Local cleanup is saved for restart or reconnect".to_owned(),
+                "WhatsApp accepted the deletion, but Solmu could not remove its copy. Local cleanup is saved for restart or reconnect".to_owned(),
             )),
         }
     }
@@ -12097,7 +12097,7 @@ fn whatsapp_audio_mime(mime: &str) -> Option<&'static str> {
 /// inline, and WhatsApp drops a video message in another container (a
 /// QuickTime `.mov`, WebM, MKV, AVI) without telling either side, so the
 /// recipient gets nothing (#553). Those go as documents and arrive as the
-/// original file; ZapFast does not transcode.
+/// original file; Solmu does not transcode.
 fn whatsapp_video_mime(mime: &str) -> bool {
     mime == "video/mp4"
 }
@@ -12205,7 +12205,7 @@ async fn sips_image_to_png(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|span| span.as_nanos())
         .unwrap_or_default();
-    let unique = format!("zapfast-convert-{}-{nanos}", std::process::id());
+    let unique = format!("solmu-convert-{}-{nanos}", std::process::id());
     let dir = std::env::temp_dir();
     // sips decides the input type from the extension.
     let input = dir.join(format!("{unique}.{}", extension.unwrap_or("img")));
@@ -12342,7 +12342,7 @@ async fn ffprobe_codecs(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|span| span.as_nanos())
         .unwrap_or_default();
-    let unique = format!("zapfast-probe-{}-{nanos}", std::process::id());
+    let unique = format!("solmu-probe-{}-{nanos}", std::process::id());
     let input = std::env::temp_dir().join(format!("{unique}.{}", extension.unwrap_or("video")));
     let result = async {
         tokio::fs::write(&input, bytes)
@@ -12427,7 +12427,7 @@ async fn ffmpeg_convert(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|span| span.as_nanos())
         .unwrap_or_default();
-    let unique = format!("zapfast-convert-{}-{nanos}", std::process::id());
+    let unique = format!("solmu-convert-{}-{nanos}", std::process::id());
     let dir = std::env::temp_dir();
     let input = dir.join(format!("{unique}.{}", input_extension.unwrap_or("media")));
     let output = dir.join(format!("{unique}.{output_extension}"));
@@ -14483,7 +14483,7 @@ mod tests {
     #[test]
     fn attachment_staging_files_are_hidden_and_exclusive() {
         let directory = std::env::temp_dir().join(format!(
-            "zapfast-attachment-staging-{}",
+            "solmu-attachment-staging-{}",
             rand::random::<u64>()
         ));
         std::fs::create_dir_all(&directory).expect("creates staging directory");
@@ -16102,7 +16102,7 @@ mod tests {
         client
             .persistence_manager()
             .process_command(whatsapp_rust::store::commands::DeviceCommand::SetPushName(
-                "ZapFast".to_owned(),
+                "Solmu".to_owned(),
             ))
             .await;
         worker.client = Some(client);
@@ -16222,7 +16222,7 @@ mod tests {
     #[tokio::test]
     async fn downloads_use_the_chosen_folder_and_fall_back_to_the_cache() {
         let (mut worker, _events, _, _) = receipt_tests::worker();
-        let root = std::env::temp_dir().join(format!("zapfast-downloads-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-downloads-{}", std::process::id()));
         let chosen = root.join("Downloads/WhatsApp");
         worker
             .handle_command(Command::SetDownloadFolder(Some(chosen.clone())))
@@ -16727,7 +16727,7 @@ mod tests {
 
     #[test]
     fn starting_over_keeps_the_old_archive_and_forgets_the_link() {
-        let root = std::env::temp_dir().join(format!("zapfast-start-over-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-start-over-{}", std::process::id()));
         let dirs = crate::paths::AppDirs::under(&root);
         dirs.ensure().unwrap();
         std::fs::write(dirs.archive_db(), b"encrypted").unwrap();
@@ -18511,7 +18511,7 @@ mod receipt_tests {
         assert_eq!(id, "allowed");
         assert_eq!(job.0, PEER);
         let errors = std::iter::from_fn(|| events.try_recv().ok())
-            .filter(|event| matches!(event, Event::Error(reason) if reason == "This conversation is read-only in ZapFast"))
+            .filter(|event| matches!(event, Event::Error(reason) if reason == "This conversation is read-only in Solmu"))
             .count();
         assert_eq!(errors, 1, "skipped jobs report one error per advance");
         assert_eq!(
@@ -18685,7 +18685,7 @@ mod receipt_tests {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root =
-            std::env::temp_dir().join(format!("zapfast-worker-test-{}-{n}", std::process::id()));
+            std::env::temp_dir().join(format!("solmu-worker-test-{}-{n}", std::process::id()));
         let worker = Worker {
             privacy_ready: true,
             privacy_confirmed: true,
@@ -21132,7 +21132,7 @@ mod receipt_tests {
         };
         worker.store_message(picture.clone(), None, None);
         let chat = PEER.to_owned();
-        let downloaded = std::path::PathBuf::from("/tmp/zapfast-photo.jpg");
+        let downloaded = std::path::PathBuf::from("/tmp/solmu-photo.jpg");
         worker
             .archive
             .set_media_path(&chat, "photo", &downloaded)
@@ -21626,7 +21626,7 @@ mod receipt_tests {
         let archived = |worker: &Worker| worker.archive.chat(PEER).unwrap().unwrap().archived;
         worker.store_message(incoming("before", 100), None, None);
         worker.archive.set_archived_at(PEER, true, 200_000).unwrap();
-        // Kept archived, the default, as ZapFast always behaved.
+        // Kept archived, the default, as Solmu always behaved.
         worker.store_message(incoming("kept", 300), None, None);
         assert!(archived(&worker));
 

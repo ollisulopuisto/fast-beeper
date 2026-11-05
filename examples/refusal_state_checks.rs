@@ -1,5 +1,5 @@
 //! Unsupported content stays in the current local composer; no transport used.
-use zapfast::{
+use solmu::{
     app::{App, Pending},
     backend::{Event, LinkStatus, Refusal, Unsent},
     model::{Chat, ReplyTarget},

@@ -109,7 +109,7 @@ impl ChatKind {
 }
 
 /// A local chat label: a name, a colour, and nothing that leaves this computer.
-/// Not a WhatsApp Business label; ZapFast neither reads nor syncs those.
+/// Not a WhatsApp Business label; Solmu neither reads nor syncs those.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Label {
     pub id: String,
@@ -945,7 +945,7 @@ pub enum Content {
         once: Option<OnceMedia>,
     },
     /// A call in this chat, where it falls among the messages, as WhatsApp
-    /// shows it. `from_me` on the message says who placed it. Entries ZapFast
+    /// shows it. `from_me` on the message says who placed it. Entries Solmu
     /// writes itself carry an id that starts with [`CALL_ENTRY_PREFIX`] and are
     /// never sent anywhere.
     Call {
@@ -960,15 +960,15 @@ pub enum Content {
     },
 }
 
-/// The id prefix of the call entries ZapFast files from call records: the
+/// The id prefix of the call entries Solmu files from call records: the
 /// calls it handled and the phone's call log. They are local, so no receipt,
 /// reaction or deletion is ever sent for them.
-pub const CALL_ENTRY_PREFIX: &str = "zapfast-call-";
+pub const CALL_ENTRY_PREFIX: &str = "solmu-call-";
 
 /// The chat id the entries of calls joined through a call link are filed
 /// under. No chat has it: such a call belongs to none, so its entries show on
 /// the Calls page alone, never in the chat list.
-pub const CALL_LINK_CHAT: &str = "zapfast-call-link";
+pub const CALL_LINK_CHAT: &str = "solmu-call-link";
 
 /// How far apart, in seconds, two entries for one call may be: the phone's
 /// call-log message and the call's record are stamped by different clocks.
@@ -2289,7 +2289,7 @@ pub struct StickerPack {
     pub name: String,
     pub dir: PathBuf,
     pub stickers: Vec<PathBuf>,
-    /// Put together in ZapFast, so stickers can be filed into it.
+    /// Put together in Solmu, so stickers can be filed into it.
     pub local: bool,
 }
 
@@ -2363,7 +2363,7 @@ pub enum Dialog {
     /// from Help.
     WhatsNew,
     /// Schedules the composer's message for later delivery through the
-    /// zapfast-scheduler companion service.
+    /// solmu-scheduler companion service.
     SendLater,
     /// The Send Later queue: pending scheduled messages with their states.
     ScheduledList,
@@ -2455,7 +2455,7 @@ pub struct Recipient {
 }
 
 /// Per-recipient receipts for one of our group messages, as far as they are
-/// known. Receipts are only kept from when ZapFast began recording them.
+/// known. Receipts are only kept from when Solmu began recording them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MessageReceipts {
     pub chat: ChatId,
@@ -2824,7 +2824,7 @@ pub enum Action {
     SendRecording,
     /// Drops a voice message the worker refused to send.
     DiscardUnsentVoice,
-    /// Opens a downloaded image in ZapFast's native preview. Only the file
+    /// Opens a downloaded image in Solmu's native preview. Only the file
     /// extension and existence are checked here, and anything else opens
     /// externally; an image that then fails to decode shows a message with an
     /// Open externally button inside the preview.
@@ -2861,7 +2861,7 @@ pub enum Action {
     PreviewSticker(PathBuf),
     CloseStickerPreview,
     OpenFile(PathBuf),
-    /// Opens ZapFast's log, or shows it in its folder when no application
+    /// Opens Solmu's log, or shows it in its folder when no application
     /// takes it, and says so when neither works.
     OpenLog(PathBuf),
     OpenFolder(PathBuf),
@@ -3176,7 +3176,7 @@ pub enum Action {
     SetTheme(crate::settings::ThemeChoice),
     /// Draws the interface in the platform's font or in the bundled Inter.
     SetFont(crate::settings::FontChoice),
-    /// Windows and Linux: draws ZapFast's own title bar and window buttons
+    /// Windows and Linux: draws Solmu's own title bar and window buttons
     /// (`true`) or the desktop's. Decorations are fixed when a window is
     /// made, so the window is replaced.
     SetCustomTitlebar(bool),
@@ -3196,7 +3196,7 @@ pub enum Action {
         kind: crate::privacy::PrivacyKind,
         choice: crate::privacy::PrivacyChoice,
     },
-    /// Registers or removes the login entry that starts ZapFast in the tray.
+    /// Registers or removes the login entry that starts Solmu in the tray.
     SetStartWithSystem(bool),
     /// Sets the sound for mentions and replies to us (`true`) or for
     /// other new messages.
@@ -3270,14 +3270,14 @@ pub enum Action {
     AppLockForm(Option<crate::app_lock::FormMode>),
     /// Submits the Settings password form.
     SubmitAppLockForm,
-    /// How long ZapFast may go unused before it locks.
+    /// How long Solmu may go unused before it locks.
     SetAutoLock(crate::settings::AutoLock),
     /// Asks Touch ID on the lock screen; the first prompt per lock is
     /// automatic, later ones are the button.
     TryTouchId,
     /// Turns Touch ID unlocks for the app lock on or off.
     SetAppLockTouchId(bool),
-    /// Lets macOS put ZapFast into App Nap, or keeps it running.
+    /// Lets macOS put Solmu into App Nap, or keeps it running.
     SetAllowAppNap(bool),
     Reconnect,
     /// Sets aside an archive whose key is gone and links again.

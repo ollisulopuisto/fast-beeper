@@ -1,5 +1,5 @@
 //! Wrapped chip geometry diagnostic, no horizontal scroll area.
-use zapfast::{app::App, paths::AppDirs, settings::Settings, ui::widgets};
+use solmu::{app::App, paths::AppDirs, settings::Settings, ui::widgets};
 fn main() {
     let root = tempfile::tempdir().unwrap();
     let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());

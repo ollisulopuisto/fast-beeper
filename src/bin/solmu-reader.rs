@@ -1,4 +1,4 @@
-//! zapfast-reader: a read-only API for other local apps.
+//! solmu-reader: a read-only API for other local apps.
 //!
 //! Runs beside the Beeper Server and serves a small allowlist of GET
 //! endpoints to client apps that each hold their own revocable token. See
@@ -6,27 +6,27 @@
 //!
 //! Serve (environment): BEEPER_BASE_URL, BEEPER_ACCESS_TOKEN or
 //! BEEPER_ACCESS_TOKEN_FILE (the upstream token, never shown to clients),
-//! ZAPFAST_SETTINGS_FILE (optional: the app's settings.json, read-only, for
-//! linked people), ZAPFAST_READER_ORIGINS (comma list of API base URLs the
+//! SOLMU_SETTINGS_FILE (optional: the app's settings.json, read-only, for
+//! linked people), SOLMU_READER_ORIGINS (comma list of API base URLs the
 //! app records for chats this reader can serve; default BEEPER_BASE_URL),
-//! ZAPFAST_READER_LISTEN (default 127.0.0.1:23377; non-loopback addresses
-//! are refused), ZAPFAST_READER_CLIENTS (default
+//! SOLMU_READER_LISTEN (default 127.0.0.1:23377; non-loopback addresses
+//! are refused), SOLMU_READER_CLIENTS (default
 //! ~/.config/zapfast/reader-clients.json, mode 0600).
 //!
 //! Check that the app's recorded origins are served:
-//!   zapfast-reader people-check   (needs ZAPFAST_SETTINGS_FILE; exit 1 if any
+//!   solmu-reader people-check   (needs SOLMU_SETTINGS_FILE; exit 1 if any
 //!   linked member's origin is not served)
 //!
 //! Manage clients (never reads the upstream token):
-//!   zapfast-reader token add NAME --scopes a,b [--accounts x,y] [--days N]
-//!   zapfast-reader token list
-//!   zapfast-reader token revoke NAME
+//!   solmu-reader token add NAME --scopes a,b [--accounts x,y] [--days N]
+//!   solmu-reader token list
+//!   solmu-reader token revoke NAME
 //! `token add` prints the new token once, on the terminal. It is not
 //! stored anywhere in clear.
 //!
 //! Endpoints (all GET): /v1/accounts, /v1/chats,
 //! /v1/chats/{id}/messages, /v1/messages/search?query=, /v1/people and
-//! /v1/people/{id}/messages (needs ZAPFAST_SETTINGS_FILE)
+//! /v1/people/{id}/messages (needs SOLMU_SETTINGS_FILE)
 //!
 //! Requests carrying Origin or Referer are refused, so web pages cannot
 //! drive it. The log holds client name, endpoint family and status only:
@@ -37,9 +37,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use zapfast::read_api::{RateLimiter, Registry, SCOPES, origin_report, parse_people};
-use zapfast::read_http::{MAX_CONNECTIONS, Shared, run};
-use zapfast::scheduler_api::ServerSender;
+use solmu::read_api::{RateLimiter, Registry, SCOPES, origin_report, parse_people};
+use solmu::read_http::{MAX_CONNECTIONS, Shared, run};
+use solmu::scheduler_api::ServerSender;
 
 fn now() -> i64 {
     SystemTime::now()
@@ -49,7 +49,7 @@ fn now() -> i64 {
 }
 
 fn registry_path() -> PathBuf {
-    if let Ok(path) = std::env::var("ZAPFAST_READER_CLIENTS") {
+    if let Ok(path) = std::env::var("SOLMU_READER_CLIENTS") {
         return PathBuf::from(path);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
@@ -64,14 +64,14 @@ fn token_command(args: &[String]) -> i32 {
     let _lock = match Registry::lock(&path) {
         Ok(lock) => lock,
         Err(e) => {
-            eprintln!("zapfast-reader: {e}");
+            eprintln!("solmu-reader: {e}");
             return 1;
         }
     };
     let mut registry = match Registry::load(&path) {
         Ok(registry) => registry,
         Err(e) => {
-            eprintln!("zapfast-reader: {e}");
+            eprintln!("solmu-reader: {e}");
             return 1;
         }
     };
@@ -105,12 +105,12 @@ fn token_command(args: &[String]) -> i32 {
                         0
                     }
                     Err(e) => {
-                        eprintln!("zapfast-reader: {e}");
+                        eprintln!("solmu-reader: {e}");
                         1
                     }
                 },
                 Err(e) => {
-                    eprintln!("zapfast-reader: {e}. Scopes: {}", SCOPES.join(", "));
+                    eprintln!("solmu-reader: {e}. Scopes: {}", SCOPES.join(", "));
                     1
                 }
             }
@@ -140,7 +140,7 @@ fn token_command(args: &[String]) -> i32 {
                 return 2;
             };
             if !registry.revoke(name) {
-                eprintln!("zapfast-reader: no such client");
+                eprintln!("solmu-reader: no such client");
                 return 1;
             }
             match registry.save(&path) {
@@ -149,21 +149,21 @@ fn token_command(args: &[String]) -> i32 {
                     0
                 }
                 Err(e) => {
-                    eprintln!("zapfast-reader: {e}");
+                    eprintln!("solmu-reader: {e}");
                     1
                 }
             }
         }
         _ => {
-            eprintln!("usage: zapfast-reader token add|list|revoke");
+            eprintln!("usage: solmu-reader token add|list|revoke");
             2
         }
     }
 }
 
-/// Origins this reader serves: ZAPFAST_READER_ORIGINS, else the Server URL.
+/// Origins this reader serves: SOLMU_READER_ORIGINS, else the Server URL.
 fn served_origins(base_url: &str) -> Vec<String> {
-    match std::env::var("ZAPFAST_READER_ORIGINS") {
+    match std::env::var("SOLMU_READER_ORIGINS") {
         Ok(list) => list.split(',').map(|o| o.trim().to_string()).collect(),
         Err(_) => vec![base_url.to_string()],
     }
@@ -172,8 +172,8 @@ fn served_origins(base_url: &str) -> Vec<String> {
 /// Prints, for the app's linked people, each recorded member origin and
 /// whether this reader serves it. Returns 0 only when nothing is unserved.
 fn people_check(base_url: &str) -> i32 {
-    let Some(path) = std::env::var("ZAPFAST_SETTINGS_FILE").ok() else {
-        eprintln!("zapfast-reader: set ZAPFAST_SETTINGS_FILE to the app's settings.json");
+    let Some(path) = std::env::var("SOLMU_SETTINGS_FILE").ok() else {
+        eprintln!("solmu-reader: set SOLMU_SETTINGS_FILE to the app's settings.json");
         return 2;
     };
     let people = match std::fs::read_to_string(&path)
@@ -182,7 +182,7 @@ fn people_check(base_url: &str) -> i32 {
     {
         Ok(people) => people,
         Err(e) => {
-            eprintln!("zapfast-reader: cannot read people: {e}");
+            eprintln!("solmu-reader: cannot read people: {e}");
             return 1;
         }
     };
@@ -202,7 +202,7 @@ fn people_check(base_url: &str) -> i32 {
     }
     if unserved > 0 {
         println!(
-            "Members under an unserved origin are listed as unreadable. If one of the recorded origins above is this Server reached another way, add it to ZAPFAST_READER_ORIGINS."
+            "Members under an unserved origin are listed as unreadable. If one of the recorded origins above is this Server reached another way, add it to SOLMU_READER_ORIGINS."
         );
     }
     i32::from(unserved > 0)
@@ -231,22 +231,21 @@ fn main() {
                 .filter(|t| !t.is_empty())
         })
         .unwrap_or_default();
-    let listen =
-        std::env::var("ZAPFAST_READER_LISTEN").unwrap_or_else(|_| "127.0.0.1:23377".into());
+    let listen = std::env::var("SOLMU_READER_LISTEN").unwrap_or_else(|_| "127.0.0.1:23377".into());
     let addr: SocketAddr = match listen.parse() {
         Ok(addr) => addr,
         Err(_) => {
-            eprintln!("zapfast-reader: listen address must be a literal IP:port");
+            eprintln!("solmu-reader: listen address must be a literal IP:port");
             std::process::exit(1);
         }
     };
     if !addr.ip().is_loopback() {
-        eprintln!("zapfast-reader: refusing a non-loopback listen address");
+        eprintln!("solmu-reader: refusing a non-loopback listen address");
         std::process::exit(1);
     }
     let path = registry_path();
     if let Err(e) = Registry::load(&path) {
-        eprintln!("zapfast-reader: {e}");
+        eprintln!("solmu-reader: {e}");
         std::process::exit(1);
     }
     // The app records the API base URL it read each chat from; people whose
@@ -255,18 +254,18 @@ fn main() {
     let sender = match ServerSender::new(base_url, &token) {
         Ok(sender) => sender,
         Err(e) => {
-            eprintln!("zapfast-reader: {e}");
+            eprintln!("solmu-reader: {e}");
             std::process::exit(1);
         }
     };
-    if let Ok(settings) = std::env::var("ZAPFAST_SETTINGS_FILE") {
+    if let Ok(settings) = std::env::var("SOLMU_SETTINGS_FILE") {
         let people = std::fs::read_to_string(settings)
             .map_err(|e| e.to_string())
             .and_then(|text| parse_people(&text));
         for (origin, members, served) in origin_report(&people.unwrap_or_default(), &origins) {
             if !served {
                 eprintln!(
-                    "zapfast-reader: {members} linked member(s) recorded under origin {origin}, which this reader does not serve (run `zapfast-reader people-check`)"
+                    "solmu-reader: {members} linked member(s) recorded under origin {origin}, which this reader does not serve (run `solmu-reader people-check`)"
                 );
             }
         }
@@ -274,17 +273,15 @@ fn main() {
     let listener = match TcpListener::bind(addr) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("zapfast-reader: cannot bind {addr}: {e}");
+            eprintln!("solmu-reader: cannot bind {addr}: {e}");
             std::process::exit(1);
         }
     };
-    eprintln!("zapfast-reader: listening on {addr}");
+    eprintln!("solmu-reader: listening on {addr}");
     let shared = Arc::new(Shared {
         source: Box::new(sender),
         limiter: Mutex::new(RateLimiter::default()),
-        settings: std::env::var("ZAPFAST_SETTINGS_FILE")
-            .ok()
-            .map(PathBuf::from),
+        settings: std::env::var("SOLMU_SETTINGS_FILE").ok().map(PathBuf::from),
         origins,
     });
     run(listener, path, shared, MAX_CONNECTIONS);

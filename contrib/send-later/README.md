@@ -1,13 +1,13 @@
 # Send Later: scheduler service setup
 
-`zapfast-scheduler` is a small companion daemon that owns the durable
-Send Later queue. fast-beeper talks to it over a localhost socket; the
+`solmu-scheduler` is a small companion daemon that owns the durable
+Send Later queue. Solmu talks to it over a localhost socket; the
 daemon talks to the Beeper API. Because the daemon holds the queue on
-disk, scheduled messages go out even while fast-beeper is closed.
+disk, scheduled messages go out even while Solmu is closed.
 
 Pieces:
 
-- `zapfast-scheduler` - the daemon binary (built from this repo).
+- `solmu-scheduler` - the daemon binary (built from this repo).
 - A **control token**: a random secret the app and the daemon share,
   stored in a 0600 file. The daemon refuses to start without one and
   refuses any request that does not bear it. The token is never written
@@ -16,7 +16,7 @@ Pieces:
 - A **managed SSH tunnel** when the Beeper server runs on another
   machine (the Studio deploy).
 
-## Local install (daemon on the same Mac as fast-beeper)
+## Local install (daemon on the same Mac as Solmu)
 
 ```
 ./contrib/send-later/install_macos.sh
@@ -24,17 +24,17 @@ Pieces:
 
 The script:
 
-1. builds `zapfast-scheduler` (or copies a prebuilt one from
+1. builds `solmu-scheduler` (or copies a prebuilt one from
    `target/release/` if present) into `~/Library/Application Support/zapfast/bin/`;
 2. generates a 256-bit control token into
    `~/Library/Application Support/zapfast/scheduler-token` with mode 0600
    (reusing an existing token if one is already there);
-3. writes `~/Library/LaunchAgents/com.zapfast.scheduler.plist`
-   (KeepAlive, run at login, token passed via `ZAPFAST_CONTROL_TOKEN_FILE`,
+3. writes `~/Library/LaunchAgents/com.solmu.scheduler.plist`
+   (KeepAlive, run at login, token passed via `SOLMU_CONTROL_TOKEN_FILE`,
    never on the command line or in the plist);
 4. loads the agent.
 
-fast-beeper reads the token from the same file
+Solmu reads the token from the same file
 (`~/.config/zapfast/scheduler-token`, symlinked by the installer into the
 app's config dir when it differs). Set `Settings -> scheduler_url` only
 if you moved the socket off the default `http://127.0.0.1:23376`.
@@ -42,13 +42,13 @@ if you moved the socket off the default `http://127.0.0.1:23376`.
 ## Studio deploy (Beeper server on another machine)
 
 The daemon should run **next to the Beeper server**, so message delivery
-does not depend on the MacBook being awake. fast-beeper then reaches the
+does not depend on the MacBook being awake. Solmu then reaches the
 daemon through a managed SSH tunnel, the same pattern the Beeper API
 tunnel (`127.0.0.1:23374`) already uses:
 
 1. Install the daemon on the Studio machine (macOS: the same
    `install_macos.sh` / launchd agent applies; `install_linux.sh` installs the
-   `zapfast-scheduler.service` systemd user unit on a Linux host instead).
+   `solmu-scheduler.service` systemd user unit on a Linux host instead).
 2. Give the MacBook a tunnel: `ssh -N -L 23376:127.0.0.1:23376 dst@192.168.1.222`,
    managed by the same mechanism that maintains the API tunnel.
 3. Copy the token file to the MacBook's config dir (0600); both sides
@@ -75,8 +75,8 @@ permission - this directory only prepares the artifacts.
 
 ## Bundled in the DMG (Studio deploy)
 
-The trial DMG ships `zapfast-scheduler` inside ZapFast Beeper.app
-(`Contents/MacOS/zapfast-scheduler`, same ad-hoc signature as the client).
+The trial DMG ships `solmu-scheduler` inside Solmu.app
+(`Contents/MacOS/solmu-scheduler`, same ad-hoc signature as the client).
 The launcher offers a one-time install on the Server Mac over the existing
 SSH trust, only after explicit in-app approval: it checks the remote
 architecture (Apple Silicon only), copies the daemon, writes the 0600
@@ -86,8 +86,8 @@ is installed or started without that approval.
 Rollback on the Server Mac:
 
 ```
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.zapfast.scheduler.plist
-rm ~/Library/LaunchAgents/com.zapfast.scheduler.plist \
-   ~/Library/Application\ Support/zapfast/bin/zapfast-scheduler \
-   ~/Library/Application\ Support/zapfast/scheduler-token
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.solmu.scheduler.plist
+rm ~/Library/LaunchAgents/com.solmu.scheduler.plist \
+   ~/Library/Application\ Support/solmu/bin/solmu-scheduler \
+   ~/Library/Application\ Support/solmu/scheduler-token
 ```

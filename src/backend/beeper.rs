@@ -5,8 +5,8 @@
 //!
 //! This is the "swap the backend from WhatsApp to Beeper/Matrix" demo: the
 //! whole egui UI (chat list, conversation pane, composer, settings) is
-//! unchanged ZapFast code; only the source of chats, messages and sends is
-//! different. Selected at startup with `ZAPFAST_BACKEND=beeper`; see
+//! unchanged Solmu code; only the source of chats, messages and sends is
+//! different. Selected at startup with `SOLMU_BACKEND=beeper`; see
 //! README-BEEPER.md.
 //!
 //! Multi-account Client API adapter. Current coverage and validation gaps are
@@ -49,12 +49,12 @@ static SESSION: std::sync::Mutex<Option<BeeperConfig>> = std::sync::Mutex::new(N
 static BEEPER_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 impl BeeperConfig {
-    /// Returns whether ZapFast was launched with `ZAPFAST_BACKEND=beeper`.
+    /// Returns whether Solmu was launched with `SOLMU_BACKEND=beeper`.
     /// Cached so it can be called on UI frames without environment lookup overhead.
     pub fn is_beeper_mode() -> bool {
         SESSION.lock().unwrap_or_else(|p| p.into_inner()).is_some()
             || *BEEPER_MODE.get_or_init(|| {
-                std::env::var("ZAPFAST_BACKEND")
+                std::env::var("SOLMU_BACKEND")
                     .map(|v| v.eq_ignore_ascii_case("beeper"))
                     .unwrap_or(false)
             })
@@ -920,7 +920,7 @@ impl Api {
     fn unconfirmed_change(change: &str, held_locally: bool) -> String {
         if held_locally {
             format!(
-                "Beeper hasn't confirmed the {change} on its side; it still holds in fast-beeper, but other apps may not follow"
+                "Beeper hasn't confirmed the {change} on its side; it still holds in Solmu, but other apps may not follow"
             )
         } else {
             format!(
@@ -1542,7 +1542,7 @@ impl Api {
     }
 }
 
-// ---------- Mapping: Beeper -> zapfast model ----------
+// ---------- Mapping: Beeper -> solmu model ----------
 
 fn unix(ts: &Option<String>) -> i64 {
     ts.as_deref()
@@ -5656,7 +5656,7 @@ mod tests {
         assert!(Api::unconfirmed_state("isMuted", true, true, true).is_none());
         let report = Api::unconfirmed_state("isMuted", true, false, true).unwrap();
         assert!(report.contains("hasn't confirmed the mute"));
-        assert!(report.contains("still holds in fast-beeper"));
+        assert!(report.contains("still holds in Solmu"));
         let report = Api::unconfirmed_state("isArchived", false, true, false).unwrap();
         assert!(report.contains("hasn't confirmed the unarchive"));
         assert!(report.contains("check the chat before relying on it"));

@@ -34,8 +34,8 @@ unit) and `loginctl enable-linger <user>`.
 ## B. Rootless Podman (experimental)
 
 1. As the dedicated user: `contrib/linux-server/run-rootless.sh`.
-2. First time only: `podman exec -it zapfast-beeper-server beeper targets add server --port 23374`, then
-   `beeper setup --server --install` the same way, and sign in as in A. The app only accepts port 23374. Then `podman restart zapfast-beeper-server`.
+2. First time only: `podman exec -it solmu-beeper-server beeper targets add server --port 23374`, then
+   `beeper setup --server --install` the same way, and sign in as in A. The app only accepts port 23374. Then `podman restart solmu-beeper-server`.
 3. The script installs `~/.local/bin/zapfast-beeper-target`; the app's Connect
    runs it over SSH (fixed command, loopback 23374 only).
 
@@ -52,12 +52,12 @@ same host: any local user can reach 127.0.0.1:23374, guarded only by the
 bearer token, so the dedicated-user or separate-VM advice still applies.
 
 Data: all state (the Server's database, bridge sessions, CLI target and
-token) lives in the named volume `zapfast-beeper-data`, mounted as the
+token) lives in the named volume `solmu-beeper-data`, mounted as the
 container user's home and owned by the dedicated user's uid via keep-id. It
 survives `--replace`, rebuilds and `podman restart`. `podman volume rm`
 deletes the sessions, and every network would need a fresh login. No host
 paths are mounted. Backup: stop the container, `podman volume export
-zapfast-beeper-data -o file.tar`, store it 0600 and encrypted: it contains
+solmu-beeper-data -o file.tar`, store it 0600 and encrypted: it contains
 logged-in sessions and the API token. Restore with `podman volume import`.
 Restoring an old copy can leave a bridge session out of sync with the
 network; test restore on one network first. Disk growth is not bounded by
@@ -85,5 +85,5 @@ from source on the host.
 ## Limits
 
 - The disk fills with media and history; set a size budget.
-- Read-only mode in fast-beeper is a client guard, not server protection.
+- Read-only mode in Solmu is a client guard, not server protection.
   The Server's token and sessions are as sensitive as your messages.

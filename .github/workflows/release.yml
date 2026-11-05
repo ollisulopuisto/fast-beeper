@@ -11,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
   # Baked into the binary by settings.rs; releases built without the
   # secret simply ship keyless and the picker asks for one.
-  ZAPFAST_GIPHY_KEY: ${{ secrets.ZAPFAST_GIPHY_KEY || secrets.FASTSAPP_GIPHY_KEY }}
+  SOLMU_GIPHY_KEY: ${{ secrets.ZAPFAST_GIPHY_KEY || secrets.FASTSAPP_GIPHY_KEY }}
 
 jobs:
   release-source:
@@ -120,17 +120,17 @@ jobs:
       - name: Sign the binaries
         if: runner.os == 'Windows' && vars.AZURE_SIGNING_PROFILE != ''
         shell: pwsh
-        run: native-packages sign-windows target\${{ matrix.target }}\release\zapfast.exe
+        run: native-packages sign-windows target\${{ matrix.target }}\release\solmu.exe
 
       - name: Package
         shell: bash
         run: |
-          name="zapfast-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="solmu-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/zapfast.exe" "dist/$name/"
+            cp "target/${{ matrix.target }}/release/solmu.exe" "dist/$name/"
           else
-            cp "target/${{ matrix.target }}/release/zapfast" "dist/$name/"
+            cp "target/${{ matrix.target }}/release/solmu" "dist/$name/"
           fi
           cp README.md LICENSE THIRD-PARTY-NOTICES.md packaging/zapfast-portable.txt "dist/$name/"
           if [ "${{ runner.os }}" = "Linux" ]; then
@@ -159,8 +159,8 @@ jobs:
           $target = "${{ matrix.target }}"
           $payload = "dist\windows-input-$target"
           New-Item -ItemType Directory -Force $payload | Out-Null
-          Copy-Item "target\$target\release\zapfast.exe", README.md, LICENSE, THIRD-PARTY-NOTICES.md, `
-            packaging\windows\zapfast-installer.txt $payload
+          Copy-Item "target\$target\release\solmu.exe", README.md, LICENSE, THIRD-PARTY-NOTICES.md, `
+            packaging\windows\solmu-installer.txt $payload
           $packageTarget = if ($target.StartsWith("aarch64")) { "windows-arm64" } else { "windows-amd64" }
           $version = $env:GITHUB_REF_NAME.TrimStart("v")
           native-packages build --version $version --target $packageTarget `
@@ -217,9 +217,9 @@ jobs:
         run: |
           mkdir -p universal
           lipo -create \
-            target/aarch64-apple-darwin/release/zapfast \
-            target/x86_64-apple-darwin/release/zapfast \
-            -output universal/zapfast
+            target/aarch64-apple-darwin/release/solmu \
+            target/x86_64-apple-darwin/release/solmu \
+            -output universal/solmu
           # The two release builds fill most of the runner's disk; the DMG
           # and its notarization copy need room of their own.
           rm -rf target
@@ -235,7 +235,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/macos-input
-          bash packaging/macos/bundle.sh universal/zapfast dist/macos-input/ZapFast.app "$version"
+          bash packaging/macos/bundle.sh universal/solmu dist/macos-input/Solmu.app "$version"
           cp README.md LICENSE THIRD-PARTY-NOTICES.md dist/macos-input/
 
       - name: Package, sign and notarize macOS app
@@ -246,7 +246,7 @@ jobs:
           cp "$RUNNER_TEMP/macos-packages/packages/macos-universal/dmg/"*.dmg dist/
 
       - name: Verify the notarized release app
-        run: bash packaging/macos/verify.sh "dist/zapfast-${GITHUB_REF_NAME}-macos-universal.dmg"
+        run: bash packaging/macos/verify.sh "dist/solmu-${GITHUB_REF_NAME}-macos-universal.dmg"
 
       - name: Attest macOS package
         uses: crmne/native-packages/.github/actions/attest@25a4214d2f203357c84b069f39de7c17c0be6253 # v0.11.0
@@ -280,12 +280,12 @@ jobs:
           path: dist
       - name: Unpack the Linux build
         run: |
-          tar xzf dist/zapfast-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak
-          mv packaging/flatpak/zapfast-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
+          tar xzf dist/solmu-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz -C packaging/flatpak
+          mv packaging/flatpak/solmu-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu packaging/flatpak/built
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: packaging/flatpak/rocks.zapfast.ZapFast.bundle.yml
-          bundle: zapfast-${{ github.ref_name }}-x86_64.flatpak
+          bundle: solmu-${{ github.ref_name }}-x86_64.flatpak
           cache: false
           upload-artifact: false
       - name: Attest Flatpak bundle
@@ -327,7 +327,7 @@ jobs:
         with:
           directory: dist
           public-key: assets/update-public-key.hex
-          key-env: ZAPFAST_UPDATE_SIGNING_KEY
+          key-env: SOLMU_UPDATE_SIGNING_KEY
         env:
           ZAPFAST_UPDATE_SIGNING_KEY: ${{ secrets.ZAPFAST_UPDATE_SIGNING_KEY }}
       # Publish the reviewed notes committed before the tag, never a
@@ -339,7 +339,7 @@ jobs:
           if [ -f "$notes" ]; then
             cp "$notes" release-notes.md
           elif [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            echo "Prerelease build of ZapFast ${GITHUB_REF_NAME}." > release-notes.md
+            echo "Prerelease build of Solmu ${GITHUB_REF_NAME}." > release-notes.md
           else
             echo "::error::Write $notes and push it before tagging a stable release."
             exit 1
@@ -347,7 +347,7 @@ jobs:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: dist/*
-          name: fast-beeper ${{ github.ref_name }}
+          name: Solmu ${{ github.ref_name }}
           body_path: release-notes.md
           generate_release_notes: false
           draft: ${{ contains(github.ref_name, '-') }}

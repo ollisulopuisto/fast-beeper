@@ -1,9 +1,9 @@
 [package]
-name = "zapfast-harness"
+name = "solmu-harness"
 version = "0.0.0"
 edition = "2024"
 
-# Test harness for zapfast's Beeper adapter: check-source.sh stages REAL model.rs,
+# Test harness for solmu's Beeper adapter: check-source.sh stages REAL model.rs,
 # backend.rs and backend/beeper.rs (staged by check_adapter.py) plus the leaf modules
 # they reference, so the mock integration tests run without compiling the
 # WhatsApp stack (waproto's generated 475k lines do not fit this CI box's

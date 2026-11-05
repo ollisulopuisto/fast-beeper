@@ -110,7 +110,7 @@ targets:
       local: dist/macos-input
     native:
       command: [ruby, packaging/macos/dmg.rb, '@PAYLOAD@', '@PACKAGE@']
-      output: 'zapfast-@TAG@-macos-universal.dmg'
+      output: 'solmu-@TAG@-macos-universal.dmg'
   windows-amd64:
     platform: windows
     arch: amd64

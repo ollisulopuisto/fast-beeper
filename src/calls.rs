@@ -603,7 +603,7 @@ impl CameraCapture {
         let stopping = Arc::clone(&running);
         let forced = Arc::clone(&keyframe);
         std::thread::Builder::new()
-            .name("zapfast-camera".to_owned())
+            .name("solmu-camera".to_owned())
             .spawn(move || {
                 let _alive = alive;
                 let controls = CaptureControls {
@@ -1298,7 +1298,7 @@ fn decode_remote(
     diag: Arc<crate::call_diag::CallVideo>,
 ) {
     let spawned = std::thread::Builder::new()
-        .name("zapfast-remote-video".to_owned())
+        .name("solmu-remote-video".to_owned())
         .spawn(move || {
             use openh264::formats::YUVSource as _;
 
@@ -1504,7 +1504,7 @@ impl std::fmt::Display for Cancelled {
 
 impl std::error::Error for Cancelled {}
 
-/// Whether ZapFast takes part in group calls: starts them from a group's header or the Calls
+/// Whether Solmu takes part in group calls: starts them from a group's header or the Calls
 /// page, rings for them, answers them, and joins call links.
 ///
 /// On since 0.20, as an experiment: a three-person test carried audio every way and video both
@@ -1554,7 +1554,7 @@ impl Drop for GroupCallsOverride {
 
 /// What the window says when a call link is clicked while group calls are off: the English
 /// catalog key, translated where it is shown.
-pub const CALL_LINKS_OFF: &str = "ZapFast can't join group calls yet: open the link on your phone.";
+pub const CALL_LINKS_OFF: &str = "Solmu can't join group calls yet: open the link on your phone.";
 
 /// What the window says when the call service refused a group call we started with 427: the
 /// English catalog key, which the window translates when the worker hands it over as an error.

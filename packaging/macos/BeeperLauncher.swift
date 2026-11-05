@@ -68,7 +68,7 @@ app.delegate = forwarder
 
 func showError() {
     let alert = NSAlert()
-    alert.messageText = "ZapFast could not connect to the existing Server"
+    alert.messageText = "Solmu could not connect to the existing Server"
     alert.informativeText = "Check the Mac Studio's SSH address, your existing SSH key access and that Server is running. Close an old tunnel using port 23374 before retrying. No account was reset or linked. No private response was logged."
     alert.runModal()
 }
@@ -170,7 +170,7 @@ func launch(_ connection: Connection) throws {
     // scheduled sends while this app is closed. Offer a one-time install of
     // the bundled daemon; nothing is installed or started without approval.
     func offerSchedulerInstall(_ connection: Connection, beeperToken: String) {
-        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-scheduler")
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/solmu-scheduler")
         guard manager.isExecutableFile(atPath: bundled.path) else { return }
         let declined = profile.appendingPathComponent("scheduler-install-declined")
         let reconfigure = CommandLine.arguments.contains("--reconfigure")
@@ -197,7 +197,7 @@ func launch(_ connection: Connection) throws {
               !String(decoding: checkData, as: UTF8.self).contains("HEALTHY") else { return }
         let alert = NSAlert()
         alert.messageText = "Set up Send Later on \(connection.host)?"
-        alert.informativeText = "ZapFast can copy its scheduler to the Server Mac and start it as a login agent, so scheduled messages send even when this app is closed. You can remove it later (see contrib/send-later). Don't Ask Again hides this until you relaunch while holding Option."
+        alert.informativeText = "Solmu can copy its scheduler to the Server Mac and start it as a login agent, so scheduled messages send even when this app is closed. You can remove it later (see contrib/send-later). Don't Ask Again hides this until you relaunch while holding Option."
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Later")
         alert.addButton(withTitle: "Don't Ask Again")
@@ -280,7 +280,7 @@ func launch(_ connection: Connection) throws {
         }
         let service = remote(connection, """
         APP_SUPPORT="$HOME/Library/Application Support/zapfast"
-        PLIST="$HOME/Library/LaunchAgents/com.zapfast.scheduler.plist"
+        PLIST="$HOME/Library/LaunchAgents/com.solmu.scheduler.plist"
         mkdir -p "$APP_SUPPORT" "$HOME/Library/LaunchAgents"
         cat > "$PLIST" <<PLIST
         <?xml version="1.0" encoding="UTF-8"?>
@@ -288,22 +288,22 @@ func launch(_ connection: Connection) throws {
         <plist version="1.0">
         <dict>
             <key>Label</key>
-            <string>com.zapfast.scheduler</string>
+            <string>com.solmu.scheduler</string>
             <key>ProgramArguments</key>
             <array>
-                <string>$APP_SUPPORT/bin/zapfast-scheduler</string>
+                <string>$APP_SUPPORT/bin/solmu-scheduler</string>
             </array>
             <key>EnvironmentVariables</key>
             <dict>
-                <key>ZAPFAST_LISTEN</key>
+                <key>SOLMU_LISTEN</key>
                 <string>127.0.0.1:23376</string>
                 <key>BEEPER_BASE_URL</key>
                 <string>http://127.0.0.1:23374</string>
                 <key>BEEPER_ACCESS_TOKEN_FILE</key>
                 <string>$APP_SUPPORT/beeper-token</string>
-                <key>ZAPFAST_CONTROL_TOKEN_FILE</key>
+                <key>SOLMU_CONTROL_TOKEN_FILE</key>
                 <string>$APP_SUPPORT/scheduler-token</string>
-                <key>ZAPFAST_QUEUE_PATH</key>
+                <key>SOLMU_QUEUE_PATH</key>
                 <string>$APP_SUPPORT/queue.json</string>
             </dict>
             <key>KeepAlive</key>
@@ -333,11 +333,11 @@ func launch(_ connection: Connection) throws {
             # gui domain, then the user domain (a headless Mac reached over
             # SSH can have no gui session), then the legacy load.
             launchctl unload "$PLIST" 2>/dev/null || true
-            if launchctl print "gui/$(id -u)/com.zapfast.scheduler" >/dev/null 2>&1; then
-                launchctl bootout "gui/$(id -u)/com.zapfast.scheduler" 2>/dev/null || true
+            if launchctl print "gui/$(id -u)/com.solmu.scheduler" >/dev/null 2>&1; then
+                launchctl bootout "gui/$(id -u)/com.solmu.scheduler" 2>/dev/null || true
                 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-            elif launchctl print "user/$(id -u)/com.zapfast.scheduler" >/dev/null 2>&1; then
-                launchctl bootout "user/$(id -u)/com.zapfast.scheduler" 2>/dev/null || true
+            elif launchctl print "user/$(id -u)/com.solmu.scheduler" >/dev/null 2>&1; then
+                launchctl bootout "user/$(id -u)/com.solmu.scheduler" 2>/dev/null || true
                 launchctl bootstrap "user/$(id -u)" "$PLIST"
             else
                 launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl bootstrap "user/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>&1 | tail -n 2 >&2
@@ -457,7 +457,7 @@ func launch(_ connection: Connection) throws {
         }
     }
     }
-    let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/zapfast-client")
+    let binary = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/solmu-client")
     guard manager.isExecutableFile(atPath: binary.path) else { throw LaunchError.missingBinary }
     try manager.createDirectory(at: profile, withIntermediateDirectories: true,
                                 attributes: [.posixPermissions: 0o700])
@@ -471,8 +471,8 @@ func launch(_ connection: Connection) throws {
     for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"] { env.removeValue(forKey: key) }
     env["NO_PROXY"] = "127.0.0.1,localhost,::1"
     env["no_proxy"] = "127.0.0.1,localhost,::1"
-    env["ZAPFAST_BACKEND"] = "beeper"
-    env["ZAPFAST_PROFILE_ROOT"] = profile.path
+    env["SOLMU_BACKEND"] = "beeper"
+    env["SOLMU_PROFILE_ROOT"] = profile.path
     env["BEEPER_DESKTOP_BASE_URL"] = "http://127.0.0.1:23374"
     env["BEEPER_ACCESS_TOKEN"] = token
     env["BEEPER_READONLY"] = connection.allowWrites ? "0" : "1"

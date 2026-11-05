@@ -1,8 +1,8 @@
-# ZapFast + Beeper: current source checkpoint
+# Solmu + Beeper: current source checkpoint
 
 October 28, 2026. Mac-target development source, not a verified Mac app or a
-full-parity release. ZapFast's egui interface uses the Beeper Client API rather
-than direct WhatsApp transport when `ZAPFAST_BACKEND=beeper` is set. Without that
+full-parity release. Solmu's egui interface uses the Beeper Client API rather
+than direct WhatsApp transport when `SOLMU_BACKEND=beeper` is set. Without that
 setting, upstream behavior remains.
 
 See BACKEND.md for the complete backend/deployment status and remaining gates.
@@ -59,7 +59,7 @@ relink, migrate or add accounts merely to try the client.
 
 In a separate terminal:
 
-    ZAPFAST_BACKEND=beeper BEEPER_DESKTOP_BASE_URL=http://127.0.0.1:8077 BEEPER_ACCESS_TOKEN=mock cargo run
+    SOLMU_BACKEND=beeper BEEPER_DESKTOP_BASE_URL=http://127.0.0.1:8077 BEEPER_ACCESS_TOKEN=mock cargo run
 
 The mock uses generic data and accepts explicit fixture sends. It does not prove
 live-network parity. Startup/background reads use GET; explicit commands may

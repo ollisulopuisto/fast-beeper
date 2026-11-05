@@ -18,7 +18,7 @@ First build the real binary using the existing locked trial helper or Cargo.
 For an Apple Silicon build in this source tree:
 
 ```sh
-cargo build --locked --release --bin zapfast --target aarch64-apple-darwin
+cargo build --locked --release --bin solmu --target aarch64-apple-darwin
 ```
 
 Choose a version and a **new** output directory. Use the exact commit that
@@ -26,7 +26,7 @@ produced the binary. For example, after replacing VERSION and COMMIT_SHA with
 reviewed values:
 
 ```sh
-uv run --no-project python contrib/beeper-tools/package_dmg.py --binary target/aarch64-apple-darwin/release/zapfast --target aarch64-apple-darwin --commit COMMIT_SHA --version VERSION --output dist/NEW_TRIAL_DIRECTORY
+uv run --no-project python contrib/beeper-tools/package_dmg.py --binary target/aarch64-apple-darwin/release/solmu --target aarch64-apple-darwin --commit COMMIT_SHA --version VERSION --output dist/NEW_TRIAL_DIRECTORY
 ```
 
 Intel uses `x86_64-apple-darwin` in both places. The helper checks the executable's
@@ -46,7 +46,7 @@ to a writable local location. Do not run from the read-only mounted image or
 launch the bare binary. In the copied directory:
 
 ```sh
-uv run --no-project python contrib/beeper-tools/run_client.py --binary ./zapfast
+uv run --no-project python contrib/beeper-tools/run_client.py --binary ./solmu
 ```
 
 Use an already running Desktop or explicitly chosen Server endpoint. The launcher

@@ -1,7 +1,7 @@
 //! A call's echo canceller's input and output, saved for working on it offline. Never on by
 //! default.
 //!
-//! With `ZAPFAST_CALL_AUDIO_DUMP` set to a folder, each microphone stream of a call writes four
+//! With `SOLMU_CALL_AUDIO_DUMP` set to a folder, each microphone stream of a call writes four
 //! files there, named `<time>-<stream>-…`:
 //!
 //! - `reference.wav`: the far end as the canceller was fed it, the peer's voice as the speaker
@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use super::RATE;
 
 /// The environment variable that names the folder a call's audio is dumped to.
-pub const DUMP_VARIABLE: &str = "ZAPFAST_CALL_AUDIO_DUMP";
+pub const DUMP_VARIABLE: &str = "SOLMU_CALL_AUDIO_DUMP";
 /// How many chunks are written between rewriting the WAV headers' lengths, so a file cut short by
 /// a crash still opens: a second.
 const PATCH_EVERY: u32 = 100;

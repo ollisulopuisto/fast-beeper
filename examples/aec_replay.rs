@@ -1,4 +1,4 @@
-//! Replays a call's audio dump (`ZAPFAST_CALL_AUDIO_DUMP`) through the echo canceller offline,
+//! Replays a call's audio dump (`SOLMU_CALL_AUDIO_DUMP`) through the echo canceller offline,
 //! with settings to try, so tuning it does not need a live call.
 //!
 //! ```sh
@@ -15,7 +15,7 @@
 //! Options:
 //!
 //! - `--engine call|pipeline`: `call` (the default) is the call's own chain
-//!   (`zapfast::call_audio::chain`); `pipeline` is sonora's pipeline with AEC3's stock settings,
+//!   (`solmu::call_audio::chain`); `pipeline` is sonora's pipeline with AEC3's stock settings,
 //!   as the first calls ran it;
 //! - `--base call|stock`: the AEC3 settings `--set` starts from (`call` by default);
 //! - `--set <key>=<value>`, repeatable: one AEC3 setting, by the names
@@ -40,10 +40,10 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use zapfast::call_audio::RATE;
-use zapfast::call_audio::chain::{Chain, ChainSettings, apply_setting};
-use zapfast::call_audio::dump::{Wav, read_wav, siblings};
-use zapfast::call_audio::echo::{CHUNK, stock_pipeline_config};
+use solmu::call_audio::RATE;
+use solmu::call_audio::chain::{Chain, ChainSettings, apply_setting};
+use solmu::call_audio::dump::{Wav, read_wav, siblings};
+use solmu::call_audio::echo::{CHUNK, stock_pipeline_config};
 
 const SECOND: usize = RATE as usize;
 

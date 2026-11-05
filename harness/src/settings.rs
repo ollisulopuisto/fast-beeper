@@ -51,7 +51,7 @@ pub enum NotificationSound {
 }
 
 /// Which chats show one notification, then stay quiet for ten minutes.
-/// Variants verbatim from zapfast src/settings.rs.
+/// Variants verbatim from solmu src/settings.rs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationLimit {
@@ -62,7 +62,7 @@ pub enum NotificationLimit {
     Both,
 }
 
-/// Per-account settings, field list verbatim from zapfast src/settings.rs;
+/// Per-account settings, field list verbatim from solmu src/settings.rs;
 /// load/save simplified for the harness (plain JSON, no file writer queue).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

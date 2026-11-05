@@ -34,7 +34,7 @@ def validate_binary(binary, target):
 
 def verify_mounted(image, expected_name, target):
     """Read-only mount and verify the actual image payload; always detach."""
-    with tempfile.TemporaryDirectory(prefix='.fast-beeper-verify-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='.Solmu-verify-') as tmp:
         mount = Path(tmp) / 'volume'
         result = subprocess.run(
             ['hdiutil', 'attach', '-readonly', '-nobrowse', '-plist',
@@ -56,7 +56,7 @@ def verify_mounted(image, expected_name, target):
                       for p in paths if p.is_file() and p.name != 'checksums.json'}
             if manifest != actual:
                 raise ValueError('Mounted disk image checksums or file set differ')
-            validate_binary(trial / 'zapfast', target)
+            validate_binary(trial / 'solmu', target)
             info = json.loads((trial / 'build-info.json').read_text())
             if info.get('target') != target or info.get('installable_app') is not False:
                 raise ValueError('Mounted disk image metadata differs')
@@ -73,7 +73,7 @@ def create(root, binary, output, target, commit, version):
         raise FileExistsError('Output exists; choose a new directory')
     validate_binary(binary, target)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.fast-beeper-dmg-', dir=output.parent) as tmp:
+    with tempfile.TemporaryDirectory(prefix='.Solmu-dmg-', dir=output.parent) as tmp:
         tmp = Path(tmp)
         stage = tmp / 'publish'
         stage.mkdir()
@@ -83,7 +83,7 @@ def create(root, binary, output, target, commit, version):
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(payload)
         trial = next(payload.iterdir())
-        (trial / 'zapfast').chmod(0o755)
+        (trial / 'solmu').chmod(0o755)
         (trial / 'TRIAL-DMG.txt').write_text(
             'Fast-beeper ' + version + '\n\n'
             'Unsigned, unnotarized development trial. Not an installable .app.\n'
@@ -100,10 +100,10 @@ def create(root, binary, output, target, commit, version):
         hashes = {p.relative_to(trial).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in sorted(trial.rglob('*')) if p.is_file() and p.name != 'checksums.json'}
         (trial / 'checksums.json').write_text(json.dumps(hashes, indent=2) + '\n')
-        name = f'fast-beeper-{version}-{target}-{commit[:12]}.dmg'
+        name = f'Solmu-{version}-{target}-{commit[:12]}.dmg'
         image = stage / name
         subprocess.run(['hdiutil', 'create', '-format', 'UDZO', '-fs', 'HFS+',
-                        '-volname', 'Fast Beeper Trial', '-srcfolder', str(payload), str(image)],
+                        '-volname', 'Solmu Trial', '-srcfolder', str(payload), str(image)],
                        check=True)
         if not image.is_file() or not image.stat().st_size:
             raise ValueError('hdiutil returned without a nonempty DMG')
