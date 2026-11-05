@@ -1,12 +1,12 @@
 [package]
 name = "solmu"
-version = "0.22.0"
+version = "0.23.0"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
 description = "Solmu: a fast, native multi-network chat client (a ZapFast fork)"
-homepage = "https://github.com/ollisulopuisto/fast-beeper"
-repository = "https://github.com/ollisulopuisto/fast-beeper"
+homepage = "https://github.com/ollisulopuisto/solmu"
+repository = "https://github.com/ollisulopuisto/solmu"
 keywords = ["whatsapp", "chat", "egui", "messaging"]
 categories = ["gui"]
 
