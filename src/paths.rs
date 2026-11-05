@@ -22,7 +22,11 @@ impl AppDirs {
     pub fn discover() -> Self {
         // Older launchers and scripts exported the pre-rename names; keep
         // honoring them so a mixed old/new setup still finds the profile.
-        for var in ["SOLMU_PROFILE_ROOT", "ZAPFAST_PROFILE_ROOT", "FASTSAPP_PROFILE_ROOT"] {
+        for var in [
+            "SOLMU_PROFILE_ROOT",
+            "ZAPFAST_PROFILE_ROOT",
+            "FASTSAPP_PROFILE_ROOT",
+        ] {
             if let Some(root) = std::env::var_os(var) {
                 return Self::under(std::path::Path::new(&root));
             }

@@ -24,7 +24,8 @@ fn dock_diag(line: &str) {
     use std::io::Write;
     let Some(root) = ["SOLMU_PROFILE_ROOT", "ZAPFAST_PROFILE_ROOT"]
         .iter()
-        .find_map(|var| std::env::var_os(var)) else {
+        .find_map(|var| std::env::var_os(var))
+    else {
         return;
     };
     let path = std::path::Path::new(&root).join("dock-diagnostic.log");

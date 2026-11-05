@@ -306,9 +306,13 @@ fn run() -> eframe::Result<()> {
         .iter()
         .filter_map(|var| std::env::var(var).ok())
         .any(|v| v.eq_ignore_ascii_case("beeper"));
-    let profile_root_set = ["SOLMU_PROFILE_ROOT", "ZAPFAST_PROFILE_ROOT", "FASTSAPP_PROFILE_ROOT"]
-        .iter()
-        .any(|var| std::env::var_os(var).is_some());
+    let profile_root_set = [
+        "SOLMU_PROFILE_ROOT",
+        "ZAPFAST_PROFILE_ROOT",
+        "FASTSAPP_PROFILE_ROOT",
+    ]
+    .iter()
+    .any(|var| std::env::var_os(var).is_some());
     if !demo && !beeper_mode && !profile_root_set {
         dirs.adopt_previous_names()
             .map_err(|error| eframe::Error::AppCreation(error.into()))?;
