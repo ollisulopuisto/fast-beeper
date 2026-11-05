@@ -1100,11 +1100,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                "A native Beeper client based on Solmu, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper."
-            } else {
-                "A native WhatsApp client written in Rust with egui. It connects through whatsapp-rust. Messages are end-to-end encrypted on this device."
-            },
+            "A native Beeper client based on ZapFast, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper.",
         ),
         theme::regular(13.0),
         palette.text,
@@ -1113,11 +1109,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                "This is an unofficial Beeper client. Supported features depend on your Beeper API and connected networks. Source links and author credit below refer to the upstream ZapFast project."
-            } else {
-                "This is an unofficial client. Using it may be against WhatsApp's terms of service and could get an account suspended."
-            },
+            "This is an unofficial Beeper client. Supported features depend on your Beeper API and connected networks. Source links and author credit below refer to the upstream ZapFast project.",
         ),
         theme::regular(12.5),
         palette.secondary,
@@ -1946,8 +1938,6 @@ fn transcription_language(app: &mut App, ui: &mut egui::Ui, chat: &ChatId, messa
         });
     });
 }
-
-
 
 fn new_contact(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;

@@ -53,8 +53,6 @@ use std::collections::HashMap;
 
 use crate::app::{App, Conversation, Presence};
 use crate::backend::LinkStatus;
-use crate::calls::{CallPhase, CallUpdate};
-use crate::model::CallDirection;
 use crate::model::{
     Chat, ChatMedia, Contact, Content, Delivery, Dialog, InfoPanel, InfoView, LinkPreview, Media,
     MediaTab, MentionRef, Message, Page, Quoted, Reaction,
@@ -2831,128 +2829,6 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.settings_search = choice["settings-search=".len()..].to_owned();
             }
             "wallpaper" => app.page = Page::Wallpaper,
-            // The call surface itself: the incoming call waiting to be answered, and a call that
-            // has been up for a few minutes.
-            "call" => call_sample(app, true, false),
-            "call-active" => call_sample(app, false, false),
-            // The other states of a call: dialing, muted with the device
-            // pickers open and a headset gone, its farewell, and the strip a
-            // call keeps while the reader is in a chat.
-            "call-outgoing" => {
-                call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.phase = CallPhase::Ringing;
-                    call.started = None;
-                }
-            }
-            // A call whose button was just pressed: on screen at once, before
-            // its offer has gone out.
-            "call-connecting" => {
-                call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.phase = CallPhase::Placing;
-                    call.started = None;
-                }
-            }
-            // A call that could not be placed, saying so before it goes.
-            "call-failed" => {
-                call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.phase = CallPhase::Failed;
-                    call.started = None;
-                    call.outcome = Some(crate::calls::CallOutcome::Failed);
-                }
-            }
-            "call-devices" => {
-                call_sample(app, false, false);
-                app.call_devices = crate::calls::DeviceList {
-                    microphones: vec![crate::calls::AudioDevice {
-                        id: "studio-mic".into(),
-                        label: "Studio Microphone".into(),
-                    }],
-                    speakers: vec![crate::calls::AudioDevice {
-                        id: "desk-speakers".into(),
-                        label: "Desk Speakers".into(),
-                    }],
-                    cameras: vec![crate::calls::CameraDevice {
-                        id: "0".into(),
-                        label: "Integrated Camera".into(),
-                    }],
-                };
-                app.call_devices_open = true;
-                if let Some(call) = app.call.as_mut() {
-                    call.muted = true;
-                    call.speaker = Some("desk-speakers".into());
-                    call.lost_devices = vec![crate::calls::LostDevice {
-                        kind: crate::calls::DeviceKind::Microphone,
-                        name: "Wireless Headset".into(),
-                    }];
-                }
-            }
-            "call-ended" => {
-                call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.phase = CallPhase::Ended;
-                    call.outcome = Some(crate::calls::CallOutcome::Answered);
-                }
-            }
-            // A group's call: ringing with who started it and who is on it, and
-            // up with a tile for each member, one of them only asked to it.
-            "call-group" => group_call_sample(app, true, false),
-            "call-group-active" => group_call_sample(app, false, false),
-            // A group's video call: three members' cameras on, Tom's off, and
-            // ours in the corner.
-            "call-group-video" => group_call_sample(app, false, true),
-            // A call we started in the group: nobody has joined yet, so
-            // everyone on it reads Invited while it rings.
-            "call-group-calling" => {
-                group_call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.direction = crate::model::CallDirection::Outgoing;
-                    call.phase = CallPhase::Dialing;
-                    call.started = None;
-                    if let Some(group) = call.group.as_mut() {
-                        group.caller = None;
-                        for person in &mut group.participants {
-                            person.joined = false;
-                        }
-                    }
-                }
-            }
-            // While group calls are off (`calls::GROUP_CALLS_ENABLED`), a group
-            // call to us does not take the screen: the window says who is
-            // calling the group and to answer on the phone.
-            "call-group-on-phone" => {
-                group_call_sample(app, true, false);
-                if let Some(update) = app.call.take() {
-                    app.call_account = None;
-                    app.handle_phone_only_call(update);
-                }
-            }
-            // The same call with our microphone muted: our own tile says so.
-            "call-group-muted" => {
-                group_call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.muted = true;
-                }
-            }
-            // A call link from a message, while the call service lets us in.
-            "call-link" => {
-                call_sample(app, false, false);
-                if let Some(call) = app.call.as_mut() {
-                    call.chat = String::new();
-                    call.phase = CallPhase::Connecting;
-                    call.started = None;
-                    call.group = Some(crate::calls::GroupCall {
-                        link: true,
-                        ..crate::calls::GroupCall::default()
-                    });
-                }
-            }
-            "call-strip" => {
-                call_sample(app, false, false);
-                app.call_surface_hidden = true;
-            }
             "call-entries" => {
                 // Calls among the open chat's messages, as WhatsApp files them.
                 let open = app.open_chat.clone().unwrap_or_default();
@@ -2972,72 +2848,6 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // unanswered, missed and declined, voice and video, ours and
             // members' (whose names head their bubbles).
             "call-bubbles" => call_bubbles_sample(app),
-            // The Calls tab: with no chat open, its start pane; with the
-            // chat that was open, that chat beside the history; with a row
-            // picked, that row's chat at the call.
-            // The Missed chip picked, and with no missed call to show.
-            "calls" | "calls-chat" | "calls-info" | "new-call" | "calls-missed"
-            | "calls-missed-none" | "calls-link" => {
-                app.page = Page::Calls;
-                if part != "calls-chat" {
-                    app.open_chat = None;
-                }
-                let mut log = call_entries(crate::util::now());
-                if part == "calls-link" {
-                    // A video call joined through a link half an hour ago,
-                    // which no chat holds.
-                    log.push(message(
-                        crate::model::CALL_LINK_CHAT,
-                        &format!("{}link-1", crate::model::CALL_ENTRY_PREFIX),
-                        true,
-                        crate::util::now() - 30,
-                        Content::Call {
-                            video: true,
-                            status: crate::model::CallStatus::Answered,
-                            duration: 1_260,
-                            group: true,
-                        },
-                    ));
-                }
-                if part.starts_with("calls-missed") {
-                    app.call_filter = crate::model::CallFilter::Missed;
-                }
-                if part == "calls-missed-none" {
-                    log.retain(|message| {
-                        !crate::ui::calls::Entry::of(message).is_some_and(|entry| entry.missed())
-                    });
-                }
-                log.sort_by_key(|message| std::cmp::Reverse(message.timestamp));
-                if part == "calls-info" {
-                    // The newest row, Ada's two missed calls, picked: her
-                    // chat opens at the call, filed among its messages.
-                    let (chat, id) = (log[0].chat.clone(), log[0].id.clone());
-                    if let Some(conversation) = app.conversations.get_mut(&chat) {
-                        conversation
-                            .messages
-                            .extend(log.iter().filter(|entry| entry.chat == chat).cloned());
-                        conversation
-                            .messages
-                            .sort_by_key(|message| message.timestamp);
-                    }
-                    app.actions
-                        .push(crate::model::Action::PickCall { chat, message: id });
-                }
-                app.new_call = part == "new-call";
-                app.call_log = log;
-                app.call_log_loaded = true;
-            }
-            "call-video" => call_sample(app, false, true),
-            "call-video-incoming" => call_sample(app, true, true),
-            "call-video-off" => {
-                call_sample(app, false, true);
-                if let Some(call) = app.call.as_mut() {
-                    call.remote_video = false;
-                    call.camera_on = false;
-                }
-                app.call_remote_frame = None;
-                app.call_local_frame = None;
-            }
             "wallpaper-image" => wallpaper_image_sample(app),
             "omarchy" | "omarchy-light" => {
                 let mut themes: Vec<_> = crate::theme::presets().collect();
@@ -4268,8 +4078,6 @@ fn history_date_sample(app: &mut App) {
     app.scroll_anchor = Some("history-date-45".into());
 }
 
-
-
 /// Names of all sample chats.
 pub fn sample_ids() -> Vec<&'static str> {
     SAMPLES.iter().map(|sample| sample.id).collect()
@@ -4453,101 +4261,6 @@ fn call_bubbles_sample(app: &mut App) {
         .sort_by_key(|message| message.timestamp);
     app.open_chat = Some(chat.to_owned());
     app.scroll_to_bottom = true;
-}
-
-pub fn call_sample(app: &mut App, incoming: bool, video: bool) {
-    let chat = SAMPLES[0].id;
-    app.call = Some(CallUpdate {
-        generation: 1,
-        chat: chat.to_owned(),
-        direction: if incoming {
-            CallDirection::Incoming
-        } else {
-            CallDirection::Outgoing
-        },
-        video,
-        phase: if incoming {
-            CallPhase::Incoming
-        } else {
-            CallPhase::Active
-        },
-        // A call already up for three minutes and forty-one seconds, so the previews show the
-        // duration the way a real one counts it.
-        started: (!incoming)
-            .then(|| std::time::Instant::now() - std::time::Duration::from_secs(221)),
-        muted: false,
-        camera_on: video,
-        remote_video: video && !incoming,
-        video_requested: false,
-        outcome: None,
-        peer_audio: None,
-        lost_devices: Vec::new(),
-        microphone: None,
-        speaker: None,
-        camera: None,
-        group: None,
-    });
-    app.call_account = Some(app.account().id.clone());
-    if video && !incoming {
-        app.call_remote_frame = Some(std::sync::Arc::new(stock_frame(stock::SPACEWALK, 720)));
-        app.call_local_frame = Some(std::sync::Arc::new(stock_frame(stock::DUSK, 320)));
-    }
-}
-
-/// A call in the Rust Berlin group, started by Jonas: Mira, Tom and Ada are
-/// on it, and Grace was asked and has not joined.
-pub fn group_call_sample(app: &mut App, incoming: bool, video: bool) {
-    call_sample(app, incoming, video);
-    let roster = [
-        ("491701111111@s.whatsapp.net", true),
-        ("491702222222@s.whatsapp.net", true),
-        ("491703333333@s.whatsapp.net", true),
-        (SAMPLES[0].id, true),
-        (SAMPLES[2].id, false),
-    ];
-    // Who sends a picture on a video call, and which stand-in it is.
-    let cameras = [
-        (roster[0].0, stock::VENUE),
-        (roster[1].0, stock::SPACEWALK),
-        (roster[3].0, stock::LAUNCH),
-    ];
-    let sending = |id: &str| video && cameras.iter().any(|(camera, _)| *camera == id);
-    if let Some(call) = app.call.as_mut() {
-        call.chat = SAMPLES[1].id.to_owned();
-        call.remote_video = false;
-        call.group = Some(crate::calls::GroupCall {
-            link: false,
-            caller: Some(roster[0].0.to_owned()),
-            participants: roster
-                .iter()
-                .map(|(id, joined)| crate::calls::Participant {
-                    id: (*id).to_owned(),
-                    joined: *joined,
-                    video: sending(id),
-                })
-                .collect(),
-        });
-    }
-    app.call_remote_frame = None;
-    if video && !incoming {
-        for (id, photo) in cameras {
-            app.call_member_frames
-                .insert(id.to_owned(), std::sync::Arc::new(stock_frame(photo, 360)));
-        }
-    }
-}
-
-/// A stock picture as a video frame no taller than `height`: the demo's
-/// stand-in for a camera, with no person a real call could show.
-fn stock_frame(photo: stock::Photo, height: u32) -> egui::ColorImage {
-    let picture = image::load_from_memory(photo.bytes)
-        .expect("the demo pictures decode")
-        .resize(height * 2, height, image::imageops::FilterType::Triangle)
-        .to_rgba8();
-    egui::ColorImage::from_rgba_unmultiplied(
-        [picture.width() as usize, picture.height() as usize],
-        picture.as_raw(),
-    )
 }
 
 #[allow(dead_code)]
@@ -7359,57 +7072,6 @@ mod tests {
             "{:?}",
             app.announcer.spoken()
         );
-    }
-
-    /// The Calls tab keeps the open chat beside its history. Alt+2 moves to
-    /// that chat's list there and leaves the history on screen, the list's
-    /// keys walk it as on the chats' page, and Escape returns to the chats
-    /// with the list still focused. A narrow window showing only the history
-    /// goes to the chat itself.
-    #[test]
-    fn the_message_list_works_beside_the_call_history() {
-        let mut app = app();
-        let ctx = egui::Context::default();
-        app.attach(&ctx);
-        let chat = app.open_chat.clone().unwrap();
-        let list = crate::ui::conversation::messages_list_id(&chat);
-        app.page = crate::model::Page::Calls;
-        render(&mut app, &ctx);
-        focus_messages_shortcut(&mut app, &ctx);
-        assert_eq!(app.page, crate::model::Page::Calls, "the history stays");
-        assert_eq!(ctx.memory(|memory| memory.focused()), Some(list));
-        press_key(&mut app, &ctx, egui::Key::ArrowUp, egui::Modifiers::NONE);
-        let messages = &app.conversations[&chat].messages;
-        let previous = messages[messages.len() - 2].id.clone();
-        assert_eq!(app.message_cursor.get(&chat), Some(&previous));
-        press_key(&mut app, &ctx, egui::Key::Escape, egui::Modifiers::NONE);
-        assert_eq!(app.page, crate::model::Page::Chats);
-        assert_eq!(ctx.memory(|memory| memory.focused()), Some(list));
-
-        // Narrow, the Calls tab shows only its history beside a chat that
-        // was not picked from it.
-        app.page = crate::model::Page::Calls;
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(500.0, 780.0),
-                )),
-                events: {
-                    app.actions.push(Action::FocusMessages);
-                    Vec::new()
-                },
-                ..Default::default()
-            },
-            |ui| {
-                let ctx = ui.ctx().clone();
-                app.background_frame(&ctx);
-                app.frame_ui(ui);
-            },
-        );
-        output.textures_delta.clear();
-        assert_eq!(app.page, crate::model::Page::Chats, "the chat itself");
-        assert!(app.focus_messages || ctx.memory(|memory| memory.has_focus(list)));
     }
 
     /// A quote jump moves the current message with the view, and reveals it
@@ -19217,7 +18879,7 @@ mod tests {
             }
         }
         for message in &calls {
-            let entry = crate::ui::calls::Entry::of(message).unwrap();
+            let entry = crate::ui::call_log::Entry::of(message).unwrap();
             let bubble = ctx
                 .data(|data| {
                     data.get_temp::<egui::Rect>(
@@ -19962,7 +19624,6 @@ mod tests {
                 Stop::ChatSearch,
                 Stop::Messages,
                 Stop::Chats,
-                Stop::Calls,
                 Stop::Starred,
                 Stop::Archived,
                 Stop::Locked,
@@ -20081,7 +19742,6 @@ mod tests {
                         Stop::ChatSearch,
                         Stop::Messages,
                         Stop::Chats,
-                        Stop::Calls,
                         Stop::Starred,
                         Stop::Archived,
                         Stop::Locked,
@@ -21784,525 +21444,13 @@ mod bubble_detail_tests {
     }
 }
 
-/// The call screen as a window: what opens it, what puts it aside without ending the call, and the
-/// one control that does end it.
-#[cfg(test)]
-mod call_surface_tests {
-    use super::tests::{app, frame_with};
-    use super::*;
-    use crate::model::Action;
-
-    /// A key press, as egui reports one.
-    fn key(key: egui::Key) -> egui::Event {
-        egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        }
-    }
-
-    /// A running call takes the screen, with the window attached to it.
-    fn on_a_call() -> (App, egui::Context) {
-        let mut app = app();
-        apply_flags(&mut app, Some("call-active"));
-        let ctx = egui::Context::default();
-        app.attach(&ctx);
-        (app, ctx)
-    }
-
-    /// The labels one frame publishes to a screen reader, after the surface has settled.
-    fn labels(app: &mut App, ctx: &egui::Context) -> Vec<String> {
-        labelled(app, ctx)
-            .into_iter()
-            .map(|(label, _)| label)
-            .collect()
-    }
-
-    /// The labels one frame publishes, with whether each control is disabled.
-    fn labelled(app: &mut App, ctx: &egui::Context) -> Vec<(String, bool)> {
-        let mut labels = Vec::new();
-        for _ in 0..3 {
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(1180.0, 780.0),
-                    )),
-                    ..Default::default()
-                },
-                |ui| {
-                    let ctx = ui.ctx().clone();
-                    app.background_frame(&ctx);
-                    app.frame_ui(ui);
-                },
-            );
-            output.textures_delta.clear();
-            labels = output
-                .platform_output
-                .accesskit_update
-                .expect("accessibility tree")
-                .nodes
-                .iter()
-                .filter_map(|(_, node)| {
-                    node.label()
-                        .map(|label| (label.to_owned(), node.is_disabled()))
-                })
-                .collect();
-        }
-        labels
-    }
-
-    #[test]
-    fn escape_leaves_full_screen_before_it_puts_the_call_aside() {
-        let (mut app, ctx) = on_a_call();
-        app.actions.push(Action::ToggleCallFullscreen);
-        frame_with(&mut app, &ctx, Vec::new());
-        assert!(app.call_fullscreen, "the surface takes the whole screen");
-        assert!(!app.call_surface_hidden);
-
-        frame_with(&mut app, &ctx, vec![key(egui::Key::Escape)]);
-        assert!(!app.call_fullscreen, "escape leaves full screen");
-        assert!(
-            !app.call_surface_hidden,
-            "and the call screen is still the screen"
-        );
-        assert_eq!(
-            app.call.as_ref().map(|call| call.phase),
-            Some(CallPhase::Active),
-            "a window state is not a call state"
-        );
-
-        frame_with(&mut app, &ctx, vec![key(egui::Key::Escape)]);
-        assert!(
-            app.call_surface_hidden,
-            "a second escape is the same move the back button makes"
-        );
-        assert_eq!(
-            app.call.as_ref().map(|call| call.phase),
-            Some(CallPhase::Active),
-            "and the call runs on behind the bar"
-        );
-    }
-
-    #[test]
-    fn only_the_hang_up_button_ends_a_call() {
-        let (mut app, ctx) = on_a_call();
-        app.backend.record_demo_commands();
-        app.actions.push(Action::ToggleCallFullscreen);
-        frame_with(&mut app, &ctx, Vec::new());
-        // Everything a reader can do to the window short of hanging up.
-        frame_with(&mut app, &ctx, vec![key(egui::Key::Escape)]);
-        frame_with(&mut app, &ctx, vec![key(egui::Key::Escape)]);
-        app.actions.push(Action::ReturnToCall);
-        frame_with(&mut app, &ctx, Vec::new());
-        app.actions.push(Action::ToggleCallFullscreen);
-        frame_with(&mut app, &ctx, Vec::new());
-        frame_with(&mut app, &ctx, vec![key(egui::Key::Escape)]);
-        let hang_ups = |commands: Vec<crate::backend::Command>| {
-            commands
-                .into_iter()
-                .filter(|command| matches!(command, crate::backend::Command::HangupCall))
-                .count()
-        };
-        assert_eq!(
-            hang_ups(app.backend.take_demo_commands()),
-            0,
-            "stepping away, returning, and full screen never hang up"
-        );
-        app.actions.push(Action::HangupCall);
-        frame_with(&mut app, &ctx, Vec::new());
-        assert_eq!(
-            hang_ups(app.backend.take_demo_commands()),
-            1,
-            "the hang-up button is the one that ends the call"
-        );
-    }
-
-    #[test]
-    fn an_incoming_call_stays_on_screen_until_it_is_answered_or_declined() {
-        let mut app = app();
-        apply_flags(&mut app, Some("call"));
-        let ctx = egui::Context::default();
-        app.attach(&ctx);
-        app.backend.record_demo_commands();
-        // Escape is not an answer and not a refusal, so the ringing call stays where it can be
-        // answered.
-        frame_with(&mut app, &ctx, vec![key(egui::Key::Escape)]);
-        assert!(!app.call_surface_hidden, "the ringing call is still there");
-        assert_eq!(
-            app.call.as_ref().map(|call| call.phase),
-            Some(CallPhase::Incoming)
-        );
-        assert!(
-            !app.backend
-                .take_demo_commands()
-                .iter()
-                .any(|command| matches!(
-                    command,
-                    crate::backend::Command::AnswerCall | crate::backend::Command::DeclineCall
-                )),
-            "escape neither answers nor declines"
-        );
-    }
-
-    #[test]
-    fn the_bar_brings_the_call_screen_back() {
-        let (mut app, ctx) = on_a_call();
-        ctx.enable_accesskit();
-        app.actions.push(Action::LeaveCallSurface);
-        let bar = labels(&mut app, &ctx);
-        assert!(
-            bar.contains(&"Return to the call".to_owned()),
-            "the bar offers the way back: {bar:?}"
-        );
-        assert!(
-            !bar.contains(&"Hide the call screen".to_owned()),
-            "and the surface that was put aside is not on screen: {bar:?}"
-        );
-        assert_eq!(
-            app.call.as_ref().map(|call| call.phase),
-            Some(CallPhase::Active),
-            "the bar is only ever a way back to a call that is still up"
-        );
-
-        app.actions.push(Action::ReturnToCall);
-        let screen = labels(&mut app, &ctx);
-        assert!(
-            screen.contains(&"Hide the call screen".to_owned()),
-            "the surface comes back: {screen:?}"
-        );
-        assert!(
-            !screen.contains(&"Return to the call".to_owned()),
-            "and the bar goes with it: {screen:?}"
-        );
-        assert_eq!(
-            app.call.as_ref().map(|call| call.phase),
-            Some(CallPhase::Active),
-            "returning is not a new call"
-        );
-    }
-
-    /// The bar is a way back to a call that is still up, so it goes when the call does.
-    #[test]
-    fn the_bar_leaves_with_the_call_it_belongs_to() {
-        let (mut app, ctx) = on_a_call();
-        ctx.enable_accesskit();
-        app.actions.push(Action::LeaveCallSurface);
-        frame_with(&mut app, &ctx, Vec::new());
-        let bar = labels(&mut app, &ctx);
-        assert!(
-            bar.contains(&"Return to the call".to_owned()),
-            "the call is still up behind the bar: {bar:?}"
-        );
-
-        let call = app.call.as_mut().expect("a call is up");
-        call.phase = CallPhase::Ended;
-        call.outcome = Some(crate::calls::CallOutcome::Answered);
-        let after = labels(&mut app, &ctx);
-        assert!(
-            !after.contains(&"Return to the call".to_owned()),
-            "a call that is over has no way back: {after:?}"
-        );
-    }
-
-    /// A locked chat's farewell, and any call the reader put aside, still ends behind the bar.
-    ///
-    /// `call_surface_hidden` is set for a locked call's terminal snapshot, but the surface only
-    /// looked at the bar while the phase was live, so the four-second farewell painted the whole
-    /// window once more and announced that a hidden chat had a call. A hidden snapshot stays behind
-    /// the bar whatever the phase.
-    #[test]
-    fn a_hidden_farewell_stays_behind_the_bar() {
-        let (mut app, ctx) = on_a_call();
-        ctx.enable_accesskit();
-        app.call_surface_hidden = true;
-        let call = app.call.as_mut().expect("a call is up");
-        call.phase = CallPhase::Ended;
-        call.outcome = Some(crate::calls::CallOutcome::Answered);
-        let shown = labels(&mut app, &ctx);
-        for absent in ["Full screen", "Mute", "Hang up"] {
-            assert!(
-                !shown.contains(&absent.to_owned()),
-                "a hidden farewell must not paint the call surface: {absent} in {shown:?}"
-            );
-        }
-    }
-
-    /// A call that is over offers no control: the backend has already released the runtime.
-    ///
-    /// The farewell keeps the controls it was drawn with so the outcome reads where the call was,
-    /// but the red Hang up stayed enabled, so a click sent a command nobody was listening for and
-    /// the screen offered an action for a call that had ended.
-    #[test]
-    fn the_farewell_offers_no_action_for_a_call_that_is_over() {
-        let (mut app, ctx) = on_a_call();
-        ctx.enable_accesskit();
-        let call = app.call.as_mut().expect("a call is up");
-        call.phase = CallPhase::Ended;
-        call.outcome = Some(crate::calls::CallOutcome::Answered);
-        let shown = labelled(&mut app, &ctx);
-        for tip in ["Mute", "Hang up"] {
-            let control = shown.iter().find(|(label, _)| label == tip);
-            assert!(
-                matches!(control, Some((_, true))),
-                "{tip} is disabled once the call is over: {shown:?}"
-            );
-        }
-    }
-
-    /// A group's chat offers a voice and a video call in its header, as a person's does, while
-    /// group calls are on; a channel's offers neither.
-    #[test]
-    fn a_groups_header_offers_calls() {
-        let _on = crate::calls::override_group_calls(true);
-        let (mut app, ctx) = header_app();
-        let shown = labels(&mut app, &ctx);
-        for expected in ["Voice call", "Video call"] {
-            assert!(
-                shown.contains(&expected.to_owned()),
-                "{expected} is in the group's header: {shown:?}"
-            );
-        }
-
-        let channel = SAMPLES
-            .iter()
-            .find(|sample| sample.id.ends_with("@newsletter"))
-            .unwrap()
-            .id;
-        app.open_chat = Some(channel.into());
-        let shown = labels(&mut app, &ctx);
-        assert!(
-            !shown.contains(&"Voice call".to_owned()),
-            "a channel has no call button: {shown:?}"
-        );
-    }
-
-    /// With group calls off, a group's header has no call buttons, and a person's keeps them.
-    #[test]
-    fn with_group_calls_off_a_groups_header_offers_no_calls() {
-        let _off = crate::calls::override_group_calls(false);
-        let (mut app, ctx) = header_app();
-        let shown = labels(&mut app, &ctx);
-        for absent in ["Voice call", "Video call"] {
-            assert!(
-                !shown.contains(&absent.to_owned()),
-                "{absent} is not in the group's header: {shown:?}"
-            );
-        }
-        let person = SAMPLES
-            .iter()
-            .find(|sample| sample.id.ends_with("@s.whatsapp.net"))
-            .unwrap()
-            .id;
-        app.open_chat = Some(person.into());
-        let shown = labels(&mut app, &ctx);
-        assert!(
-            shown.contains(&"Voice call".to_owned()),
-            "a person's chat still calls: {shown:?}"
-        );
-    }
-
-    /// The demo with a group's chat open, ready to read its header's labels.
-    fn header_app() -> (App, egui::Context) {
-        let mut app = app();
-        let group = SAMPLES
-            .iter()
-            .find(|sample| sample.id.ends_with("@g.us"))
-            .unwrap()
-            .id;
-        app.open_chat = Some(group.into());
-        let ctx = egui::Context::default();
-        app.attach(&ctx);
-        ctx.enable_accesskit();
-        (app, ctx)
-    }
-
-    /// A group call that only the phone can answer leaves the screen alone and says so, naming
-    /// who is calling which group.
-    #[test]
-    fn a_group_call_on_the_phone_only_is_a_notice() {
-        let mut app = app();
-        apply_flags(&mut app, Some("call-group-on-phone"));
-        assert!(app.call.is_none(), "no call screen");
-        let notice = app
-            .toasts
-            .iter()
-            .find(|toast| toast.message.contains("answer on your phone"))
-            .expect("the window says so");
-        let group = app.chat_title_of(SAMPLES[1].id);
-        assert!(notice.message.contains(&group), "{}", notice.message);
-    }
-
-    /// A call we started in a group is drawn as the group's, ringing everyone on it: nobody has
-    /// joined, so each reads as invited, and nobody is named as having rung.
-    #[test]
-    fn a_group_call_we_started_rings_its_members() {
-        let mut app = app();
-        apply_flags(&mut app, Some("call-group-calling"));
-        assert_eq!(app.call_name(), "Rust Berlin");
-        assert_eq!(app.call_caller_name(), None);
-        assert!(app.call_people().iter().all(|person| !person.joined));
-        let ctx = egui::Context::default();
-        app.attach(&ctx);
-        ctx.enable_accesskit();
-        let shown = labels(&mut app, &ctx);
-        assert!(shown.contains(&"Hang up".to_owned()), "{shown:?}");
-    }
-
-    /// A group's call rings under the group's name and says who started it, and once up it has a
-    /// tile for everyone on its roster, saying who has not joined. A voice call in a group offers
-    /// no camera: WhatsApp takes video only in a group call that began as one.
-    #[test]
-    fn a_group_call_names_its_group_who_rang_and_who_is_on_it() {
-        let mut ringing = app();
-        apply_flags(&mut ringing, Some("call-group"));
-        assert_eq!(ringing.call_name(), "Rust Berlin", "named by its group");
-        let caller = ringing.call_caller_name();
-        assert_eq!(caller.as_deref(), Some("Jonas"));
-        let call = ringing.call.clone().unwrap();
-        assert_eq!(
-            crate::ui::call::incoming_text(ringing.locale, &call, caller.as_deref()),
-            "Group voice call from Jonas"
-        );
-
-        let mut running = app();
-        apply_flags(&mut running, Some("call-group-active"));
-        let people: Vec<(String, bool)> = running
-            .call_people()
-            .into_iter()
-            .map(|person| (person.name, person.joined))
-            .collect();
-        assert_eq!(
-            people,
-            [
-                ("Jonas".to_owned(), true),
-                ("Mira".to_owned(), true),
-                ("Tom".to_owned(), true),
-                ("Ada Lovelace".to_owned(), true),
-                ("Grace Hopper".to_owned(), false),
-            ]
-        );
-        let ctx = egui::Context::default();
-        running.attach(&ctx);
-        ctx.enable_accesskit();
-        let shown = labels(&mut running, &ctx);
-        for expected in ["Mute", "Devices", "Hang up"] {
-            assert!(
-                shown.contains(&expected.to_owned()),
-                "{expected} is on the call screen: {shown:?}"
-            );
-        }
-        assert!(
-            !shown.contains(&"Start video".to_owned()),
-            "a group voice call offers no camera: {shown:?}"
-        );
-
-        // A locked group's call names nobody on it.
-        let group = running.call.as_ref().unwrap().chat.clone();
-        for chat in running.chats.iter_mut().filter(|chat| chat.id == group) {
-            chat.locked = true;
-        }
-        running.settings.set_chat_lock_code(Some("test-code"));
-        assert!(running.call_people().is_empty());
-        assert_eq!(
-            running.call_self().map(|me| me.name).as_deref(),
-            Some("You"),
-            "our own tile is ours to name"
-        );
-        assert_eq!(running.call_caller_name(), None);
-    }
-
-    #[test]
-    fn the_call_screen_labels_every_control_it_offers() {
-        let (mut running, ctx) = on_a_call();
-        ctx.enable_accesskit();
-        let screen = labels(&mut running, &ctx);
-        for expected in [
-            "Hide the call screen",
-            "Full screen",
-            "Mute",
-            "Start video",
-            "Devices",
-            "Hang up",
-        ] {
-            assert!(
-                screen.contains(&expected.to_owned()),
-                "missing accessible label: {expected}"
-            );
-        }
-        // The same controls say what they do when pressed, not just which button they are.
-        running.actions.push(Action::ToggleCallFullscreen);
-        let full = labels(&mut running, &ctx);
-        assert!(
-            full.contains(&"Exit full screen".to_owned()),
-            "the full-screen control says how to leave: {full:?}"
-        );
-
-        let mut ringing = app();
-        apply_flags(&mut ringing, Some("call"));
-        let ctx = egui::Context::default();
-        ctx.enable_accesskit();
-        ringing.attach(&ctx);
-        let incoming = labels(&mut ringing, &ctx);
-        for expected in ["Accept", "Decline"] {
-            assert!(
-                incoming.contains(&expected.to_owned()),
-                "missing accessible label: {expected}"
-            );
-        }
-    }
-}
-
-/// The call surface's previews: what they hand it, and the picture they hand it with.
-#[cfg(test)]
-mod call_preview_tests {
-    use super::tests::app;
-    use super::*;
-
-    #[test]
-    fn the_call_previews_hand_the_surface_a_live_call() {
-        let mut screen = app();
-        call_sample(&mut screen, true, false);
-        let incoming = screen.call.clone().expect("a call is on screen");
-        assert_eq!(incoming.phase, CallPhase::Incoming);
-        assert_eq!(incoming.direction, CallDirection::Incoming);
-        assert!(incoming.phase.is_live(), "a ringing call is still a call");
-        assert!(
-            !incoming.video,
-            "the ringing preview is the voice one, so the two do not read alike"
-        );
-
-        let mut screen = app();
-        call_sample(&mut screen, false, true);
-        let live = screen.call.clone().expect("a call is on screen");
-        assert_eq!(live.phase, CallPhase::Active);
-        assert_eq!(live.direction, CallDirection::Outgoing);
-        assert!(
-            live.started.is_some(),
-            "the duration has something to count from"
-        );
-        assert!(live.remote_video && live.camera_on);
-        assert!(
-            screen.call_remote_frame.is_some() && screen.call_local_frame.is_some(),
-            "a video preview has both pictures"
-        );
-        assert_eq!(
-            screen.call_remote_frame.as_ref().map(|frame| frame.size),
-            Some([540, 720]),
-            "the peer's picture keeps the shape a portrait phone sends"
-        );
-    }
-}
-
-/// The navigation rail beside the chat list, and the Calls tab beside the
+/// The navigation rail beside the chat list, beside the
 /// open chat.
 #[cfg(test)]
 mod rail_tests {
     use super::tests::app;
     use super::*;
-    use crate::model::{Action, Page};
+    use crate::model::Page;
     use crate::ui::focus::{self, Stop};
     use crate::ui::rail::{self, Destination};
 
@@ -22441,7 +21589,7 @@ mod rail_tests {
     }
 
     /// The rail stands at the window's left edge beside the list, with Chats
-    /// and Calls at its top and Starred, Settings and our avatar at its foot;
+    /// at its top and Starred, Settings and our avatar at its foot;
     /// with the list hidden, the chats' avatars fill it between the two. On
     /// macOS it starts below the traffic lights.
     #[test]
@@ -22459,15 +21607,13 @@ mod rail_tests {
                 header.left() >= rail.right(),
                 "{macos}: the list is beside it"
             );
-            let top = [Destination::Chats, Destination::Calls]
-                .map(|destination| destination_rect(&ctx, destination));
+            let top = [Destination::Chats].map(|destination| destination_rect(&ctx, destination));
             let starred = destination_rect(&ctx, Destination::Starred);
             let settings = destination_rect(&ctx, Destination::Settings);
             let me = stop_rect(&ctx, Stop::Profile).expect("our avatar is drawn");
             for rect in top.iter().chain([&starred, &settings, &me]) {
                 assert!(rail.contains_rect(*rect), "{macos}: {rect:?} in {rail:?}");
             }
-            assert!(top[0].bottom() <= top[1].top());
             // The compact rail stacks the bottom group one plate per row
             // in Starred, Archived, Locked, Settings order, 4 points
             // apart, centered in the rail.
@@ -22494,7 +21640,7 @@ mod rail_tests {
                 "{macos}: the bottom stack is centered: {bottom:?} in {rail:?}"
             );
             assert!(
-                starred.top() > top[1].bottom() + 100.0,
+                starred.top() > top[0].bottom() + 100.0,
                 "{macos}: at the foot"
             );
             assert_eq!(starred.size(), egui::vec2(36.0, 36.0));
@@ -22533,13 +21679,11 @@ mod rail_tests {
             let chats = destination_rect(&ctx, Destination::Chats);
             let starred = destination_rect(&ctx, Destination::Starred);
             let settings = destination_rect(&ctx, Destination::Settings);
-            let calls = destination_rect(&ctx, Destination::Calls);
             let show = stop_rect(&ctx, Stop::Sidebar).expect("Show the chat list");
-            assert!(rail.contains_rect(show) && show.top() >= calls.bottom());
+            assert!(rail.contains_rect(show) && show.top() >= chats.bottom());
             // The top group is anchored; the bottom row recenters in the
             // narrower rail, one centered plate per row.
             assert_eq!(chats, top[0], "{macos}: Chats stays put");
-            assert_eq!(calls, top[1], "{macos}: Calls stays put");
             for rect in [starred, settings] {
                 assert!(
                     (rail.width() - rect.right() - rect.left()).abs() < 1.0,
@@ -22554,7 +21698,7 @@ mod rail_tests {
                 "{macos}: {avatar:?} in {rail:?}"
             );
             assert!(
-                avatar.top() >= calls.bottom() && avatar.bottom() <= starred.top(),
+                avatar.top() >= chats.bottom() && avatar.bottom() <= starred.top(),
                 "{macos}: between the top group and Starred: {avatar:?}"
             );
             // Under Show the chat list, which takes a cell of its own.
@@ -22576,7 +21720,6 @@ mod rail_tests {
                     }
                     let mut expected = vec![
                         Stop::Chats,
-                        Stop::Calls,
                         Stop::Starred,
                         Stop::Archived,
                         Stop::Locked,
@@ -22655,7 +21798,7 @@ mod rail_tests {
                     frame_at(&mut app, &ctx, size, Vec::new());
                 }
                 assert!(stop_rect(&ctx, Stop::Profile).unwrap().bottom() > size.y);
-                let pointer = destination_rect(&ctx, Destination::Calls).center();
+                let pointer = destination_rect(&ctx, Destination::Chats).center();
                 frame_at(
                     &mut app,
                     &ctx,
@@ -22687,120 +21830,6 @@ mod rail_tests {
                 assert_eq!(stop_rect(&ctx, Stop::Profile), Some(profile));
             }
         }
-    }
-
-    /// The Calls page's chips, All and Missed, are the chat list's own,
-    /// under its search field and in its Tab order. Missed keeps only calls
-    /// to us nobody took, a group's included; a search looks among them,
-    /// and the choice is kept with the account.
-    #[test]
-    fn the_calls_chips_pick_missed_calls_and_combine_with_search() {
-        use crate::model::CallFilter;
-        use crate::ui::calls;
-        let (mut app, ctx) = open("calls", false);
-        let chip = |ctx: &egui::Context, filter| {
-            recorded(ctx, calls::filter_chip_id(filter)).expect("the chip is drawn")
-        };
-        let (all, missed) = (chip(&ctx, CallFilter::All), chip(&ctx, CallFilter::Missed));
-        let search = stop_rect(&ctx, Stop::Search).expect("the search field");
-        assert!(all.top() >= search.bottom() && all.right() <= missed.left());
-        assert_eq!(all.height(), 28.0, "the chat list's chip");
-        assert_eq!(stop_rect(&ctx, Stop::All), Some(all));
-        assert_eq!(stop_rect(&ctx, Stop::Missed), Some(missed));
-        let rows: Vec<(Message, bool)> = calls::rows(&app.call_log)
-            .into_iter()
-            .map(|row| {
-                let missed = calls::Entry::of(row[0]).unwrap().missed();
-                (row[0].clone(), missed)
-            })
-            .collect();
-        assert!(rows.iter().filter(|(_, missed)| *missed).count() >= 2);
-        assert!(
-            rows.iter().any(|(call, missed)| *missed
-                && matches!(call.content, Content::Call { group: true, .. })),
-            "a missed group call"
-        );
-        let drawn = |ctx: &egui::Context| -> Vec<String> {
-            rows.iter()
-                .filter(|(call, _)| {
-                    ctx.read_response(calls::row_id(&call.chat, &call.id))
-                        .is_some()
-                })
-                .map(|(call, _)| call.id.clone())
-                .collect()
-        };
-        let ids = |keep: &dyn Fn(&Message, bool) -> bool| -> Vec<String> {
-            rows.iter()
-                .filter(|(call, missed)| keep(call, *missed))
-                .map(|(call, _)| call.id.clone())
-                .collect()
-        };
-        assert_eq!(drawn(&ctx), ids(&|_, _| true), "All lists every row");
-
-        click(&mut app, &ctx, 1180.0, missed.center());
-        // A response can come from the pass before the last.
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        assert_eq!(app.call_filter, CallFilter::Missed);
-        assert_eq!(
-            app.account().settings.call_filter.as_deref(),
-            Some("missed")
-        );
-        assert_eq!(drawn(&ctx), ids(&|_, missed| missed), "only missed calls");
-
-        // A search looks among the missed calls only.
-        let ada = SAMPLES[0].id;
-        app.calls_search = app.display_name(ada);
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        assert_eq!(
-            drawn(&ctx),
-            ids(&|call, missed| missed && call.chat == ada),
-            "Ada's missed calls"
-        );
-        let grace = SAMPLES[2].id;
-        app.calls_search = app.display_name(grace);
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        let texts = frame_at(&mut app, &ctx, egui::vec2(1180.0, 780.0), Vec::new());
-        assert!(drawn(&ctx).is_empty(), "Grace has no missed call");
-        assert!(texts.iter().any(|text| text == "No matching calls"));
-        // The chips stay while searching: All brings Grace's call back.
-        let missed = chip(&ctx, CallFilter::Missed);
-        click(&mut app, &ctx, 1180.0, missed.center());
-        assert_eq!(app.call_filter, CallFilter::All, "a second click is All");
-        assert_eq!(app.account().settings.call_filter, None);
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        assert_eq!(drawn(&ctx), ids(&|call, _| call.chat == grace));
-    }
-
-    /// Missed with no missed call says so, and points back to All.
-    #[test]
-    fn missed_with_no_missed_calls_says_so() {
-        use crate::model::CallFilter;
-        use crate::ui::calls;
-        let (mut app, ctx) = open("calls-missed-none", false);
-        assert_eq!(app.call_filter, CallFilter::Missed);
-        assert!(!app.call_log.is_empty(), "other calls remain");
-        let texts = frame_at(&mut app, &ctx, egui::vec2(1180.0, 780.0), Vec::new());
-        assert!(
-            texts.iter().any(|text| text == "No missed calls"),
-            "{texts:?}"
-        );
-        assert!(
-            texts
-                .iter()
-                .any(|text| text == "Choose All to see every call."),
-            "{texts:?}"
-        );
-        assert!(
-            app.call_log.iter().all(|call| ctx
-                .read_response(calls::row_id(&call.chat, &call.id))
-                .is_none()),
-            "no rows"
-        );
-        let (app, ctx) = open("calls-missed", false);
-        assert_eq!(app.call_filter, CallFilter::Missed);
-        assert!(recorded(&ctx, calls::filter_chip_id(CallFilter::Missed)).is_some());
     }
 
     /// Archived sits in the rail's bottom group, lit while the archive fills
@@ -22877,97 +21906,13 @@ mod rail_tests {
             assert_eq!(in_header(&ctx), [Stop::NewChat, Stop::Sidebar], "{macos}");
             let (_app, ctx) = open("starred", macos);
             assert_eq!(in_header(&ctx), [Stop::Back], "{macos}");
-            let (_app, ctx) = open("calls", macos);
-            assert_eq!(in_header(&ctx), [Stop::NewChat], "{macos}: New call");
         }
     }
 
-    /// Opening Calls keeps the open chat beside the history; picking a row
-    /// opens that row's chat there, still on Calls. With no chat open the
-    /// pane offers to start a call.
-    #[test]
-    fn the_calls_tab_keeps_the_open_chat_beside_its_history() {
-        let (mut app, ctx) = open("chat", false);
-        let chat = app.open_chat.clone().expect("a chat is open to start");
-        let calls = destination_rect(&ctx, Destination::Calls);
-        click(&mut app, &ctx, 1180.0, calls.center());
-        assert_eq!(app.page, Page::Calls);
-        assert!(Destination::Calls.lit(&app) && !Destination::Chats.lit(&app));
-        assert_eq!(app.open_chat.as_deref(), Some(chat.as_str()));
-        assert!(
-            conversation_header(&ctx).is_some(),
-            "the chat stays on the right"
-        );
-        assert!(list_header(&ctx).is_some(), "the history is on the left");
-
-        let (mut app, ctx) = open("calls-chat", false);
-        let opened = app.open_chat.clone().unwrap();
-        assert!(conversation_header(&ctx).is_some());
-        let other = app
-            .call_log
-            .iter()
-            .find(|call| call.chat != opened)
-            .cloned()
-            .expect("a call with someone else");
-        let row = ctx
-            .read_response(crate::ui::calls::row_id(&other.chat, &other.id))
-            .expect("the row is drawn")
-            .rect;
-        click(
-            &mut app,
-            &ctx,
-            1180.0,
-            row.left_center() + egui::vec2(40.0, 0.0),
-        );
-        assert_eq!(app.page, Page::Calls, "picking a call stays on Calls");
-        assert_eq!(app.open_chat.as_deref(), Some(other.chat.as_str()));
-        assert!(app.call_picked());
-        assert!(conversation_header(&ctx).is_some());
-
-        let (app, ctx) = open("calls-info", false);
-        assert_eq!(app.page, Page::Calls);
-        assert!(app.call_picked() && conversation_header(&ctx).is_some());
-
-        let (_app, ctx) = open("calls", false);
-        assert!(
-            conversation_header(&ctx).is_none(),
-            "no chat: the start pane"
-        );
-    }
-
-    /// Calls and Starred are left through Chats or Escape, and Ctrl+Shift+1
-    /// and Ctrl+Shift+2 lead to Chats and Calls from anywhere.
+    /// Starred is left through Chats or Escape.
     #[test]
     fn escape_and_the_shortcuts_return_to_the_chats() {
-        let (mut app, ctx) = open("calls-chat", false);
-        let chat = app.open_chat.clone().unwrap();
-        frame(&mut app, &ctx, 1180.0, vec![escape()]);
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        assert_eq!(app.page, Page::Chats);
-        assert_eq!(
-            app.open_chat.as_deref(),
-            Some(chat.as_str()),
-            "the chat stays open"
-        );
-
-        frame(
-            &mut app,
-            &ctx,
-            1180.0,
-            vec![shifted(egui::Key::Num2, egui::Key::Num2)],
-        );
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        assert_eq!(app.page, Page::Calls);
-        frame(
-            &mut app,
-            &ctx,
-            1180.0,
-            vec![shifted(egui::Key::Exclamationmark, egui::Key::Num1)],
-        );
-        frame(&mut app, &ctx, 1180.0, Vec::new());
-        assert_eq!(app.page, Page::Chats);
-        assert_eq!(app.open_chat.as_deref(), Some(chat.as_str()));
-
+        let (mut app, ctx) = open("chat", false);
         let starred = destination_rect(&ctx, Destination::Starred);
         click(&mut app, &ctx, 1180.0, starred.center());
         assert!(app.show_starred && Destination::Starred.lit(&app));
@@ -22981,36 +21926,5 @@ mod rail_tests {
         let chats = destination_rect(&ctx, Destination::Chats);
         click(&mut app, &ctx, 1180.0, chats.center());
         assert!(!app.show_starred && app.page == Page::Chats);
-    }
-
-    /// A narrow window keeps the rail beside the list, and the rail goes
-    /// with the list when a picked call's chat slides over it; Escape
-    /// brings the history back.
-    #[test]
-    fn a_narrow_window_hides_the_rail_with_the_list() {
-        let (mut app, ctx) = open("calls", false);
-        for _ in 0..30 {
-            frame(&mut app, &ctx, 480.0, Vec::new());
-        }
-        let rail = rail_rect(&ctx).expect("the rail stands beside the history");
-        let header = list_header(&ctx).expect("the history fills the window");
-        assert!(rail.right() <= header.left());
-        let call = app.call_log[0].clone();
-        app.actions.push(Action::PickCall {
-            chat: call.chat.clone(),
-            message: call.id.clone(),
-        });
-        for _ in 0..30 {
-            frame(&mut app, &ctx, 480.0, Vec::new());
-        }
-        assert!(conversation_header(&ctx).is_some(), "the chat slides over");
-        assert!(rail_rect(&ctx).is_none() && list_header(&ctx).is_none());
-        frame(&mut app, &ctx, 480.0, vec![escape()]);
-        for _ in 0..30 {
-            frame(&mut app, &ctx, 480.0, Vec::new());
-        }
-        assert_eq!(app.page, Page::Calls);
-        assert!(app.open_chat.is_none());
-        assert!(rail_rect(&ctx).is_some() && list_header(&ctx).is_some());
     }
 }

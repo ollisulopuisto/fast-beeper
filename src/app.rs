@@ -7658,9 +7658,7 @@ impl App {
                     | Action::SendLocation { .. }
             )
         {
-            self.toast(
-                "Beeper: recording, clipboard images and stickers are not supported yet",
-            );
+            self.toast("Beeper: recording, clipboard images and stickers are not supported yet");
             return;
         }
         let reply_send = match &action {
@@ -13173,7 +13171,6 @@ mod tests {
 
     /// The Calls tab stays open across a switch of account and shows that
     /// account's calls; what each account had chosen there stays its own.
-
 
     #[test]
     fn a_back_side_button_press_steps_back_through_a_frame() {

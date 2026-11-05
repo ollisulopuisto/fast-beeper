@@ -46,8 +46,6 @@ pub struct BeeperConfig {
 
 static SESSION: std::sync::Mutex<Option<BeeperConfig>> = std::sync::Mutex::new(None);
 
-static BEEPER_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
 impl BeeperConfig {
     /// Solmu is a Beeper client; kept as a function so call sites read
     /// the same as before the native WhatsApp backend was removed.

@@ -4657,8 +4657,6 @@ pub fn edge_scroll(pointer: f32, top: f32, bottom: f32) -> f32 {
     }
 }
 
-
-
 /// Starts a reply when the response was double-clicked, as the menu's "Reply".
 fn reply_on_double_click(response: &egui::Response, message: &Message, actions: &mut Vec<Action>) {
     if response.double_clicked()

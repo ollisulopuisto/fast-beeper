@@ -1,11 +1,9 @@
 //! Channel bridge between the UI and asynchronous runtime.
 //!
-//! A dedicated tokio runtime owns the WhatsApp connection, archive, and media
+//! A dedicated tokio runtime owns the Beeper connection and media
 //! work. Commands and events cross channels, and events wake the UI.
 
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -17,14 +15,16 @@ use crate::paths::AccountDirs;
 pub(crate) mod picture_edit;
 
 // Re-exported so the picker can detect pasted Signal pack links.
+pub mod beeper;
+pub mod local_ai;
 mod read_sync;
 pub(crate) mod sticker_import;
 mod sticker_maker;
 pub(crate) mod sticker_store;
-mod worker;
-pub mod beeper;
-pub mod local_ai;
-pub use worker::{PINNED_CHATS, PLUS_PINNED_CHATS, host_owned_presence};
+/// Chats a free account pins; the worker enforces the cap.
+pub const PINNED_CHATS: usize = 3;
+/// Chats a WhatsApp Premium ("Plus") account pins.
+pub const PLUS_PINNED_CHATS: usize = 20;
 
 /// Result of a deletion request, without protocol errors crossing the bridge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,16 +34,10 @@ pub enum MessageRemovalOutcome {
     Uncertain,
 }
 
-/// Phone-link state.
+/// Beeper connection state.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LinkStatus {
     Starting,
-    /// Waiting for QR scanning or pairing-code acceptance.
-    Unlinked {
-        qr: Option<String>,
-        pair_code: Option<String>,
-        pairing_phone: Option<String>,
-    },
     Connecting,
     Connected,
     /// Connection dropped and automatic reconnection is active.
@@ -63,11 +57,26 @@ impl LinkStatus {
     /// Connection wording shared by the initial card and the offline banner.
     pub fn connection_copy(&self, beeper: bool) -> String {
         match self {
-            Self::Starting | Self::Connecting => if beeper { "Connecting to Beeper API..." } else { "Connecting to WhatsApp…" }.into(),
-            Self::Connected => if beeper { "Beeper API connected. Loading chats..." } else { "Linked. Waiting for your chats…" }.into(),
+            Self::Starting | Self::Connecting => if beeper {
+                "Connecting to Beeper API..."
+            } else {
+                "Connecting to WhatsApp…"
+            }
+            .into(),
+            Self::Connected => if beeper {
+                "Beeper API connected. Loading chats..."
+            } else {
+                "Linked. Waiting for your chats…"
+            }
+            .into(),
             Self::Disconnected { reason } => format!("Offline ({reason}). Reconnecting..."),
             Self::Failed(message) => message.clone(),
-            _ => if beeper { "Beeper API is not connected" } else { "Not linked to a phone" }.into(),
+            _ => if beeper {
+                "Beeper API is not connected"
+            } else {
+                "Not linked to a phone"
+            }
+            .into(),
         }
     }
 
@@ -75,7 +84,6 @@ impl LinkStatus {
     pub(crate) fn log_label(&self) -> &'static str {
         match self {
             Self::Starting => "starting",
-            Self::Unlinked { .. } => "unlinked",
             Self::Connecting => "connecting",
             Self::Connected => "connected",
             Self::Disconnected { .. } => "disconnected",
@@ -91,51 +99,26 @@ mod tests {
 
     #[test]
     fn connection_copy_matches_backend_and_does_not_claim_linked_when_offline() {
-        assert_eq!(LinkStatus::Connecting.connection_copy(true), "Connecting to Beeper API...");
-        assert!(LinkStatus::Connected.connection_copy(true).contains("Beeper API connected"));
-        let disconnected = LinkStatus::Disconnected { reason: "Connection refused".into() };
-        let text = disconnected.connection_copy(true);
-        assert!(text.contains("Offline")); assert!(text.contains("Connection refused"));
-        assert!(!text.contains("Linked"));
-        assert_eq!(LinkStatus::Connecting.connection_copy(false), "Connecting to WhatsApp…");
-    }
-
-    #[test]
-    fn backend_waits_for_window_acknowledgement_before_touching_storage() {
-        let directory = tempfile::tempdir().unwrap();
-        let dirs = crate::paths::AppDirs::under(directory.path());
-        let mut backend = super::Backend::spawn(dirs.as_account(), super::Waker::default());
-        assert!(!dirs.session_db().exists());
-        assert!(!dirs.archive_db().exists());
-        // Closing before a first frame must cancel startup without connecting
-        // or hanging while joining the waiting worker.
-        backend.shutdown();
-        assert!(!dirs.session_db().exists());
-        assert!(!dirs.archive_db().exists());
-    }
-
-    #[test]
-    fn link_logs_redact_pairing_credentials() {
-        let qr = "qr-payload-that-links-an-account";
-        let code = "12345678";
-        let phone = "573001234567";
-        let status = LinkStatus::Unlinked {
-            qr: Some(qr.into()),
-            pair_code: Some(code.into()),
-            pairing_phone: Some(phone.into()),
+        assert_eq!(
+            LinkStatus::Connecting.connection_copy(true),
+            "Connecting to Beeper API..."
+        );
+        assert!(
+            LinkStatus::Connected
+                .connection_copy(true)
+                .contains("Beeper API connected")
+        );
+        let disconnected = LinkStatus::Disconnected {
+            reason: "Connection refused".into(),
         };
-
-        // The previous Debug formatting leaked every field into solmu.log.
-        let previous = format!("link: {status:?}");
-        assert!(previous.contains(qr));
-        assert!(previous.contains(code));
-        assert!(previous.contains(phone));
-
-        let current = format!("link: {}", status.log_label());
-        assert_eq!(current, "link: unlinked");
-        assert!(!current.contains(qr));
-        assert!(!current.contains(code));
-        assert!(!current.contains(phone));
+        let text = disconnected.connection_copy(true);
+        assert!(text.contains("Offline"));
+        assert!(text.contains("Connection refused"));
+        assert!(!text.contains("Linked"));
+        assert_eq!(
+            LinkStatus::Connecting.connection_copy(false),
+            "Connecting to WhatsApp…"
+        );
     }
 }
 
@@ -467,45 +450,6 @@ pub enum Command {
         samples: Vec<f32>,
         quoting: Option<crate::model::ReplyTarget>,
     },
-    /// Places a 1:1 call, or starts a call in a group for a group chat, offering video from the
-    /// first frame when asked.
-    ///
-    /// `generation` is the one the window already drew the call under, and `cancel` is set when
-    /// the reader hangs up before the offer has gone out, so the peer is never rung for it.
-    StartCall {
-        chat: ChatId,
-        video: bool,
-        generation: u64,
-        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    },
-    /// Joins a call link by its token, with video for a video call's link. `generation` and
-    /// `cancel` are what [`Command::StartCall`] carries.
-    JoinCallLink {
-        token: String,
-        video: bool,
-        generation: u64,
-        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    },
-    /// Answers the ringing incoming call with the real `<accept>`.
-    AnswerCall,
-    /// Declines the ringing incoming call with the real `<reject>`.
-    DeclineCall,
-    /// Ends the current call.
-    HangupCall,
-    /// Mutes or unmutes the current call's microphone through the engine.
-    SetCallMuted(bool),
-    /// Turns the current call's camera on or off.
-    SetCallCamera(bool),
-    /// Rebinds the current call's microphone; `None` is the system default.
-    SetCallMicrophone(Option<String>),
-    /// Rebinds the current call's speaker; `None` is the system default.
-    SetCallSpeaker(Option<String>),
-    /// Switches the current call's camera node.
-    SetCallCameraDevice(Option<String>),
-    /// Lists the microphones, speakers and cameras the call screen offers.
-    RefreshCallDevices,
-    /// Reads the account's call entries for the Calls page.
-    LoadCallLog,
     /// Sends a played receipt for a voice message.
     MarkPlayed {
         chat: ChatId,
@@ -680,6 +624,14 @@ pub enum Command {
         source: std::path::PathBuf,
         name: String,
     },
+    /// The reader tried to open this message's attachment and its file is
+    /// gone: finds it again or lets it download again.
+    AttachmentMissing {
+        chat: ChatId,
+        message: String,
+        card: Option<usize>,
+        path: PathBuf,
+    },
     /// Opens the log, or shows it in its folder, off the interface thread;
     /// only a failure reports back.
     OpenLog(PathBuf),
@@ -830,7 +782,39 @@ pub enum Command {
     SetArchived(ChatId, bool),
     /// Beeper server reminder; None clears it. ISO8601 UTC timestamp.
     WatchBeeperChats(Vec<ChatId>),
-    SetBeeperReminder { chat: ChatId, at: Option<String> },
+    /// Resolve the authors and previews of quoted messages that were not
+    /// in the loaded page: (message holding the quote, quoted message id).
+    ResolveQuotes {
+        chat: ChatId,
+        refs: Vec<(String, String)>,
+    },
+    SetBeeperReminder {
+        chat: ChatId,
+        at: Option<String>,
+    },
+    /// Lists the companion scheduler's queue.
+    ListScheduled {
+        scheduler_url: String,
+        scheduler_token: String,
+    },
+    /// Acts on one scheduled item (cancel, retry, send-now).
+    ScheduledAction {
+        scheduler_url: String,
+        scheduler_token: String,
+        id: String,
+        action: String,
+    },
+    /// Schedules a message through the solmu-scheduler companion service.
+    ScheduleSend {
+        scheduler_url: String,
+        scheduler_token: String,
+        account: String,
+        chat: ChatId,
+        text: String,
+        due_at: i64,
+        quoting: Option<String>,
+        replaces: Option<String>,
+    },
     /// Leaves a group or channel. `archive` also hides the chat in Archived.
     LeaveGroup {
         chat: ChatId,
@@ -884,7 +868,6 @@ pub enum Command {
         at: i64,
         success: bool,
     },
-    PairWithPhone(String),
     /// Unlinks the device remotely and locally.
     Unlink,
     /// Unlinks this account and deletes its local folders.
@@ -1079,11 +1062,18 @@ pub struct BeeperAccountInfo {
     pub name: String,
     pub network: String,
     pub status: String,
+    /// The account's own user id from /v1/accounts, when the Server
+    /// supplies it: the account-identifier contract that proves a listed
+    /// direct chat is the chat with ourselves.
+    pub own_user_id: Option<String>,
 }
 
 #[derive(Debug)]
 pub enum Event {
-    BeeperAccounts { origin: String, accounts: Vec<BeeperAccountInfo> },
+    BeeperAccounts {
+        origin: String,
+        accounts: Vec<BeeperAccountInfo>,
+    },
     InteractiveReplyState {
         chat: ChatId,
         message: String,
@@ -1388,26 +1378,20 @@ pub enum Event {
         id: String,
         name: Option<String>,
     },
-    /// The current call changed state. The UI renders this and nothing else.
-    Call(Box<crate::calls::CallUpdate>),
-    /// A group call Solmu cannot join while [`crate::calls::GROUP_CALLS_ENABLED`] is off:
-    /// ringing (`phase` is `Incoming`), so the window says who is calling and to answer on the
-    /// phone, or over, so that word is taken back. It never takes the call screen.
-    PhoneOnlyCall(Box<crate::calls::CallUpdate>),
-    /// The devices the call screen can offer.
-    CallDevices(Box<crate::calls::DeviceList>),
-    /// The account's call entries, newest first, for the Calls page.
-    CallLog(Vec<Message>),
-    /// One video frame for the call screen: our own preview, the peer's picture, or both.
-    CallVideo {
-        local: Option<Arc<egui::ColorImage>>,
-        remote: Option<Arc<egui::ColorImage>>,
-        /// Whose picture `remote` is on a group call, by chat id; `None` for the peer of a
-        /// one-to-one call.
-        from: Option<String>,
-    },
     /// Informational toast message.
     Info(String),
+    /// A quoted message fetched by id because it was outside the loaded
+    /// page: (message holding the quote, resolved quote).
+    QuoteResolved {
+        chat: ChatId,
+        message: String,
+        quoted: crate::model::Quoted,
+    },
+    /// The companion scheduler's queue, after `Command::ListScheduled` or a
+    /// `ScheduledAction` (which always re-lists so the UI stays current).
+    ScheduledList(Vec<crate::scheduler::ScheduledMessage>),
+    /// The scheduler accepted the message; the UI clears the composer.
+    ScheduledAccepted,
     /// A decoded image ready to be written to the clipboard on the interface thread.
     ClipboardImage(Result<crate::model::DecodedImage, String>),
     /// A newer release than this build exists.
@@ -1433,13 +1417,57 @@ pub enum Event {
     /// The account folders were deleted after RemoveAccount.
     AccountRemoved,
     /// The API outcome is uncertain. Restore text without automatically retrying.
-    BeeperEditUncertain { chat: ChatId, id: String, text: String, message: String },
-    BeeperHistoryState{chat:ChatId,error:Option<String>},
-    BeeperLiveState{chat:ChatId,error:Option<String>},
-    BeeperSearchState{query:String,error:Option<String>,truncated:bool},
-    BeeperChatSearchError{chat:ChatId,query:String,from:Option<i64>,until:Option<i64>,error:String},
-    BeeperSendUncertain { chat: ChatId, text: String, message: String },
-    BeeperFilesUncertain { chat: ChatId, paths: Vec<PathBuf>, documents: bool, caption: Option<String>, message: String },
+    BeeperEditUncertain {
+        chat: ChatId,
+        id: String,
+        text: String,
+        message: String,
+    },
+    BeeperHistoryState {
+        chat: ChatId,
+        error: Option<String>,
+    },
+    BeeperLiveState {
+        chat: ChatId,
+        error: Option<String>,
+    },
+    BeeperSearchState {
+        query: String,
+        error: Option<String>,
+        truncated: bool,
+    },
+    BeeperChatSearchError {
+        chat: ChatId,
+        query: String,
+        from: Option<i64>,
+        until: Option<i64>,
+        error: String,
+    },
+    BeeperSendConfirmed {
+        origin: String,
+        account: String,
+        chat: ChatId,
+    },
+    BeeperSendUncertain {
+        chat: ChatId,
+        text: String,
+        message: String,
+    },
+    BeeperFilesUncertain {
+        chat: ChatId,
+        paths: Vec<PathBuf>,
+        documents: bool,
+        caption: Option<String>,
+        message: String,
+    },
+    /// A voice note's upload or send failed or ended uncertain. The recording
+    /// and its quote come back so the user can check history and resend by hand.
+    BeeperVoiceUncertain {
+        chat: ChatId,
+        quoting: Option<crate::model::ReplyTarget>,
+        samples: Vec<f32>,
+        message: String,
+    },
     Error(String),
     /// A change to a group's name or photo went to WhatsApp (`saving`), or
     /// WhatsApp answered it.
@@ -1579,41 +1607,7 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn spawn(dirs: AccountDirs, waker: Waker) -> Self {
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("solmu-runtime")
-            .enable_all()
-            .build()
-            .expect("unable to start the async runtime");
-        let worker_commands = command_tx.clone();
-        let (startup, started) = tokio::sync::oneshot::channel();
-        let thread = std::thread::Builder::new()
-            .name("solmu-backend".to_string())
-            .spawn(move || {
-                runtime.block_on(async move {
-                    if started.await.is_ok() {
-                        worker::run(dirs, event_tx, worker_commands, command_rx, waker).await;
-                    }
-                });
-                runtime.shutdown_timeout(Duration::from_secs(3));
-            })
-            .expect("unable to start the backend thread");
-
-        Self {
-            startup: Some(startup),
-            commands: command_tx,
-            events: event_rx,
-            thread: Some(thread),
-            offline: false,
-            #[cfg(any(test, feature = "demo"))]
-            demo_commands: None,
-        }
-    }
-
-    /// Spawns the Beeper demo backend instead of the WhatsApp worker.
+    /// Spawns the Beeper backend.
     /// Selected via [`beeper::BeeperConfig::from_env`].
     pub fn spawn_beeper(dirs: AccountDirs, waker: Waker, cfg: beeper::BeeperConfig) -> Self {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
@@ -1690,7 +1684,9 @@ impl Backend {
         self.offline
     }
 
-    pub(crate) fn command_sender(&self) -> mpsc::UnboundedSender<Command> { self.commands.clone() }
+    pub(crate) fn command_sender(&self) -> mpsc::UnboundedSender<Command> {
+        self.commands.clone()
+    }
 
     pub fn send(&self, command: Command) {
         if self.offline && !matches!(command, Command::Shutdown) {

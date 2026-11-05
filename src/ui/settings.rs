@@ -1008,35 +1008,23 @@ fn sections(app: &App) -> Vec<Section> {
 
     let mut files = Section::new(translated(locale, "Files"));
     // The account on screen: each number keeps its own archive and media.
-    let beeper_mode = crate::backend::beeper::BeeperConfig::is_beeper_mode();
     let state = app.account().dirs.state.clone();
-    let archive_description = if beeper_mode {
-        crate::i18n::gettext(locale, "Message history stays in Beeper. Local app data includes settings and encrypted drafts.").into_owned()
-    } else {
-        app.account().dirs.archive_db().display().to_string()
-    };
+    let archive_description = crate::i18n::gettext(
+        locale,
+        "Message history stays in Beeper. Local app data includes settings and encrypted drafts.",
+    )
+    .into_owned();
     let open_folder = crate::i18n::gettext(locale, "Open folder");
-    files.row(
-        translated(
-            locale,
-            if beeper_mode {
-                "Local app data"
-            } else {
-                "Message archive"
-            },
-        ),
-        archive_description,
-        {
-            let open_folder = open_folder.clone();
-            move |ui, app| {
-                if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), &open_folder, false)
-                    .clicked()
-                {
-                    app.actions.push(Action::OpenFolder(state));
-                }
+    files.row(translated(locale, "Local app data"), archive_description, {
+        let open_folder = open_folder.clone();
+        move |ui, app| {
+            if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), &open_folder, false)
+                .clicked()
+            {
+                app.actions.push(Action::OpenFolder(state));
             }
-        },
-    );
+        }
+    });
     let custom = app.settings.download_folder.clone();
     let media = custom
         .clone()
@@ -1044,7 +1032,7 @@ fn sections(app: &App) -> Vec<Section> {
     files.row(
         translated(
             locale,
-            if beeper_mode && custom.is_none() {
+            if custom.is_none() {
                 "Media cache (default download location)"
             } else {
                 "Downloads"
@@ -2111,11 +2099,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
                 ui,
                 crate::i18n::gettext(
                     app.locale,
-                    if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                        "A native client for your Beeper Server or Beeper Desktop accounts, based on Solmu."
-                    } else {
-                        "A native WhatsApp client built with Rust, egui, and whatsapp-rust."
-                    },
+                    "A native client for your Beeper Server or Beeper Desktop accounts, based on ZapFast.",
                 ),
                 theme::regular(13.0),
                 palette.secondary,
@@ -2167,18 +2151,16 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
                 .push(Action::OpenUrl(env!("CARGO_PKG_REPOSITORY").to_owned()));
         }
     });
-    if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-        ui.add_space(8.0);
-        theme::paragraph(
-            ui,
-            crate::i18n::gettext(
-                app.locale,
-                "Based on ZapFast. Source code and author credit below refer to the upstream project.",
-            ),
-            theme::regular(12.5),
-            palette.secondary,
-        );
-    }
+    ui.add_space(8.0);
+    theme::paragraph(
+        ui,
+        crate::i18n::gettext(
+            app.locale,
+            "Based on ZapFast. Source code and author credit below refer to the upstream project.",
+        ),
+        theme::regular(12.5),
+        palette.secondary,
+    );
     ui.add_space(14.0);
     if widgets::credit(ui, &palette, app.locale) {
         app.actions

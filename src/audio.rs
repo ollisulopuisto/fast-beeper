@@ -33,7 +33,6 @@ mod output;
 const CALL_STREAM: &str = "Call";
 
 pub use microphone::{Microphone, microphones};
-pub(crate) use output::{MixOutput, Monitor};
 pub use output::{Output, open_output};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

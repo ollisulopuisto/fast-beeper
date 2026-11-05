@@ -89,7 +89,6 @@ impl PrivacyKind {
             Self::CallAdd => "calladd",
         }
     }
-
 }
 
 /// One account privacy value. Not every value is valid for every category.
@@ -116,7 +115,6 @@ impl PrivacyChoice {
             Self::Known => pgettext(locale, "privacy", "Silence unknown callers"),
         }
     }
-
 }
 
 /// The account's privacy as the phone last reported it, with the writes still
@@ -227,7 +225,6 @@ mod tests {
         PrivacyChoice::SameAsLastSeen,
         PrivacyChoice::Known,
     ];
-
 
     #[test]
     fn a_failed_write_restores_the_confirmed_value() {

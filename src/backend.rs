@@ -1,11 +1,9 @@
 //! Channel bridge between the UI and asynchronous runtime.
 //!
-//! A dedicated tokio runtime owns the WhatsApp connection, archive, and media
+//! A dedicated tokio runtime owns the Beeper connection and media
 //! work. Commands and events cross channels, and events wake the UI.
 
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -36,7 +34,7 @@ pub enum MessageRemovalOutcome {
     Uncertain,
 }
 
-/// Phone-link state.
+/// Beeper connection state.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LinkStatus {
     Starting,
@@ -122,23 +120,6 @@ mod tests {
             "Connecting to WhatsApp…"
         );
     }
-
-    #[test]
-    fn backend_waits_for_window_acknowledgement_before_touching_storage() {
-        let directory = tempfile::tempdir().unwrap();
-        let dirs = crate::paths::AppDirs::under(directory.path());
-        let mut backend = super::Backend::spawn(dirs.as_account(), super::Waker::default());
-        assert!(!dirs.session_db().exists());
-        assert!(!dirs.archive_db().exists());
-        // Closing before a first frame must cancel startup without connecting
-        // or hanging while joining the waiting worker.
-        backend.shutdown();
-        assert!(!dirs.session_db().exists());
-        assert!(!dirs.archive_db().exists());
-    }
-
-    
-
 }
 
 /// Oldest loaded message timestamp and id used as a page boundary.
@@ -1626,7 +1607,7 @@ pub struct Backend {
 }
 
 impl Backend {
-    /// Spawns the Beeper demo backend instead of the WhatsApp worker.
+    /// Spawns the Beeper backend.
     /// Selected via [`beeper::BeeperConfig::from_env`].
     pub fn spawn_beeper(dirs: AccountDirs, waker: Waker, cfg: beeper::BeeperConfig) -> Self {
         let (command_tx, command_rx) = mpsc::unbounded_channel();

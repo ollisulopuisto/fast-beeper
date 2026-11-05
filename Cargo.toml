@@ -28,12 +28,11 @@ path = "src/bin/solmu-reader.rs"
 
 [dependencies]
 anyhow = "1"
-# Hashes saved stickers by content. Already included through wacore.
+# Hashes saved stickers by content.
 sha2 = "0.11"
 # Already in the tree through rustls; verifies lock codes.
 ring = "0.17"
-# Decrypts Signal sticker packs. All four crates are already included through
-# wacore at these versions.
+# Decrypts Signal sticker packs.
 aes = "0.9"
 cbc = { version = "0.2", features = ["alloc", "block-padding"] }
 hkdf = "0.13"

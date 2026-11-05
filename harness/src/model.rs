@@ -200,6 +200,18 @@ impl ChatFilter {
         Self::Channels,
     ];
 
+    /// The Alt+digit chip bindings, in their long-standing order. The
+    /// later chips joined the row after these were established, so they
+    /// get no positional binding and the existing ones never move.
+    pub const ALT_DIGIT: [Self; 6] = [
+        Self::All,
+        Self::Unread,
+        Self::Private,
+        Self::Favorites,
+        Self::Groups,
+        Self::Channels,
+    ];
+
     pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::gettext;
         match self {
@@ -218,51 +230,13 @@ impl ChatFilter {
         match self {
             Self::All => !chat.is_channel(),
             Self::Unread => chat.looks_unread() && !chat.is_channel(),
-            // Per-chat marks live in settings, not on the chat.
+            // Per-chat marks live in settings; App::filter_matches tests
+            // them against the saved lists, never this chat-only check.
             Self::ReplyLater | Self::ReadLater => false,
             Self::Private => chat.kind == ChatKind::Direct,
             Self::Favorites => chat.favorite && !chat.is_channel(),
             Self::Groups => chat.kind == ChatKind::Group,
             Self::Channels => chat.is_channel(),
-        }
-    }
-}
-
-/// Call-history filter chosen from the chips under the Calls page's search
-/// field.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CallFilter {
-    #[default]
-    All,
-    /// Calls to us that nobody took, group calls included.
-    Missed,
-}
-
-impl CallFilter {
-    pub const EVERY: [Self; 2] = [Self::All, Self::Missed];
-
-    pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
-        use crate::i18n::gettext;
-        match self {
-            Self::All => gettext(locale, "All"),
-            Self::Missed => gettext(locale, "Missed"),
-        }
-    }
-
-    /// The text settings keep for this filter; `None` for every call.
-    pub fn key(self) -> Option<String> {
-        match self {
-            Self::All => None,
-            Self::Missed => Some("missed".to_owned()),
-        }
-    }
-
-    /// Reads a stored filter. Anything unknown, as a later version may
-    /// write, shows every call.
-    pub fn parse(key: Option<&str>) -> Self {
-        match key {
-            Some("missed") => Self::Missed,
-            _ => Self::All,
         }
     }
 }
@@ -296,6 +270,10 @@ pub struct Chat {
     pub favorite_position: u32,
     /// Canonical group-member ids, empty until loaded.
     pub participants: Vec<String>,
+    /// Bridge-provided display names for participants, keyed by the same
+    /// ids: members who never sent a loaded message would otherwise have
+    /// no name source at all.
+    pub participant_names: std::collections::HashMap<String, String>,
     /// Group description: `None` until metadata is fetched, `Some("")`
     /// when fetched without a description, otherwise the original text.
     pub group_description: Option<String>,
@@ -338,6 +316,11 @@ pub struct Chat {
     pub backend_origin: Option<String>,
     /// Exact API network name, separate from a decorated account label.
     pub backend_network: Option<String>,
+    /// Beeper's per-chat poll capability level (-2 rejected .. 2 fully
+    /// supported, per the Desktop API), `None` when the server reports no
+    /// capabilities. Informational only: the API has no poll content or
+    /// vote endpoint to use it with yet.
+    pub poll_capability: Option<i8>,
 }
 
 /// A group's permissions and admins, as its metadata says. Kept in the
@@ -408,6 +391,7 @@ impl Chat {
             group_subject_known: false,
             kind,
             last_activity: 0,
+            participant_names: std::collections::HashMap::new(),
             unread: 0,
             marked_unread: false,
             archived: false,
@@ -434,6 +418,7 @@ impl Chat {
             backend_account: None,
             backend_origin: None,
             backend_network: None,
+            poll_capability: None,
         }
     }
 
@@ -591,10 +576,16 @@ pub enum Delivery {
     /// Incoming message without outgoing receipts.
     #[default]
     None,
+    /// Outgoing, but the backend reported no usable send status: distinct
+    /// from both "sent" (acknowledged) and incoming messages (no ticks).
+    Unknown,
     /// Sent to the backend but not acknowledged by the server.
     Pending,
     Sent,
     Delivered,
+    /// A group message some other participant has read; not everyone.
+    /// Persists as delivered and never claims all-read.
+    ReadBySome,
     Read,
     Played,
     Failed,
@@ -1121,7 +1112,8 @@ impl PollDraft {
 }
 
 /// The longest group name WhatsApp accepts, in characters.
-pub const GROUP_NAME_LIMIT: usize = whatsapp_rust::wacore::iq::groups::GROUP_SUBJECT_MAX_LENGTH;
+/// WhatsApp limits group subjects to 100 characters (wacore GROUP_SUBJECT_MAX_LENGTH).
+pub const GROUP_NAME_LIMIT: usize = 100;
 
 /// WhatsApp's longest live location share, in seconds.
 pub const LIVE_LOCATION_LIMIT: i64 = 8 * 60 * 60;
@@ -1479,6 +1471,25 @@ impl Content {
                 _ => None,
             },
         }
+    }
+
+    /// Where this message keeps `path`: `Some(None)` for its own attachment,
+    /// `Some(Some(index))` for a carousel card's picture.
+    pub fn place_of_file(&self, path: &std::path::Path) -> Option<Option<usize>> {
+        let holds = |media: &Media| media.path.as_deref() == Some(path);
+        if self.media().is_some_and(holds) {
+            return Some(None);
+        }
+        let Self::Interactive {
+            card: Some(card), ..
+        } = self
+        else {
+            return None;
+        };
+        card.carousel
+            .iter()
+            .position(|item| item.image.as_ref().is_some_and(holds))
+            .map(Some)
     }
 
     /// Whether this message belongs in the viewer album, and as what.
@@ -1873,8 +1884,6 @@ impl Contact {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Page {
     Chats,
-    /// Every call of the account, newest first.
-    Calls,
     Settings,
     Wallpaper,
 }
@@ -2298,12 +2307,31 @@ pub enum Dialog {
     /// Confirms emptying one account's media cache.
     ConfirmClearMediaCache(AccountId),
     /// Phone number used for pairing-code linking.
-    PairWithPhone,
     /// Contacts and the self-chat shortcut.
     NewChat,
     /// Manually entered number for messaging or saving a contact.
     NewContact,
     UnlockLockedChats,
+    /// Keyboard-first command palette: find chats, apply filters, run
+    /// common actions. Message search stays in the search fields.
+    Palette,
+    /// Jump between the chats already open as tabs (Ctrl+K). Closed
+    /// chats stay out: the palette and the list search find those.
+    JumpToChat,
+    /// Release notes: automatically once after an upgrade, and any time
+    /// from Help.
+    WhatsNew,
+    /// Schedules the composer's message for later delivery through the
+    /// solmu-scheduler companion service.
+    SendLater,
+    /// The Send Later queue: pending scheduled messages with their states.
+    ScheduledList,
+    /// A voice note's own transcription language, overriding the global
+    /// default for this message only.
+    TranscriptionLanguage {
+        chat: ChatId,
+        message: String,
+    },
     ConfirmLockChat(ChatId),
     /// Manages the local labels.
     Labels,
@@ -2525,42 +2553,6 @@ pub enum Action {
     /// Steps forward again after a back step.
     NavigateForward,
     OpenChat(ChatId),
-    /// Starts a voice call with the chat: the person, or everyone in a group.
-    StartCall(ChatId),
-    /// Starts a video call with the chat: the person, or everyone in a group.
-    StartVideoCall(ChatId),
-    /// Picks a call history row on the Calls page: its chat opens beside the
-    /// list at the call, with the chat's own call buttons in its header.
-    /// Carries the row's first call, which picks the row out.
-    PickCall {
-        chat: ChatId,
-        message: String,
-    },
-    /// Opens the new-call list over the Calls list, or closes it.
-    ShowNewCall(bool),
-    /// Answers the ringing incoming call.
-    AnswerCall,
-    /// Declines the ringing incoming call.
-    DeclineCall,
-    /// Ends the current call.
-    HangupCall,
-    /// Mutes or unmutes the current call's microphone.
-    SetCallMuted(bool),
-    /// Turns the current call's camera on or off.
-    SetCallCamera(bool),
-    /// Rebinds the current call's microphone; `None` is the system default.
-    SetCallMicrophone(Option<String>),
-    /// Rebinds the current call's speaker; `None` is the system default.
-    SetCallSpeaker(Option<String>),
-    /// Switches the current call's camera node.
-    SetCallCameraDevice(Option<String>),
-    /// Steps away from the full call screen without ending the call.
-    LeaveCallSurface,
-    /// Opens the full call screen again.
-    ReturnToCall,
-    /// Takes the call surface full screen, or leaves full screen again. The window moves; the call
-    /// does not.
-    ToggleCallFullscreen,
     /// Creates and opens a chat for a contact without one.
     StartChat {
         id: ChatId,
@@ -2603,6 +2595,24 @@ pub enum Action {
         text: String,
         /// Quoted message id.
         quoting: Option<crate::model::ReplyTarget>,
+    },
+    /// Acts on one queued Send Later item (cancel, retry, send-now).
+    ScheduledItemAction {
+        id: String,
+        action: String,
+    },
+    /// Schedules a message for later delivery through the companion
+    /// scheduler service.
+    ScheduleSend {
+        chat: ChatId,
+        text: String,
+        /// Unix seconds, local wall time chosen by the user.
+        due_at: i64,
+        /// Quoted message id when scheduling a reply.
+        quoting: Option<String>,
+        /// Queue item this schedule replaces; the daemon cancels it only
+        /// once the replacement is queued.
+        replaces: Option<String>,
     },
     /// Sends a spot as a location message.
     SendLocation {
@@ -2691,6 +2701,21 @@ pub enum Action {
         path: PathBuf,
         fraction: f32,
     },
+    /// Transcribes a downloaded voice note with the local service; the
+    /// transcript shows under its player. Carries the chat, since a chat
+    /// the app refuses to open must not transcribe into another one.
+    TranscribeVoice {
+        chat: ChatId,
+        message: String,
+        path: PathBuf,
+    },
+    /// Sets (Some) or clears (None) a voice note's own transcription
+    /// language, overriding the global default.
+    SetTranscriptionLanguage {
+        chat: ChatId,
+        message: String,
+        language: Option<String>,
+    },
     /// Sets the voice playback speed to one of the supported speeds.
     SetVoiceSpeed(f32),
     /// Plays or pauses a downloaded video inside its message.
@@ -2745,6 +2770,9 @@ pub enum Action {
         card: Option<usize>,
     },
     ZoomImageIn,
+    /// Turns the viewer's picture or clip a quarter, clockwise when true.
+    /// A view only; the file is untouched.
+    RotateImage(bool),
     /// Scales the previewed image by a factor, as the wheel or a pinch asks.
     ZoomImageBy(f32),
     /// Shows the previewed image at its original size.
@@ -2939,7 +2967,10 @@ pub enum Action {
         emoji: String,
     },
     SetArchived(ChatId, bool),
-    SetBeeperReminder { chat: ChatId, at: Option<String> },
+    SetBeeperReminder {
+        chat: ChatId,
+        at: Option<String>,
+    },
     /// Leaves a group or a channel. `archive` also hides the chat in Archived.
     LeaveGroup {
         chat: ChatId,
@@ -2958,12 +2989,16 @@ pub enum Action {
     },
     /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),
+    /// Flags a chat to reply to later, or clears the flag. Local only:
+    /// person-level, persisted in settings, never sent anywhere.
+    ToggleReplyLater(ChatId),
+    /// Flags a chat to read later, or clears the flag. Local only:
+    /// person-level, persisted in settings, never sent anywhere.
+    ToggleReadLater(ChatId),
     ShowDialog(Dialog),
     CloseDialog,
     ToggleSidebar,
     SetChatFilter(ChatFilter),
-    /// Picks the chip the Calls page's history shows.
-    SetCallFilter(CallFilter),
     /// Picks the label the chat list shows; `None` shows every chat.
     SelectLabel(Option<String>),
     /// Replaces the labels worn by one chat.
@@ -3140,7 +3175,6 @@ pub enum Action {
     ZoomBy(f32),
     ResetZoom,
     /// Requests a pairing code for a phone number.
-    PairWithPhone(String),
     /// Unlinks the device remotely and locally.
     Unlink,
     /// Hides everything behind the app lock, when a password is set.
@@ -3158,6 +3192,13 @@ pub enum Action {
     SubmitAppLockForm,
     /// How long Solmu may go unused before it locks.
     SetAutoLock(crate::settings::AutoLock),
+    /// Asks Touch ID on the lock screen; the first prompt per lock is
+    /// automatic, later ones are the button.
+    TryTouchId,
+    /// Turns Touch ID unlocks for the app lock on or off.
+    SetAppLockTouchId(bool),
+    /// Lets macOS put Solmu into App Nap, or keeps it running.
+    SetAllowAppNap(bool),
     Reconnect,
     /// Sets aside an archive whose key is gone and links again.
     StartOverArchive,
@@ -3645,15 +3686,6 @@ mod tests {
         );
         assert_eq!(ListFilter::parse("something-newer"), None);
         assert_eq!(ListFilter::parse("label:"), None);
-    }
-
-    #[test]
-    fn call_filters_survive_their_stored_form() {
-        for chip in CallFilter::EVERY {
-            assert_eq!(CallFilter::parse(chip.key().as_deref()), chip);
-        }
-        assert_eq!(CallFilter::All.key(), None);
-        assert_eq!(CallFilter::parse(Some("something-newer")), CallFilter::All);
     }
 
     #[test]

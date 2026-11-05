@@ -2033,33 +2033,6 @@ mod tests {
         };
         assert!(!press(&mut app, &ctx, Key::Num2, modifiers));
         assert_eq!(app.actions, [Action::FocusMessages]);
-        // The call screen covers the list, so the shortcut leaves it be.
-        app.actions.clear();
-        app.call = Some(crate::calls::CallUpdate {
-            generation: 1,
-            chat: ids[0].clone(),
-            direction: crate::model::CallDirection::Outgoing,
-            video: false,
-            phase: crate::calls::CallPhase::Active,
-            started: Some(std::time::Instant::now()),
-            muted: false,
-            camera_on: false,
-            remote_video: false,
-            video_requested: false,
-            outcome: None,
-            peer_audio: None,
-            lost_devices: Vec::new(),
-            microphone: None,
-            speaker: None,
-            camera: None,
-            group: None,
-        });
-        press(&mut app, &ctx, Key::Num2, modifiers);
-        assert!(app.actions.is_empty(), "{:?}", app.actions);
-        // Stepped away from the call, the chats are back, and so is the key.
-        app.call_surface_hidden = true;
-        assert!(!press(&mut app, &ctx, Key::Num2, modifiers));
-        assert_eq!(app.actions, [Action::FocusMessages]);
     }
 
     /// On Linux, Alt+2 picks the second sidebar filter and yields to a

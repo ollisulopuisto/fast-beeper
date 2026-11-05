@@ -13,8 +13,8 @@ set -euo pipefail
 binary="$1"
 app="$2"
 version="$3"
-mode="${4:-upstream}"
-if [[ "$mode" != upstream && "$mode" != beeper ]]; then echo "Unknown app mode" >&2; exit 1; fi
+mode="${4:-beeper}"
+if [[ "$mode" != beeper ]]; then echo "Only Beeper app mode is supported" >&2; exit 1; fi
 numeric_version="${version%%-*}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -38,17 +38,9 @@ fi
 sed "s/__VERSION__/$numeric_version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 
 if [[ "$mode" == beeper ]]; then
-    # A separate fork identity prevents updates/login agents colliding with stock Solmu.
+    # A separate fork identity preserves existing installations.
     /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier fi.sulopuisto.fast-beeper' "$app/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Solmu' "$app/Contents/Info.plist"
-fi
-
-# Starting in the tray at login: a login item cannot pass --start-hidden, so
-# SMAppService registers this agent from the bundle instead.
-identifier=me.paolino.fastsapp
-if [[ "$mode" == upstream ]]; then
-mkdir -p "$app/Contents/Library/LaunchAgents"
-cp "$here/autostart.plist" "$app/Contents/Library/LaunchAgents/$identifier.autostart.plist"
 fi
 
 iconset="$(mktemp -d)/solmu.iconset"

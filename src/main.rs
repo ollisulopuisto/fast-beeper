@@ -332,9 +332,7 @@ fn run() -> eframe::Result<()> {
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     // Moving a single-account setup into its account folder needs the
     // keyring; when it cannot finish, the log says why.
-    if !demo
-        && let Err(error) = dirs.adopt_single_account()
-    {
+    if !demo && let Err(error) = dirs.adopt_single_account() {
         log::error!("could not move the linked account into its folder: {error}");
         return Err(eframe::Error::AppCreation(error.into()));
     }
@@ -1140,8 +1138,6 @@ mod log_filter_tests {
             "fastframe_fonts::system"
         ));
     }
-
-
 
     #[test]
     fn verbose_keeps_arboard_warnings() {

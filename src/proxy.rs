@@ -1,17 +1,11 @@
-//! Proxy support for the WhatsApp connection, media, and update checks.
+//! Proxy support for media and update checks.
 //!
 //! The proxy comes from Settings, or from `ALL_PROXY` / `HTTPS_PROXY` when
 //! the setting is empty. `http://`, `socks5://`, and `socks5h://` proxies
 //! are supported, with an optional `user:password@`.
 
 use std::sync::{OnceLock, RwLock};
-use std::time::Duration;
 
-
-/// Time allowed to reach the proxy and open the tunnel.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-/// Longest proxy reply header accepted for an HTTP tunnel.
-const MAX_REPLY: usize = 8 * 1024;
 const ENV_VARS: [&str; 4] = ["ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,7 +106,6 @@ impl Proxy {
             _ => self.url.clone(),
         }
     }
-
 }
 
 fn percent_decode(value: &str) -> String {
@@ -244,7 +237,6 @@ pub fn reqwest_proxy() -> Option<reqwest::Proxy> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpListener;
 
     #[test]
     fn parses_supported_schemes() {
@@ -275,7 +267,4 @@ mod tests {
         assert!(!bypassed("web.whatsapp.com", "app.com,,"));
         assert!(!bypassed("web.whatsapp.com", ""));
     }
-
-
-
 }

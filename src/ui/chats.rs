@@ -296,7 +296,6 @@ fn tab_title(_page: &Page) -> &'static str {
 /// The new-call list's header, as WhatsApp's drawer has it: Back and "New
 /// call" in place of the avatar and the tab's title.
 
-
 /// The search field under the header's first row, and the filter chips
 /// under it.
 fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {
@@ -2994,7 +2993,7 @@ mod tests {
                     )),
                     ..Default::default()
                 },
-                |ui| buttons = header_buttons(ui.ctx(), false),
+                |ui| buttons = header_buttons(ui.ctx()),
             );
             output.textures_delta.clear();
             buttons
@@ -3002,7 +3001,6 @@ mod tests {
         assert_eq!(buttons(1000.0), [NewChat, HideList]);
         assert_eq!(buttons(400.0), [NewChat]);
     }
-
 
     use crate::paths::AppDirs;
     use crate::settings::Settings;

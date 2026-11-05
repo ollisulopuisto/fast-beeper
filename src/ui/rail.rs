@@ -1,5 +1,5 @@
 //! The left rail: one narrow vertical column of icons. Destinations (Chats
-//! and Calls; Starred, Archived and Locked chats while there are any;
+//! Starred, Archived and Locked chats while there are any;
 //! Settings and our own avatar, the account switcher) at the top, the quick
 //! filters, queues, labels and the favorite and pinned chats as icon and
 //! avatar jumps down the middle, and the Beeper networks as one plate per
@@ -22,7 +22,7 @@ use super::widgets;
 /// Width of the rail: one column of icons and avatars.
 pub const COMPACT: f32 = 52.0;
 /// Height of one destination at the top: the list header's title and
-/// search field sit level with Chats and Calls.
+/// search field sits below Chats.
 const CELL: f32 = 48.0;
 /// The lit square behind a destination's icon.
 const PLATE: f32 = 36.0;
