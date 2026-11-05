@@ -176,14 +176,14 @@
 
             postInstall =
               pkgs.lib.optionalString isLinux ''
-                install -Dm644 packaging/applications/solmu.desktop \
-                  $out/share/applications/solmu.desktop
-                install -Dm644 packaging/icons/solmu.svg \
-                  $out/share/icons/hicolor/scalable/apps/solmu.svg
-                install -Dm644 contrib/omarchy/solmu.json.tpl \
-                  $out/share/solmu/omarchy/solmu.json.tpl
-                install -Dm755 contrib/omarchy/solmu-theme \
-                  $out/share/solmu/omarchy/solmu-theme
+                install -Dm644 packaging/applications/zapfast.desktop \
+                  $out/share/applications/zapfast.desktop
+                install -Dm644 packaging/icons/zapfast.svg \
+                  $out/share/icons/hicolor/scalable/apps/zapfast.svg
+                install -Dm644 contrib/omarchy/zapfast.json.tpl \
+                  $out/share/solmu/omarchy/zapfast.json.tpl
+                install -Dm755 contrib/omarchy/zapfast-theme \
+                  $out/share/solmu/omarchy/zapfast-theme
               ''
               # Mirrors packaging/macos/bundle.sh: Solmu.app around the built
               # binary, with the version stripped of any prerelease suffix.
