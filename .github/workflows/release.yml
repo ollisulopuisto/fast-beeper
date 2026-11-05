@@ -235,7 +235,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/macos-input
-          bash packaging/macos/bundle.sh universal/solmu dist/macos-input/Solmu.app "$version"
+          bash packaging/macos/bundle.sh universal/solmu dist/macos-input/Solmu.app "$version" beeper
           cp README.md LICENSE THIRD-PARTY-NOTICES.md dist/macos-input/
 
       - name: Package, sign and notarize macOS app
