@@ -1671,10 +1671,6 @@ impl Backend {
         self.offline
     }
 
-    pub(crate) fn command_sender(&self) -> mpsc::UnboundedSender<Command> {
-        self.commands.clone()
-    }
-
     pub fn send(&self, command: Command) {
         if self.offline && !matches!(command, Command::Shutdown) {
             #[cfg(any(test, feature = "demo"))]

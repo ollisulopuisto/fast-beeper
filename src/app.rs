@@ -7640,22 +7640,6 @@ impl App {
             self.toast("Linked chats currently support text sends only. Unlink to send attachments; nothing was sent.");
             return;
         }
-        // Refuse unsupported capture/call actions before creating local state.
-        if crate::backend::beeper::BeeperConfig::from_env().is_some()
-            && matches!(
-                &action,
-                Action::StartRecording
-                    | Action::SendRecording
-                    | Action::PasteImage { .. }
-                    | Action::SendGif(_)
-                    | Action::SendSticker(_)
-                    | Action::MakeSticker { .. }
-                    | Action::SendLocation { .. }
-            )
-        {
-            self.toast("Beeper: recording, clipboard images and stickers are not supported yet");
-            return;
-        }
         let reply_send = match &action {
             Action::SendText { chat, quoting, .. } | Action::SendLocation { chat, quoting, .. } => {
                 Some((chat.as_str(), quoting.as_ref()))
@@ -8655,22 +8639,7 @@ impl App {
             }
             Action::Attach { documents } => {
                 if let Some(chat) = self.open_chat.clone() {
-                    if crate::backend::beeper::BeeperConfig::from_env().is_some() {
-                        let commands = self.backend.command_sender();
-                        std::thread::spawn(move || {
-                            let paths = rfd::FileDialog::new()
-                                .set_title("Attach to Beeper chat")
-                                .pick_files()
-                                .unwrap_or_default();
-                            let _ = commands.send(Command::Picked {
-                                chat,
-                                paths,
-                                documents,
-                            });
-                        });
-                    } else {
-                        self.backend.send(Command::PickFiles { chat, documents });
-                    }
+                    self.backend.send(Command::PickFiles { chat, documents });
                 }
             }
             Action::SetComposerTools(open) => {
