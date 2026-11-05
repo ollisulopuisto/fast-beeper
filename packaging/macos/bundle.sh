@@ -26,7 +26,24 @@ chmod 755 "$app/Contents/MacOS/solmu"
 scheduler="${5:-}"
 if [[ "$mode" == beeper ]]; then
     mv "$app/Contents/MacOS/solmu" "$app/Contents/MacOS/solmu-client"
-    xcrun swiftc -swift-version 5 -framework AppKit "$here/BeeperLauncher.swift" -o "$app/Contents/MacOS/solmu"
+    # swiftc otherwise builds only for the runner's host architecture. Match
+    # the Rust client's slices so a universal release also has a universal
+    # launcher (the bundle's main executable).
+    launcher_build="$(mktemp -d)"
+    trap 'rm -rf "$launcher_build"' EXIT
+    launcher_slices=()
+    for arch in $(lipo -archs "$app/Contents/MacOS/solmu-client"); do
+        case "$arch" in
+            arm64|x86_64) ;;
+            *) echo "Unsupported launcher architecture: $arch" >&2; exit 1 ;;
+        esac
+        xcrun swiftc -swift-version 5 -framework AppKit \
+            -target "$arch-apple-macosx11.0" "$here/BeeperLauncher.swift" \
+            -o "$launcher_build/solmu-$arch"
+        launcher_slices+=("$launcher_build/solmu-$arch")
+    done
+    lipo -create "${launcher_slices[@]}" -output "$app/Contents/MacOS/solmu"
+    lipo "$app/Contents/MacOS/solmu" -verify_arch $(lipo -archs "$app/Contents/MacOS/solmu-client")
     cp "$here/scheduler-health.sh" "$app/Contents/Resources/scheduler-health.sh"
     # Optional Send Later sidecar, bundled for the one-time in-app Studio
     # install (still approval-gated in the launcher before any install).
