@@ -3283,9 +3283,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "login" => {
                 unlink(app);
-                app.link = LinkStatus::Disconnected {
-                    reason: "endpoint unreachable".into(),
-                };
+                app.link = LinkStatus::LoggedOut;
             }
             "offline" => {
                 app.link = LinkStatus::Disconnected {
