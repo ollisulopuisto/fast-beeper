@@ -769,9 +769,9 @@ pub fn hue(seed: &str) -> f32 {
 }
 
 /// Embedded SVG app logo used across platform surfaces.
-const MARK: &[u8] = include_bytes!("../packaging/icons/solmu.svg");
+const MARK: &[u8] = include_bytes!("../packaging/icons/zapfast.svg");
 /// The same mark without its rim and shading, which blur below this size.
-const SMALL_MARK: &[u8] = include_bytes!("../packaging/icons/solmu-small.svg");
+const SMALL_MARK: &[u8] = include_bytes!("../packaging/icons/zapfast-small.svg");
 const SMALL_BELOW: usize = 40;
 
 /// Rasterizes the logo to straight-alpha RGBA.
@@ -1026,7 +1026,7 @@ mod tests {
         // tray that asks for the themed icon then draws a missing-icon
         // marker (#396).
         let svg = std::str::from_utf8(MARK).expect("the icon is UTF-8");
-        assert!(!svg.contains("<filter"), "packaging/icons/solmu.svg");
+        assert!(!svg.contains("<filter"), "packaging/icons/zapfast.svg");
     }
 
     #[test]

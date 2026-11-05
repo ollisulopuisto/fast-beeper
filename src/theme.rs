@@ -16,10 +16,12 @@ pub type Catalog = fastframe_theme::Catalog<Palette>;
 /// and stay isolated from the desktop and its files.
 pub const DESKTOP_THEMES: fastframe_theme::DesktopThemes = fastframe_theme::DesktopThemes {
     slug: "solmu",
-    omarchy_template: include_str!("../contrib/omarchy/solmu.json.tpl"),
+    omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"),
     // Every template Solmu shipped before, so an untouched copy installed
     // by an older release is replaced with the current one.
-    omarchy_previous_templates: &[include_str!("../contrib/omarchy/previous/solmu-1.json.tpl")],
+    omarchy_previous_templates: &[include_str!(
+        "../contrib/omarchy/previous/zapfast-1.json.tpl"
+    )],
     presets: true,
 };
 
@@ -1184,7 +1186,7 @@ pub fn circle_button(
 }
 
 /// Draws the app's mark as it ships: the lit disc and the ink bubble of
-/// `packaging/icons/solmu.svg`, rendered once per pixel size.
+/// `packaging/icons/zapfast.svg`, rendered once per pixel size.
 pub fn mark(ui: &egui::Ui, center: egui::Pos2, diameter: f32) {
     let ctx = ui.ctx();
     let pixels = (diameter * ctx.pixels_per_point()).round().max(1.0) as usize;
@@ -1212,7 +1214,7 @@ pub fn mark(ui: &egui::Ui, center: egui::Pos2, diameter: f32) {
 /// faint watermark.
 pub fn logo(ui: &egui::Ui, center: egui::Pos2, diameter: f32, disc: Color32, glyph: Color32) {
     ui.painter().circle_filled(center, diameter / 2.0, disc);
-    // Match `packaging/icons/solmu-small.svg`: the bubble sits a little
+    // Match `packaging/icons/zapfast-small.svg`: the bubble sits a little
     // right of and above the centre, where its tail balances it.
     let icon_size = diameter * 0.674;
     let icon_rect = egui::Rect::from_center_size(
@@ -2043,7 +2045,7 @@ mod tests {
     /// renders as Omarchy's own renderer does.
     #[test]
     fn the_omarchy_template_renders_like_omarchy_in_light_and_dark_themes() {
-        const TEMPLATE: &str = include_str!("../contrib/omarchy/solmu.json.tpl");
+        const TEMPLATE: &str = include_str!("../contrib/omarchy/zapfast.json.tpl");
         for (colors, expected) in [
             (
                 include_str!("../tests/fixtures/omarchy/catppuccin.tsv"),
@@ -2075,7 +2077,7 @@ mod tests {
     #[test]
     fn the_shipped_omarchy_hook_has_not_drifted() {
         assert_eq!(
-            include_str!("../contrib/omarchy/solmu-theme").replace("\r\n", "\n"),
+            include_str!("../contrib/omarchy/zapfast-theme").replace("\r\n", "\n"),
             fastframe_theme::omarchy::hook_script("solmu")
         );
     }
