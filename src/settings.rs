@@ -928,8 +928,8 @@ pub struct AccountSettings {
     /// The chip or label the chat list last showed, as
     /// [`crate::model::ListFilter::key`] writes it; `None` shows every chat.
     pub list_filter: Option<String>,
-    /// The chip the Calls page last showed, as
-    /// [`crate::model::CallFilter::key`] writes it; `None` shows every call.
+    /// The chip the Calls page last showed, kept only so older settings
+    /// files still load; the native Calls page is gone.
     pub call_filter: Option<String>,
 }
 
