@@ -9,7 +9,7 @@ native window. No browser engine.
 This is a personal tester build, not a product release: the app is unsigned
 (ad-hoc signed, not notarized), targets Apple Silicon (arm64, macOS 11+),
 and is distributed as versioned DMGs on this repository's
-[Releases](https://github.com/ollisulopuisto/fast-beeper/releases) page.
+[Releases](https://github.com/ollisulopuisto/solmu/releases) page.
 
 ## How it works
 
@@ -33,7 +33,7 @@ is not part of the Linux setup.
 ## Install
 
 1. Download `Solmu-Beeper-<version>-<commit>.dmg` from the latest
-   [release](https://github.com/ollisulopuisto/fast-beeper/releases) and
+   [release](https://github.com/ollisulopuisto/solmu/releases) and
    check it against the attached `.sha256`.
 2. Drag **Solmu.app** to Applications. Because the build is
    unsigned, open it the first time with right-click > Open.
