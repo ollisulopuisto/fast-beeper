@@ -3725,7 +3725,12 @@ impl App {
                     .iter()
                     .any(|p| p.members.iter().any(|m| m.matches(chat)))
             })
-            .map(|chat| (chat.id.clone(), self.beeper_person_preview(chat).last_activity))
+            .map(|chat| {
+                (
+                    chat.id.clone(),
+                    self.beeper_person_preview(chat).last_activity,
+                )
+            })
             .collect();
         chats.sort_by(|a, b| {
             b.pinned.cmp(&a.pinned).then_with(|| {
