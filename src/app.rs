@@ -3711,6 +3711,22 @@ impl App {
             .collect();
         // The Favorites chip keeps the phone's order below the pinned chats.
         let favorites_order = self.favorites_order();
+        // beeper_person_preview clones the chat and, for linked people, scans
+        // every member conversation's messages, so calling it twice per sort
+        // comparison costs O(n log n) clones per frame. Compute each linked
+        // chat's adjusted activity once instead; unmatched chats keep their
+        // own last_activity, exactly as the preview returns them.
+        let person_activity: HashMap<ChatId, i64> = chats
+            .iter()
+            .filter(|chat| {
+                self.settings
+                    .beeper
+                    .people
+                    .iter()
+                    .any(|p| p.members.iter().any(|m| m.matches(chat)))
+            })
+            .map(|chat| (chat.id.clone(), self.beeper_person_preview(chat).last_activity))
+            .collect();
         chats.sort_by(|a, b| {
             b.pinned.cmp(&a.pinned).then_with(|| {
                 if a.pinned && b.pinned {
@@ -3723,9 +3739,16 @@ impl App {
                     self.draft_priority(&b.id)
                         .cmp(&self.draft_priority(&a.id))
                         .then_with(|| {
-                            self.beeper_person_preview(b)
-                                .last_activity
-                                .cmp(&self.beeper_person_preview(a).last_activity)
+                            person_activity
+                                .get(&b.id)
+                                .copied()
+                                .unwrap_or(b.last_activity)
+                                .cmp(
+                                    &person_activity
+                                        .get(&a.id)
+                                        .copied()
+                                        .unwrap_or(a.last_activity),
+                                )
                         })
                         .then(a.id.cmp(&b.id))
                 }
@@ -26337,6 +26360,66 @@ mod person_tests {
             1,
             "two pinned chats of one person pin once"
         );
+    }
+
+    fn message(chat: &str, id: &str, timestamp: i64) -> Message {
+        Message {
+            id: id.into(),
+            chat: chat.into(),
+            sender: chat.into(),
+            sender_name: None,
+            from_me: false,
+            timestamp,
+            content: Content::text(id),
+            status: Delivery::None,
+            delivered_at: None,
+            read_at: None,
+            quoted: None,
+            reactions: Vec::new(),
+            history_order: None,
+            edited: false,
+            mentions: Vec::new(),
+            forwarded: false,
+            thumbnail: None,
+        }
+    }
+
+    /// The list sort must compare each chat against the person's combined
+    /// activity - including timestamps that only exist in loaded history -
+    /// exactly as beeper_person_preview computes it, once per chat rather
+    /// than twice per comparison.
+    #[test]
+    fn the_list_sorts_people_by_their_combined_activity() {
+        let mut app = app();
+        let wa = member_chat("ada-wa@s.whatsapp.net", "whatsapp", 0, 10);
+        let tg = member_chat("ada-tg@telegram", "telegram", 0, 20);
+        let mut bob = Chat::new("bob@s.whatsapp.net".into(), "Bob".into());
+        // Newer than the person's chats (20), older than the loaded message (30):
+        // only the history-aware preview puts the person ahead of Bob.
+        bob.last_activity = 25;
+        app.conversations.insert(
+            tg.id.clone(),
+            Conversation {
+                messages: vec![message(&tg.id, "tg-latest", 30)],
+                ..Default::default()
+            },
+        );
+        app.chats = vec![wa.clone(), tg.clone(), bob];
+        app.settings.beeper.people.push(ada(vec![
+            Member::of(&wa).unwrap(),
+            Member::of(&tg).unwrap(),
+        ]));
+        assert_eq!(
+            app.beeper_person_preview(&tg).last_activity,
+            30,
+            "the preview sees the loaded message"
+        );
+        let visible = app.visible_chats();
+        assert_eq!(
+            visible[0].id, tg.id,
+            "the linked person sorts by the latest loaded message"
+        );
+        assert_eq!(visible.len(), 2, "the person still collapses to one row");
     }
 
     #[test]
