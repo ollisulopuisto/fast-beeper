@@ -1,5 +1,5 @@
 //! The left rail: one narrow vertical column of icons. Destinations (Chats
-//! and Calls; Starred, Archived and Locked chats while there are any;
+//! Starred, Archived and Locked chats while there are any;
 //! Settings and our own avatar, the account switcher) at the top, the quick
 //! filters, queues, labels and the favorite and pinned chats as icon and
 //! avatar jumps down the middle, and the Beeper networks as one plate per
@@ -22,7 +22,7 @@ use super::widgets;
 /// Width of the rail: one column of icons and avatars.
 pub const COMPACT: f32 = 52.0;
 /// Height of one destination at the top: the list header's title and
-/// search field sit level with Chats and Calls.
+/// search field sits below Chats.
 const CELL: f32 = 48.0;
 /// The lit square behind a destination's icon.
 const PLATE: f32 = 36.0;
@@ -99,7 +99,6 @@ pub(crate) fn width_id() -> egui::Id {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Destination {
     Chats,
-    Calls,
     Starred,
     Archived,
     Locked,
@@ -117,7 +116,6 @@ impl Destination {
                     && !app.locked_folder_open()
                     && !app.beeper_scope_is_active()
             }
-            Self::Calls => app.page == Page::Calls,
             Self::Starred => app.page == Page::Chats && app.show_starred,
             Self::Archived => chats && app.show_archived,
             Self::Locked => chats && app.locked_folder_open(),
@@ -155,11 +153,6 @@ impl Destination {
                 }
                 if app.locked_folder {
                     actions.push(Action::CloseLockedFolder);
-                }
-            }
-            Self::Calls => {
-                if app.page != Page::Calls {
-                    actions.push(Action::Open(Page::Calls));
                 }
             }
             Self::Starred => {
@@ -269,9 +262,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                 // of leaving the bottom buttons beyond the window.
                 ui.set_height(height);
                 destination_button(app, ui, &palette, Destination::Chats, CELL);
-                destination_button(app, ui, &palette, Destination::Calls, CELL);
                 if hidden {
-                    // A cell of its own under Calls: nothing above it moves
+                    // A cell of its own under Chats: nothing above it moves
                     // when the list comes and goes.
                     show_list_button(app, ui, &palette);
                     ui.add_space(GAP / 2.0);
@@ -504,15 +496,6 @@ fn destination_plate(
                 super::keys::label("Ctrl+Shift+1")
             ),
         ),
-        Destination::Calls => (
-            Icon::Phone,
-            Stop::Calls,
-            format!(
-                "{} ({})",
-                gettext(app.locale, "Calls"),
-                super::keys::label("Ctrl+Shift+2")
-            ),
-        ),
         Destination::Starred => (
             Icon::Star,
             Stop::Starred,
@@ -619,7 +602,6 @@ mod tests {
         let lit = |app: &App| {
             [
                 Destination::Chats,
-                Destination::Calls,
                 Destination::Starred,
                 Destination::Archived,
                 Destination::Locked,
@@ -635,24 +617,13 @@ mod tests {
         app.show_archived = false;
         app.show_starred = true;
         assert_eq!(lit(&app), [Destination::Starred]);
-        app.page = Page::Calls;
-        assert_eq!(lit(&app), [Destination::Calls]);
         app.page = Page::Wallpaper;
         assert_eq!(lit(&app), [Destination::Settings]);
     }
 
     #[test]
-    fn calls_and_starred_are_left_through_chats_not_toggled() {
+    fn starred_is_left_through_chats_not_toggled() {
         let (_root, mut app) = app();
-        app.page = Page::Calls;
-        assert!(
-            Destination::Calls.actions(&app).is_empty(),
-            "Calls is not a toggle"
-        );
-        assert!(matches!(
-            Destination::Chats.actions(&app).as_slice(),
-            [Action::Open(Page::Chats)]
-        ));
         assert!(matches!(
             Destination::Starred.actions(&app).as_slice(),
             [Action::Open(Page::Chats), Action::ToggleStarred]

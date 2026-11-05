@@ -292,7 +292,7 @@ pub fn content_description(locale: Locale, content: &Content, text: &str) -> Str
             group,
         } => call_description(
             locale,
-            &crate::ui::calls::Entry {
+            &crate::ui::call_log::Entry {
                 from_me: false,
                 video: *video,
                 status: *status,
@@ -305,7 +305,7 @@ pub fn content_description(locale: Locale, content: &Content, text: &str) -> Str
 
 /// A call in a chat, as its bubble draws it: the title, then the call's
 /// length or what became of it.
-pub fn call_description(locale: Locale, entry: &crate::ui::calls::Entry) -> String {
+pub fn call_description(locale: Locale, entry: &crate::ui::call_log::Entry) -> String {
     let mut parts = vec![entry.title(locale)];
     parts.extend(entry.detail(locale));
     parts.join(", ")
@@ -808,7 +808,7 @@ mod tests {
     #[test]
     fn a_call_reads_as_its_bubble_draws_it() {
         use crate::model::CallStatus;
-        use crate::ui::calls::Entry;
+        use crate::ui::call_log::Entry;
         let en = Locale::default();
         let call = |from_me, status, duration| Entry {
             from_me,

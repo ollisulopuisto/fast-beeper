@@ -34,6 +34,10 @@ pub struct Account {
     pub contacts: HashMap<String, Contact>,
     pub conversations: HashMap<ChatId, Conversation>,
     pub open_chat: Option<ChatId>,
+    /// Recently opened chats, most recent last; `open_chat` is the open
+    /// one and is always a member. Feeds the Cmd+K switcher; was the tab
+    /// strip's order.
+    pub open_tabs: Vec<ChatId>,
     /// The background-history state last sent to this account's worker: the
     /// switch and the chat on screen.
     pub(crate) prefetch_sent: Option<(bool, Option<ChatId>)>,
@@ -60,7 +64,7 @@ pub struct Account {
     pub account_receipts_off: bool,
     pub(crate) avatars: HashMap<String, Option<PathBuf>>,
     pub(crate) avatar_requests: HashSet<String>,
-    avatar_checks: HashMap<String,std::time::Instant>,
+    avatar_checks: HashMap<String, std::time::Instant>,
     pub(crate) avatars_full: HashMap<String, Option<PathBuf>>,
     pub(crate) avatar_full_requests: HashSet<String>,
     pub(crate) played_told: HashSet<String>,
@@ -90,11 +94,25 @@ pub struct Account {
     /// The `CreateGroup` the window waits for; an earlier one's answer files
     /// its group and opens nothing.
     pub(crate) new_group_request: Option<u64>,
-    pub pair_phone: String,
+    /// Draft in the per-message transcription language dialog.
+    pub transcription_language_draft: String,
+    /// Send Later dialog draft: custom date (YYYY-MM-DD) and time (HH:MM),
+    /// plus a validation error to show. Prefilled when the dialog opens.
+    pub send_later_date: String,
+    pub send_later_time: String,
+    pub send_later_error: Option<String>,
+    /// Queue item the Send Later dialog is replacing: cancelled by the
+    /// daemon only once the replacement is queued.
+    pub send_later_replaces: Option<String>,
+    /// Composer text stashed while editing a queued message, restored if
+    /// the dialog is dismissed without scheduling.
+    pub send_later_draft_backup: Option<String>,
+    /// The scheduler queue as the companion service last reported it;
+    /// None while the first fetch is in flight or after a failure.
+    pub scheduled_messages: Option<Vec<crate::scheduler::ScheduledMessage>>,
     pub show_archived: bool,
     pub chat_filter: ChatFilter,
     /// The chip the Calls page's history shows.
-    pub call_filter: crate::model::CallFilter,
     pub labels: Vec<Label>,
     /// Starred messages, newest star first, and whether the left panel lists
     /// them instead of the chats.
@@ -117,18 +135,6 @@ pub struct Account {
     pub(crate) reported_online: Option<bool>,
     /// Chats this account may pin; WhatsApp Plus raises it once known.
     pub pin_limit: usize,
-    /// The call entries the Calls page lists, newest first, once read.
-    pub call_log: Vec<Message>,
-    pub call_log_loaded: bool,
-    /// The call history row last picked on the Calls page, whose chat shows
-    /// beside the list: its chat and its first call.
-    pub picked_call: Option<(ChatId, String)>,
-    /// Whether the new-call list covers the call history.
-    pub new_call: bool,
-    /// What the Calls list's search field holds.
-    pub calls_search: String,
-    /// What the new-call list's search field holds.
-    pub new_call_search: String,
 }
 
 impl Account {
@@ -140,6 +146,12 @@ impl Account {
         backend: Backend,
     ) -> Self {
         let open_chat = settings.last_chat.clone();
+        let mut open_tabs = settings.open_tabs.clone();
+        if let Some(chat) = &open_chat
+            && !open_tabs.contains(chat)
+        {
+            open_tabs.push(chat.clone());
+        }
         let chat_filter = match settings
             .list_filter
             .as_deref()
@@ -148,7 +160,6 @@ impl Account {
             Some(crate::model::ListFilter::Chip(chip)) => chip,
             _ => ChatFilter::All,
         };
-        let call_filter = crate::model::CallFilter::parse(settings.call_filter.as_deref());
         Self {
             id,
             dirs,
@@ -166,6 +177,7 @@ impl Account {
             contacts: HashMap::new(),
             conversations: HashMap::new(),
             open_chat,
+            open_tabs,
             prefetch_sent: None,
             scroll_chat_into_view: None,
             drafts: HashMap::new(),
@@ -209,10 +221,15 @@ impl Account {
             new_group: None,
             new_group_sequence: 0,
             new_group_request: None,
-            pair_phone: String::new(),
+            transcription_language_draft: String::new(),
+            send_later_date: String::new(),
+            send_later_time: String::new(),
+            send_later_error: None,
+            send_later_replaces: None,
+            send_later_draft_backup: None,
+            scheduled_messages: None,
             show_archived: false,
             chat_filter,
-            call_filter,
             labels: Vec::new(),
             starred: Vec::new(),
             show_starred: false,
@@ -225,12 +242,6 @@ impl Account {
             group_saving: HashSet::new(),
             reported_online: None,
             pin_limit: crate::backend::PINNED_CHATS,
-            call_log: Vec::new(),
-            call_log_loaded: false,
-            picked_call: None,
-            new_call: false,
-            calls_search: String::new(),
-            new_call_search: String::new(),
         }
     }
 
@@ -257,11 +268,12 @@ impl Account {
             AccountSettings::default()
         };
         resolve_wallpaper_path(&dirs, &mut settings);
-        let backend = if let Some(cfg) = crate::backend::beeper::BeeperConfig::from_env() {
-            Backend::spawn_beeper(dirs.clone(), waker.clone(), cfg)
-        } else {
-            Backend::spawn(dirs.clone(), waker.clone())
-        };
+        let backend = Backend::spawn_beeper(
+            dirs.clone(),
+            waker.clone(),
+            crate::backend::beeper::BeeperConfig::from_env()
+                .expect("Beeper session or environment config"),
+        );
         Ok(Self::new(id, dirs, settings, backend))
     }
 
@@ -316,18 +328,37 @@ impl Account {
 
     /// Returns or requests a cached profile picture from this account.
     pub fn avatar(&mut self, id: &str) -> Option<PathBuf> {
-        let beeper=self.chats.iter().any(|chat|chat.backend_account.is_some());
+        let beeper = self.chats.iter().any(|chat| chat.backend_account.is_some());
         if beeper {
-            let expired=self.avatar_checks.get(id).is_some_and(|at|at.elapsed()>std::time::Duration::from_secs(900));
-            let missing=self.avatars.get(id).and_then(|p|p.as_ref()).is_some_and(|p|!p.is_file());
-            if expired || missing {self.avatars.remove(id);self.avatar_checks.remove(id);}
-            if self.avatar_checks.len()>=2048 && !self.avatar_checks.contains_key(id) {
-                if let Some(key)=self.avatar_checks.keys().next().cloned(){self.avatar_checks.remove(&key);self.avatars.remove(&key);}
+            let expired = self
+                .avatar_checks
+                .get(id)
+                .is_some_and(|at| at.elapsed() > std::time::Duration::from_secs(900));
+            let missing = self
+                .avatars
+                .get(id)
+                .and_then(|p| p.as_ref())
+                .is_some_and(|p| !p.is_file());
+            if expired || missing {
+                self.avatars.remove(id);
+                self.avatar_checks.remove(id);
+            }
+            if self.avatar_checks.len() >= 2048
+                && !self.avatar_checks.contains_key(id)
+                && let Some(key) = self.avatar_checks.keys().next().cloned()
+            {
+                self.avatar_checks.remove(&key);
+                self.avatars.remove(&key);
             }
         }
-        if let Some(known) = self.avatars.get(id) {return known.clone();}
+        if let Some(known) = self.avatars.get(id) {
+            return known.clone();
+        }
         if self.avatar_requests.insert(id.to_owned()) {
-            if beeper {self.avatar_checks.insert(id.to_owned(),std::time::Instant::now());}
+            if beeper {
+                self.avatar_checks
+                    .insert(id.to_owned(), std::time::Instant::now());
+            }
             self.backend.send(crate::backend::Command::FetchAvatar {
                 id: id.to_owned(),
                 full: false,

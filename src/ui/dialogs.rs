@@ -32,7 +32,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::ConfirmRemoveAccount(_) => 380.0,
                 Dialog::ConfirmClearMediaCache(_) => 380.0,
                 Dialog::ConfirmLeaveGroup(_) => 380.0,
-                Dialog::PairWithPhone => 380.0,
                 Dialog::NewContact => 380.0,
                 Dialog::NewChat => 420.0,
                 Dialog::Palette => 480.0,
@@ -88,7 +87,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Dialog::ConfirmRemoveAccount(id) => confirm_remove(app, ui, id),
                 Dialog::ConfirmClearMediaCache(id) => confirm_clear_media(app, ui, id),
                 Dialog::ConfirmLeaveGroup(id) => confirm_leave_group(app, ui, &id),
-                Dialog::PairWithPhone => pair_with_phone(app, ui),
                 Dialog::NewContact => new_contact(app, ui),
                 Dialog::NewChat => new_chat(app, ui),
                 Dialog::Palette => super::palette::show(app, ui),
@@ -1102,11 +1100,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                "A native Beeper client based on Solmu, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper."
-            } else {
-                "A native WhatsApp client written in Rust with egui. It connects through whatsapp-rust. Messages are end-to-end encrypted on this device."
-            },
+            "A native Beeper client based on ZapFast, built with Rust and egui. It connects to your existing Beeper Server or Beeper Desktop API. Message history and network connections stay in Beeper.",
         ),
         theme::regular(13.0),
         palette.text,
@@ -1115,11 +1109,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         ui,
         crate::i18n::gettext(
             app.locale,
-            if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                "This is an unofficial Beeper client. Supported features depend on your Beeper API and connected networks. Source links and author credit below refer to the upstream ZapFast project."
-            } else {
-                "This is an unofficial client. Using it may be against WhatsApp's terms of service and could get an account suspended."
-            },
+            "This is an unofficial Beeper client. Supported features depend on your Beeper API and connected networks. Source links and author credit below refer to the upstream ZapFast project.",
         ),
         theme::regular(12.5),
         palette.secondary,
@@ -1943,97 +1933,6 @@ fn transcription_language(app: &mut App, ui: &mut egui::Ui, chat: &ChatId, messa
                 false,
             );
             if cancel.clicked() {
-                app.actions.push(Action::CloseDialog);
-            }
-        });
-    });
-}
-
-fn pair_with_phone(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
-    title(
-        ui,
-        app,
-        &crate::i18n::gettext(app.locale, "Link with a phone number"),
-    );
-    theme::paragraph(
-        ui,
-        crate::i18n::gettext(
-            app.locale,
-            "Enter the WhatsApp phone number with its country code. Do not include a plus sign or leading zero. You will get a code to enter on the phone.",
-        ),
-        theme::regular(13.0),
-        palette.secondary,
-    );
-    ui.add_space(4.0);
-    let id = egui::Id::new("pair-phone");
-    let submit = ui.memory(|memory| memory.has_focus(id))
-        && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-    let field = Frame::new()
-        .fill(palette.surface)
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                // Set the row height from the field instead of the shorter label.
-                ui.set_min_height(
-                    ui.ctx()
-                        .fonts_mut(|fonts| fonts.row_height(&theme::regular(16.0)))
-                        + 4.0,
-                );
-                theme::text(ui, "+", theme::semibold(16.0), palette.secondary);
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut app.pair_phone)
-                        .id(id)
-                        .hint_text(
-                            egui::RichText::new("15551234567")
-                                .color(palette.dim)
-                                .font(theme::regular(16.0)),
-                        )
-                        .font(theme::regular(16.0))
-                        .text_color(palette.text)
-                        .frame(egui::Frame::NONE)
-                        .desired_width(f32::INFINITY),
-                );
-                if !response.has_focus() && app.pair_phone.is_empty() {
-                    response.request_focus();
-                }
-            });
-        });
-    theme::focus_outline(ui, id, field.response.rect, f32::from(theme::RADIUS));
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let ready = app.pair_phone.chars().filter(char::is_ascii_digit).count() >= 7;
-            // Stay the main action, but look and read as unavailable until
-            // the number is long enough.
-            let hint = crate::i18n::gettext(
-                app.locale,
-                "Enter the whole number, starting with the country code",
-            );
-            let get_code = ui
-                .add_enabled_ui(ready, |ui| {
-                    theme::pill_button(
-                        ui,
-                        &palette,
-                        &crate::i18n::gettext(app.locale, "Get a code"),
-                        true,
-                    )
-                    .on_disabled_hover_text(hint)
-                })
-                .inner;
-            if (get_code.clicked() || submit) && ready {
-                app.actions
-                    .push(Action::PairWithPhone(app.pair_phone.clone()));
-            }
-            if theme::pill_button(
-                ui,
-                &palette,
-                &crate::i18n::gettext(app.locale, "Cancel"),
-                false,
-            )
-            .clicked()
-            {
                 app.actions.push(Action::CloseDialog);
             }
         });

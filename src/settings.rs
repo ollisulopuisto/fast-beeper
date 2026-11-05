@@ -536,7 +536,7 @@ pub struct Settings {
     /// with the phone's "Keep chats archived". Off, a new message brings the
     /// chat back to the list.
     pub keep_chats_archived: bool,
-    /// Proxy for WhatsApp, media, and updates, such as
+    /// Proxy for media and update downloads, such as
     /// `socks5h://127.0.0.1:9050`. Empty follows `ALL_PROXY` / `HTTPS_PROXY`.
     pub proxy: String,
     /// Ask GitHub once a day whether a newer release exists.

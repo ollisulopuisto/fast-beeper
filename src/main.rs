@@ -167,7 +167,7 @@ fn control(command: &Control, sent: single_instance::Sent) -> (i32, Option<Strin
 /// hiding real clipboard failures (`arboard=error`) or any other warning.
 fn default_log_filter(verbose: bool) -> &'static str {
     if verbose {
-        "info,solmu=debug,whatsapp_rust=debug,wacore=debug"
+        "info,solmu=debug"
     } else {
         // env_logger treats '/' as a message-regex separator, so it cannot
         // select the literal target Client/AppState here. Enable Client INFO;
@@ -302,10 +302,6 @@ fn run() -> eframe::Result<()> {
     };
     // A demo's folders are throwaway; remove them when the run returns.
     let _demo_root = demo_root.map(RemoveOnDrop);
-    let beeper_mode = ["SOLMU_BACKEND", "ZAPFAST_BACKEND"]
-        .iter()
-        .filter_map(|var| std::env::var(var).ok())
-        .any(|v| v.eq_ignore_ascii_case("beeper"));
     let profile_root_set = [
         "SOLMU_PROFILE_ROOT",
         "ZAPFAST_PROFILE_ROOT",
@@ -313,7 +309,7 @@ fn run() -> eframe::Result<()> {
     ]
     .iter()
     .any(|var| std::env::var_os(var).is_some());
-    if !demo && !beeper_mode && !profile_root_set {
+    if !demo && !profile_root_set {
         dirs.adopt_previous_names()
             .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     }
@@ -323,8 +319,7 @@ fn run() -> eframe::Result<()> {
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let logging = fastframe_log::Logging::new("solmu", env!("CARGO_PKG_VERSION"))
         .filter(default_filter)
-        .panic_log(dirs.panic_log())
-        .redact(redact_protocol);
+        .panic_log(dirs.panic_log());
     // Write desktop-session logs to disk. Demo runs use stderr so they do not
     // replace a live session's log.
     let logging = if demo {
@@ -337,10 +332,7 @@ fn run() -> eframe::Result<()> {
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     // Moving a single-account setup into its account folder needs the
     // keyring; when it cannot finish, the log says why.
-    if !demo
-        && !beeper_mode
-        && let Err(error) = dirs.adopt_single_account()
-    {
+    if !demo && let Err(error) = dirs.adopt_single_account() {
         log::error!("could not move the linked account into its folder: {error}");
         return Err(eframe::Error::AppCreation(error.into()));
     }
@@ -573,18 +565,6 @@ fn startup_failure_dialog(error: &eframe::Error) {
             MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
         );
     }
-}
-
-/// Summarises the WhatsApp library's lines, which can quote protocol
-/// payloads, into fixed categories.
-fn redact_protocol(
-    record: &log::Record<'_>,
-    message: &str,
-) -> Option<std::borrow::Cow<'static, str>> {
-    use solmu::diagnostics::{is_protocol_target, protocol_summary};
-    (is_protocol_target(record.target())
-        || is_protocol_target(record.module_path().unwrap_or_default()))
-    .then(|| protocol_summary(message))
 }
 
 /// Whether the first window starts in the tray.
@@ -1157,47 +1137,6 @@ mod log_filter_tests {
             log::Level::Debug,
             "fastframe_fonts::system"
         ));
-    }
-
-    #[test]
-    fn default_log_records_protocol_recovery_lifecycle_and_redacts_other_client_info() {
-        let filter = default_log_filter(false);
-        assert!(matches(filter, log::Level::Info, "Client/AppState"));
-        assert!(!matches(filter, log::Level::Info, "AppState"));
-        // env_logger cannot select a literal target containing '/'. The
-        // broader Client INFO target must remain inside the redaction boundary.
-        assert!(matches(filter, log::Level::Info, "Client/Message"));
-        let record = log::Record::builder()
-            .level(log::Level::Info)
-            .target("Client/Message")
-            .module_path(Some("whatsapp_rust::client::message"))
-            .args(format_args!("private"))
-            .build();
-        assert_eq!(
-            redact_protocol(&record, "private 12345@s.whatsapp.net"),
-            Some(std::borrow::Cow::Borrowed(
-                "protocol diagnostic (private details omitted)"
-            ))
-        );
-    }
-
-    #[test]
-    fn app_state_info_is_redacted_even_with_a_custom_log_target() {
-        let record = log::Record::builder()
-            .args(format_args!("private 12345@s.whatsapp.net"))
-            .level(log::Level::Info)
-            .target("Client/AppState")
-            .module_path(Some("whatsapp_rust::client::app_state"))
-            .build();
-        assert_eq!(
-            redact_protocol(
-                &record,
-                "Recovered the regular_low collection from the primary device: 12345@s.whatsapp.net"
-            ),
-            Some(std::borrow::Cow::Borrowed(
-                "app-state regular_low recovery reply applied by library"
-            ))
-        );
     }
 
     #[test]

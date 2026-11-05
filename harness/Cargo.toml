@@ -3,11 +3,8 @@ name = "solmu-harness"
 version = "0.0.0"
 edition = "2024"
 
-# Test harness for solmu's Beeper adapter: check-source.sh stages REAL model.rs,
-# backend.rs and backend/beeper.rs (staged by check_adapter.py) plus the leaf modules
-# they reference, so the mock integration tests run without compiling the
-# WhatsApp stack (waproto's generated 475k lines do not fit this CI box's
-# per-command time slice; the full tree compiles on a normal machine).
+# Portable Beeper adapter checks stage current sources via check_adapter.py
+# and stub only unrelated UI/platform leaves. Full native tests run in CI.
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
@@ -19,7 +16,6 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 directories = "6"
 jiff = "0.2"
 fastframe_shell = { path = "stubs/fastframe_shell" }
-whatsapp_rust = { path = "stubs/whatsapp_rust" }
 log = "0.4"
 fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2" }
 egui = { path = "stubs/egui" }

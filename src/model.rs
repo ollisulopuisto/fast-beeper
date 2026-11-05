@@ -241,45 +241,6 @@ impl ChatFilter {
     }
 }
 
-/// Call-history filter chosen from the chips under the Calls page's search
-/// field.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CallFilter {
-    #[default]
-    All,
-    /// Calls to us that nobody took, group calls included.
-    Missed,
-}
-
-impl CallFilter {
-    pub const EVERY: [Self; 2] = [Self::All, Self::Missed];
-
-    pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
-        use crate::i18n::gettext;
-        match self {
-            Self::All => gettext(locale, "All"),
-            Self::Missed => gettext(locale, "Missed"),
-        }
-    }
-
-    /// The text settings keep for this filter; `None` for every call.
-    pub fn key(self) -> Option<String> {
-        match self {
-            Self::All => None,
-            Self::Missed => Some("missed".to_owned()),
-        }
-    }
-
-    /// Reads a stored filter. Anything unknown, as a later version may
-    /// write, shows every call.
-    pub fn parse(key: Option<&str>) -> Self {
-        match key {
-            Some("missed") => Self::Missed,
-            _ => Self::All,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chat {
     pub id: ChatId,
@@ -1151,7 +1112,8 @@ impl PollDraft {
 }
 
 /// The longest group name WhatsApp accepts, in characters.
-pub const GROUP_NAME_LIMIT: usize = whatsapp_rust::wacore::iq::groups::GROUP_SUBJECT_MAX_LENGTH;
+/// WhatsApp limits group subjects to 100 characters (wacore GROUP_SUBJECT_MAX_LENGTH).
+pub const GROUP_NAME_LIMIT: usize = 100;
 
 /// WhatsApp's longest live location share, in seconds.
 pub const LIVE_LOCATION_LIMIT: i64 = 8 * 60 * 60;
@@ -1922,8 +1884,6 @@ impl Contact {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Page {
     Chats,
-    /// Every call of the account, newest first.
-    Calls,
     Settings,
     Wallpaper,
 }
@@ -2347,7 +2307,6 @@ pub enum Dialog {
     /// Confirms emptying one account's media cache.
     ConfirmClearMediaCache(AccountId),
     /// Phone number used for pairing-code linking.
-    PairWithPhone,
     /// Contacts and the self-chat shortcut.
     NewChat,
     /// Manually entered number for messaging or saving a contact.
@@ -2594,42 +2553,6 @@ pub enum Action {
     /// Steps forward again after a back step.
     NavigateForward,
     OpenChat(ChatId),
-    /// Starts a voice call with the chat: the person, or everyone in a group.
-    StartCall(ChatId),
-    /// Starts a video call with the chat: the person, or everyone in a group.
-    StartVideoCall(ChatId),
-    /// Picks a call history row on the Calls page: its chat opens beside the
-    /// list at the call, with the chat's own call buttons in its header.
-    /// Carries the row's first call, which picks the row out.
-    PickCall {
-        chat: ChatId,
-        message: String,
-    },
-    /// Opens the new-call list over the Calls list, or closes it.
-    ShowNewCall(bool),
-    /// Answers the ringing incoming call.
-    AnswerCall,
-    /// Declines the ringing incoming call.
-    DeclineCall,
-    /// Ends the current call.
-    HangupCall,
-    /// Mutes or unmutes the current call's microphone.
-    SetCallMuted(bool),
-    /// Turns the current call's camera on or off.
-    SetCallCamera(bool),
-    /// Rebinds the current call's microphone; `None` is the system default.
-    SetCallMicrophone(Option<String>),
-    /// Rebinds the current call's speaker; `None` is the system default.
-    SetCallSpeaker(Option<String>),
-    /// Switches the current call's camera node.
-    SetCallCameraDevice(Option<String>),
-    /// Steps away from the full call screen without ending the call.
-    LeaveCallSurface,
-    /// Opens the full call screen again.
-    ReturnToCall,
-    /// Takes the call surface full screen, or leaves full screen again. The window moves; the call
-    /// does not.
-    ToggleCallFullscreen,
     /// Creates and opens a chat for a contact without one.
     StartChat {
         id: ChatId,
@@ -3076,8 +2999,6 @@ pub enum Action {
     CloseDialog,
     ToggleSidebar,
     SetChatFilter(ChatFilter),
-    /// Picks the chip the Calls page's history shows.
-    SetCallFilter(CallFilter),
     /// Picks the label the chat list shows; `None` shows every chat.
     SelectLabel(Option<String>),
     /// Replaces the labels worn by one chat.
@@ -3254,7 +3175,6 @@ pub enum Action {
     ZoomBy(f32),
     ResetZoom,
     /// Requests a pairing code for a phone number.
-    PairWithPhone(String),
     /// Unlinks the device remotely and locally.
     Unlink,
     /// Hides everything behind the app lock, when a password is set.
@@ -3766,15 +3686,6 @@ mod tests {
         );
         assert_eq!(ListFilter::parse("something-newer"), None);
         assert_eq!(ListFilter::parse("label:"), None);
-    }
-
-    #[test]
-    fn call_filters_survive_their_stored_form() {
-        for chip in CallFilter::EVERY {
-            assert_eq!(CallFilter::parse(chip.key().as_deref()), chip);
-        }
-        assert_eq!(CallFilter::All.key(), None);
-        assert_eq!(CallFilter::parse(Some("something-newer")), CallFilter::All);
     }
 
     #[test]

@@ -1545,10 +1545,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "whatsapp_rust"
-version = "0.0.0"
-
-[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1684,7 +1680,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "whatsapp_rust",
 ]
 
 [[package]]

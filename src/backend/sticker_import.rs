@@ -735,7 +735,6 @@ mod tests {
 
     #[test]
     fn a_whatsapp_pack_unpacks_in_order_with_its_emojis() {
-        use whatsapp_rust::sticker_pack::{StickerInput, create_sticker_pack_zip};
         let red = webp_bytes(tiny_png()).expect("encodes");
         let blue = {
             let mut bytes = Vec::new();
@@ -751,31 +750,23 @@ mod tests {
             image::guess_format(&thumbnail).expect("known"),
             image::ImageFormat::Jpeg
         );
-        let inputs = [
-            StickerInput::new(&blue).with_emojis(vec!["🐸".into()]),
-            StickerInput::new(&red),
+        // Build a protocol-shaped fixture without depending on the native
+        // WhatsApp client crate. The import path uses only ZIP + WebP.
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let plain: zip::write::FileOptions<'_, '_, ()> = zip::write::FileOptions::default();
+        for (name, bytes) in [("02.webp", &blue), ("01.webp", &red), ("tray.webp", &cover)] {
+            writer.start_file(name, plain).expect("entry");
+            std::io::Write::write_all(&mut writer, bytes).expect("writes");
+        }
+        let zip_bytes = writer.finish().expect("finishes").into_inner();
+        let listed = vec![
+            ("02.webp".to_owned(), vec!["🐸".to_owned()]),
+            ("01.webp".to_owned(), Vec::new()),
         ];
-        let zip = create_sticker_pack_zip("pack1", &inputs, &cover).expect("zips");
-        let listed: Vec<(String, Vec<String>)> = zip
-            .stickers
-            .iter()
-            .map(|sticker| {
-                (
-                    sticker.file_name.clone().expect("named"),
-                    sticker.emojis.clone(),
-                )
-            })
-            .collect();
         let root = tempfile::tempdir().expect("temp");
         let dir = root.path().join("shared").join("pack1");
-        let files = extract_whatsapp_pack(
-            &zip.zip_bytes,
-            &listed,
-            Some(&zip.tray_icon_file_name),
-            "Frogs",
-            &dir,
-        )
-        .expect("unpacks");
+        let files = extract_whatsapp_pack(&zip_bytes, &listed, Some("tray.webp"), "Frogs", &dir)
+            .expect("unpacks");
         assert_eq!(files.len(), 2, "the tray icon stays out");
         let first = std::fs::read(&files[0]).expect("reads");
         assert_eq!(crate::sticker_meta::emojis(&first), vec!["🐸"]);
