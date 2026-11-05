@@ -302,9 +302,18 @@ fn run() -> eframe::Result<()> {
     };
     // A demo's folders are throwaway; remove them when the run returns.
     let _demo_root = demo_root.map(RemoveOnDrop);
-    let beeper_mode =
-        std::env::var("SOLMU_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("beeper"));
-    if !demo && !beeper_mode && std::env::var_os("SOLMU_PROFILE_ROOT").is_none() {
+    let beeper_mode = ["SOLMU_BACKEND", "ZAPFAST_BACKEND"]
+        .iter()
+        .filter_map(|var| std::env::var(var).ok())
+        .any(|v| v.eq_ignore_ascii_case("beeper"));
+    let profile_root_set = [
+        "SOLMU_PROFILE_ROOT",
+        "ZAPFAST_PROFILE_ROOT",
+        "FASTSAPP_PROFILE_ROOT",
+    ]
+    .iter()
+    .any(|var| std::env::var_os(var).is_some());
+    if !demo && !beeper_mode && !profile_root_set {
         dirs.adopt_previous_names()
             .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     }

@@ -49,14 +49,15 @@ static SESSION: std::sync::Mutex<Option<BeeperConfig>> = std::sync::Mutex::new(N
 static BEEPER_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 impl BeeperConfig {
-    /// Returns whether Solmu was launched with `SOLMU_BACKEND=beeper`.
-    /// Cached so it can be called on UI frames without environment lookup overhead.
+    /// Returns whether Solmu was launched with `SOLMU_BACKEND=beeper`
+    /// (or the pre-rename `ZAPFAST_BACKEND=beeper`). Cached so it can be called on UI frames without environment lookup overhead.
     pub fn is_beeper_mode() -> bool {
         SESSION.lock().unwrap_or_else(|p| p.into_inner()).is_some()
             || *BEEPER_MODE.get_or_init(|| {
-                std::env::var("SOLMU_BACKEND")
-                    .map(|v| v.eq_ignore_ascii_case("beeper"))
-                    .unwrap_or(false)
+                ["SOLMU_BACKEND", "ZAPFAST_BACKEND"]
+                    .iter()
+                    .filter_map(|var| std::env::var(var).ok())
+                    .any(|v| v.eq_ignore_ascii_case("beeper"))
             })
     }
 

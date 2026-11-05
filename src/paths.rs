@@ -20,8 +20,16 @@ pub struct AppDirs {
 
 impl AppDirs {
     pub fn discover() -> Self {
-        if let Some(root) = std::env::var_os("SOLMU_PROFILE_ROOT") {
-            return Self::under(std::path::Path::new(&root));
+        // Older launchers and scripts exported the pre-rename names; keep
+        // honoring them so a mixed old/new setup still finds the profile.
+        for var in [
+            "SOLMU_PROFILE_ROOT",
+            "ZAPFAST_PROFILE_ROOT",
+            "FASTSAPP_PROFILE_ROOT",
+        ] {
+            if let Some(root) = std::env::var_os(var) {
+                return Self::under(std::path::Path::new(&root));
+            }
         }
         // The data directory keeps its original name: existing chats, settings and
         // credentials live under it, so renaming would orphan them.
