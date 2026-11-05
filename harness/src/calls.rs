@@ -1,4 +1,4 @@
-//! Harness stub. Real: zapfast src/calls.rs (VoIP over whatsapp-rust).
+//! Harness stub. Real: solmu src/calls.rs (VoIP over whatsapp-rust).
 pub const GROUP_CALLS_ENABLED: bool = true;
 
 #[derive(Clone, Debug, PartialEq)]

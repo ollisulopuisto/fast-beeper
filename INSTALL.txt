@@ -1,4 +1,4 @@
-Fast Beeper automatic binary builds
+Solmu automatic binary builds
 
 Prepared against main 720e3def612c4867f672ec308643f88b8dc75d18 (28 October 2026).
 

@@ -18,14 +18,14 @@ def package(root, binary, output, target, commit):
     if not binary.is_file():
         raise ValueError('Compiled binary missing')
     output.mkdir(parents=True, exist_ok=True)
-    name = f'fast-beeper-{target}-{commit[:12]}'
+    name = f'Solmu-{target}-{commit[:12]}'
     archive = output / (name + '.zip')
     if archive.exists():
         raise FileExistsError('Archive already exists; use a clean output directory')
     with tempfile.TemporaryDirectory() as tmp:
         stage = pathlib.Path(tmp) / name
         stage.mkdir()
-        destination = stage / ('zapfast.exe' if 'windows' in target else 'zapfast')
+        destination = stage / ('solmu.exe' if 'windows' in target else 'solmu')
         shutil.copy2(binary, destination)
         if 'windows' not in target:
             destination.chmod(0o755)

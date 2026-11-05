@@ -1,16 +1,16 @@
-//! Whether the OS may pause ZapFast to save power.
+//! Whether the OS may pause Solmu to save power.
 //!
 //! By default it may not: messaging and the managed connection must keep
-//! working while the window is in the background, so ZapFast holds an
+//! working while the window is in the background, so Solmu holds an
 //! NSProcessInfo activity that opts it out of App Nap. The System setting
 //! trades that for battery savings.
 
-/// Lets the OS pause ZapFast (`true`), or keeps it running (`false`).
+/// Lets the OS pause Solmu (`true`), or keeps it running (`false`).
 pub fn set_app_nap_allowed(allowed: bool) {
     imp::set_allowed(allowed);
 }
 
-/// Whether ZapFast must hold the power assertion: the mirror of the
+/// Whether Solmu must hold the power assertion: the mirror of the
 /// setting, kept as its own function so the default is testable.
 #[allow(dead_code)]
 pub(crate) fn assertion_required(allow_app_nap: bool) -> bool {
@@ -44,7 +44,7 @@ mod imp {
             },
             (false, None) => {
                 let reason =
-                    NSString::from_str("Messages keep arriving while ZapFast is in the background");
+                    NSString::from_str("Messages keep arriving while Solmu is in the background");
                 let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
                     NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
                     &reason,

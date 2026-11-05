@@ -9,11 +9,11 @@ It does not contain or install a Beeper Server binary. No setup/reconnection is 
 
 | Route | On the Mac | Backend host | Can Desktop quit? | Prototype status |
 | --- | --- | --- | --- | --- |
-| Existing Desktop API | ZapFast + Beeper Desktop | Same Mac | No: API lives in Desktop | Adapter/fixtures; live Mac unverified |
+| Existing Desktop API | Solmu + Beeper Desktop | Same Mac | No: API lives in Desktop | Adapter/fixtures; live Mac unverified |
 | Standalone same-Mac Server | ZapFast + Beeper Server and its bridges | Same Mac | Yes in upstream architecture; independently signed-in Server required | Proposed first acceptance target, not installed/tested |
-| Remote Server | ZapFast | Another supported machine running Server/bridges | Yes; remote Server must remain running/reachable | HTTPS/token configuration implemented; live remote unverified |
-| Remote Desktop | ZapFast | Another machine running Desktop | Only on client Mac, not backend host | Same remote caveats |
-| Direct Beeper Cloud | ZapFast only | Beeper-managed bridge service | Not an implemented direct API route | No direct-cloud client or Matrix transport implemented |
+| Remote Server | Solmu | Another supported machine running Server/bridges | Yes; remote Server must remain running/reachable | HTTPS/token configuration implemented; live remote unverified |
+| Remote Desktop | Solmu | Another machine running Desktop | Only on client Mac, not backend host | Same remote caveats |
+| Direct Beeper Cloud | Solmu only | Beeper-managed bridge service | Not an implemented direct API route | No direct-cloud client or Matrix transport implemented |
 
 A Beeper Cloud connection is a network-bridge choice, not a substitute API URL.
 This client still needs a running Desktop or Server endpoint. Cloud connections
@@ -54,7 +54,7 @@ There are separate layers:
 3. Each network's connection/login, with its own QR/code/browser/cookie flow and
    device limits. Reconnection may affect other sessions. It requires explicit
    approval, not an automatic response to an empty chat list.
-4. ZapFast's access to the chosen Client API using that endpoint's bearer token.
+4. Solmu's access to the chosen Client API using that endpoint's bearer token.
 
 Upstream CLI supports OAuth/PKCE and stores target authentication. This prototype
 reads the exact named target URL/token once at launch or accepts an explicit URL
@@ -117,7 +117,7 @@ plan for Server state, bridge state, media and client drafts.
 6. Test disconnect/recovery, token expiry and no duplicate sends. Only then approve
    a deliberate send to an agreed test recipient with reviewed text.
 7. Add remaining approved accounts one at a time and repeat persistence checks.
-8. Compare total settled Server + bridge + ZapFast CPU/RAM/disk against Desktop
+8. Compare total settled Server + bridge + Solmu CPU/RAM/disk against Desktop
    with equivalent accounts/history/workload. No whole-stack savings claim yet.
 9. Finish installer/runtime dependency distribution, version compatibility,
    licensing/notices, service setup/undo and native signature/notarization work

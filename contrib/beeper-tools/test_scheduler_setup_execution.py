@@ -161,7 +161,7 @@ print('{"ok":true}')
             result = subprocess.run(['sh', '-c', service_script()], env=env, capture_output=True, text=True)
             capture_path = root / 'launchctl-argv'
             capture = capture_path.read_text() if capture_path.exists() else ''
-            plist = home / 'Library/LaunchAgents/com.zapfast.scheduler.plist'
+            plist = home / 'Library/LaunchAgents/com.solmu.scheduler.plist'
             plist_text = plist.read_text() if plist.is_file() else None
             return result, capture, plist_text
 
@@ -184,8 +184,8 @@ print('{"ok":true}')
         self.assertNotIn('bootout', capture)
         self.assertNotIn(' load ', ' ' + capture.replace(chr(10), ' ') + ' ')
         self.assertIsNotNone(plist_text)
-        self.assertIn('com.zapfast.scheduler', plist_text)
-        self.assertIn('ZAPFAST_CONTROL_TOKEN_FILE', plist_text)
+        self.assertIn('com.solmu.scheduler', plist_text)
+        self.assertIn('SOLMU_CONTROL_TOKEN_FILE', plist_text)
 
     def test_loaded_but_unhealthy_agent_is_restarted_in_its_own_domain(self):
         result, capture, _ = self.run_service(succeed_after=3, gui_loaded=True, gui_bootstrap_ok=True)

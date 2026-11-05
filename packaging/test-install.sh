@@ -32,24 +32,24 @@ docker run --rm \
     if [ "$FORMAT" = deb ]; then
       apt-get update
       DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$1"
-      dpkg-query -W zapfast
+      dpkg-query -W solmu
     else
       dnf install -y --setopt=install_weak_deps=False "$1"
-      rpm -q zapfast
+      rpm -q solmu
     fi
-    zapfast --version
+    solmu --version
     /checks/check-runtime-libs
-    test -s /usr/share/applications/zapfast.desktop
-    test -s /usr/share/icons/hicolor/scalable/apps/zapfast.svg
-    grep -qx "Icon=zapfast" /usr/share/applications/zapfast.desktop
-    grep -qx "StartupWMClass=zapfast" /usr/share/applications/zapfast.desktop
-    test -s /usr/share/zapfast/omarchy/zapfast.json.tpl
-    test -x /usr/share/zapfast/omarchy/zapfast-theme
-    if [ "$FORMAT" = deb ]; then apt-get remove -y zapfast; else dnf remove -y zapfast; fi
-    test ! -e /usr/bin/zapfast
-    test ! -e /usr/share/applications/zapfast.desktop
-    test ! -e /usr/share/icons/hicolor/scalable/apps/zapfast.svg
-    test ! -e /usr/share/zapfast/omarchy/zapfast.json.tpl
-    test ! -e /usr/share/zapfast/omarchy/zapfast-theme
+    test -s /usr/share/applications/solmu.desktop
+    test -s /usr/share/icons/hicolor/scalable/apps/solmu.svg
+    grep -qx "Icon=solmu" /usr/share/applications/solmu.desktop
+    grep -qx "StartupWMClass=solmu" /usr/share/applications/solmu.desktop
+    test -s /usr/share/solmu/omarchy/solmu.json.tpl
+    test -x /usr/share/solmu/omarchy/solmu-theme
+    if [ "$FORMAT" = deb ]; then apt-get remove -y solmu; else dnf remove -y solmu; fi
+    test ! -e /usr/bin/solmu
+    test ! -e /usr/share/applications/solmu.desktop
+    test ! -e /usr/share/icons/hicolor/scalable/apps/solmu.svg
+    test ! -e /usr/share/solmu/omarchy/solmu.json.tpl
+    test ! -e /usr/share/solmu/omarchy/solmu-theme
     test "$(cat /root/.config/zapfast/fixture)" = preserve-existing-settings
   '

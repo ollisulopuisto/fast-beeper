@@ -1,4 +1,4 @@
-//! Client for the zapfast-scheduler companion service.
+//! Client for the solmu-scheduler companion service.
 //!
 //! The app uses this to schedule, list, edit, cancel and retry Send Later
 //! messages on the sidecar. The sidecar binds localhost only and may be on
@@ -18,7 +18,7 @@ pub struct SchedulerClient {
 }
 
 impl SchedulerClient {
-    /// `token` matches the daemon's ZAPFAST_CONTROL_TOKEN; empty means the
+    /// `token` matches the daemon's SOLMU_CONTROL_TOKEN; empty means the
     /// daemon was started without one (still guarded against web-originated
     /// requests; see the daemon's header comment).
     pub fn new(base_url: &str, token: &str) -> Result<Self, String> {

@@ -1,8 +1,8 @@
-# Traditional Chinese translation of ZapFast.
-# Distributed under the same MIT license as ZapFast.
+# Traditional Chinese translation of Solmu.
+# Distributed under the same MIT license as Solmu.
 msgid ""
 msgstr ""
-"Project-Id-Version: ZapFast\n"
+"Project-Id-Version: Solmu\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
 "POT-Creation-Date: 2026-10-25 23:16+0100\n"
@@ -578,8 +578,8 @@ msgid "You left this channel"
 msgstr "您已離開這個頻道"
 
 #: src/ui/conversation.rs:1378
-msgid "Channels are read-only in ZapFast"
-msgstr "在 ZapFast 中，頻道僅供閱讀"
+msgid "Channels are read-only in Solmu"
+msgstr "在 Solmu 中，頻道僅供閱讀"
 
 #: src/ui/conversation.rs:1401
 msgid "You left this group"
@@ -941,12 +941,12 @@ msgstr "已鎖定的對話"
 #: src/ui/dialogs.rs:338
 msgid ""
 "Choose a local code to open the Locked tab. It is separate from your phone's "
-"code. This hides chats in ZapFast, it does not add another encryption layer."
+"code. This hides chats in Solmu, it does not add another encryption layer."
 msgstr ""
 
 #: src/ui/dialogs.rs:343
 msgid ""
-"Enter your local ZapFast code. Leaving the Locked tab or closing the window "
+"Enter your local Solmu code. Leaving the Locked tab or closing the window "
 "locks it again."
 msgstr ""
 
@@ -991,7 +991,7 @@ msgstr "對方"
 msgid ""
 "This moves the chat to the Locked tab, hiding it from the normal chat list, "
 "search, unread badges, and notifications. The lock status also syncs to your "
-"phone. Open Locked with a separate local ZapFast code to read it."
+"phone. Open Locked with a separate local Solmu code to read it."
 msgstr ""
 
 #: src/ui/dialogs.rs:469
@@ -1201,14 +1201,14 @@ msgstr "要重新開始嗎？"
 
 #: src/ui/dialogs.rs:1423
 msgid ""
-"ZapFast keeps your unreadable archive as a separate file, creates a new one, "
+"Solmu keeps your unreadable archive as a separate file, creates a new one, "
 "and asks you to link again. Linking again brings back recent history from "
-"your phone. Afterwards, remove the old ZapFast entry under Linked devices on "
+"your phone. Afterwards, remove the old Solmu entry under Linked devices on "
 "your phone."
 msgstr ""
-"ZapFast 會將無法讀取的存檔另存為獨立檔案、建立新的存檔，並請您重新連結。重新"
+"Solmu 會將無法讀取的存檔另存為獨立檔案、建立新的存檔，並請您重新連結。重新"
 "連結後，最近的記錄會從手機取回。之後，請在手機的「已連結的裝置」中移除舊的 "
-"ZapFast 項目。"
+"Solmu 項目。"
 
 #: src/ui/dialogs.rs:1427
 msgid ""
@@ -1516,8 +1516,8 @@ msgstr "自訂標題列"
 
 #: src/ui/settings.rs:424
 msgid ""
-"Draw ZapFast's own title bar and window buttons instead of the desktop's."
-msgstr "使用 ZapFast 自己的標題列和視窗按鈕，而不是桌面環境提供的。"
+"Draw Solmu's own title bar and window buttons instead of the desktop's."
+msgstr "使用 Solmu 自己的標題列和視窗按鈕，而不是桌面環境提供的。"
 
 #: src/ui/settings.rs:430 src/ui/rail.rs:293
 msgid "Chats"
@@ -1641,8 +1641,8 @@ msgstr "顯示正在輸入"
 
 #: src/ui/settings.rs:600
 msgid ""
-"Could not load your account privacy. Trying again when ZapFast reconnects."
-msgstr "無法載入您的帳號隱私設定，將在 ZapFast 重新連線後再試一次。"
+"Could not load your account privacy. Trying again when Solmu reconnects."
+msgstr "無法載入您的帳號隱私設定，將在 Solmu 重新連線後再試一次。"
 
 #: src/ui/settings.rs:605
 msgid "Connect to WhatsApp to change your account privacy."
@@ -1681,8 +1681,8 @@ msgid "Check for updates"
 msgstr "檢查更新"
 
 #: src/ui/settings.rs:688
-msgid "Asks GitHub once a day, sending only the ZapFast version."
-msgstr "每天向 GitHub 詢問一次，只傳送 ZapFast 的版本資訊。"
+msgid "Asks GitHub once a day, sending only the Solmu version."
+msgstr "每天向 GitHub 詢問一次，只傳送 Solmu 的版本資訊。"
 
 #: src/ui/settings.rs:693
 msgid "Download updates automatically"
@@ -1691,9 +1691,9 @@ msgstr "自動下載更新"
 #: src/ui/settings.rs:696
 msgid ""
 "You still choose when to restart. Package managers and Flatpak update "
-"ZapFast themselves."
+"Solmu themselves."
 msgstr ""
-"您仍可自行選擇重新啟動的時間。套件管理員與 Flatpak 會自行更新 ZapFast。"
+"您仍可自行選擇重新啟動的時間。套件管理員與 Flatpak 會自行更新 Solmu。"
 
 #: src/ui/settings.rs:709
 #, rust-format
@@ -1840,10 +1840,10 @@ msgstr "自動鎖定"
 
 #: src/ui/settings.rs:937
 msgid ""
-"Time without using ZapFast, also counted while it is in the tray. "
+"Time without using Solmu, also counted while it is in the tray. "
 "Ctrl+Shift+L locks it at once."
 msgstr ""
-"未使用 ZapFast 經過的時間，在系統匣中也會計算。Ctrl+Shift+L 可立即鎖定。"
+"未使用 Solmu 經過的時間，在系統匣中也會計算。Ctrl+Shift+L 可立即鎖定。"
 
 #: src/ui/settings.rs:979
 msgid "Set an app lock password"
@@ -2246,18 +2246,18 @@ msgstr "來電"
 #: src/app/calls.rs:613
 #, rust-format
 msgid ""
-"{caller} is calling {group}. ZapFast can't join group calls yet: answer on "
+"{caller} is calling {group}. Solmu can't join group calls yet: answer on "
 "your phone."
 msgstr ""
-"{caller} 正在撥打給 {group}。ZapFast 暫時無法加入群組通話：請在手機上接聽。"
+"{caller} 正在撥打給 {group}。Solmu 暫時無法加入群組通話：請在手機上接聽。"
 
 #: src/app/calls.rs:621
 #, rust-format
 msgid ""
-"{caller} is calling you and others. ZapFast can't join group calls yet: "
+"{caller} is calling you and others. Solmu can't join group calls yet: "
 "answer on your phone."
 msgstr ""
-"{caller} 正在撥打給你和其他人。ZapFast 暫時無法加入群組通話：請在手機上接聽。"
+"{caller} 正在撥打給你和其他人。Solmu 暫時無法加入群組通話：請在手機上接聽。"
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
 #: src/ui/widgets.rs:944
@@ -2390,16 +2390,16 @@ msgstr ""
 "裡接聽。"
 
 #: src/app.rs:4288 src/app.rs:7032
-msgid "ZapFast can't join group calls yet: open the link on your phone."
-msgstr "ZapFast 暫時無法加入群組通話：請在手機上開啟此連結。"
+msgid "Solmu can't join group calls yet: open the link on your phone."
+msgstr "Solmu 暫時無法加入群組通話：請在手機上開啟此連結。"
 
 #: src/app.rs:4379
 msgid "Connecting"
 msgstr "正在連線"
 
 #: src/app.rs:5019
-msgid "Not sent: ZapFast is not connected to WhatsApp."
-msgstr "未送出：ZapFast 尚未連線至 WhatsApp。"
+msgid "Not sent: Solmu is not connected to WhatsApp."
+msgstr "未送出：Solmu 尚未連線至 WhatsApp。"
 
 #: src/app.rs:5023
 msgid ""
@@ -2426,8 +2426,8 @@ msgstr "正在傳送貼圖集…"
 
 #: src/app.rs:8210 src/ui/labels.rs:257
 #, rust-format
-msgid "You have {limit} labels, the most ZapFast keeps."
-msgstr "您已有 {limit} 個標籤，已達 ZapFast 的上限。"
+msgid "You have {limit} labels, the most Solmu keeps."
+msgstr "您已有 {limit} 個標籤，已達 Solmu 的上限。"
 
 #: src/app.rs:8365
 #, fuzzy
@@ -2885,8 +2885,8 @@ msgid "Play motion photo"
 msgstr "播放動態照片"
 
 #: src/ui/image_preview.rs:701
-msgid "This image could not be displayed in ZapFast."
-msgstr "ZapFast 無法顯示這張圖片。"
+msgid "This image could not be displayed in Solmu."
+msgstr "Solmu 無法顯示這張圖片。"
 
 #: src/ui/image_preview.rs:704
 msgid "Open externally"
@@ -2897,8 +2897,8 @@ msgid "Play or pause the video"
 msgstr "播放或暫停影片"
 
 #: src/ui/lock.rs:17
-msgid "ZapFast is locked"
-msgstr "ZapFast 已鎖定"
+msgid "Solmu is locked"
+msgstr "Solmu 已鎖定"
 
 #: src/ui/lock.rs:23
 msgid "Unlinking this computer…"
@@ -3259,7 +3259,7 @@ msgstr "正在載入對話記錄"
 
 #: src/ui/mod.rs:554
 #, rust-format
-msgid "ZapFast {version} is available"
+msgid "Solmu {version} is available"
 msgstr ""
 
 #: src/ui/mod.rs:571
@@ -3556,7 +3556,7 @@ msgid "Participant details are not available yet"
 msgstr ""
 
 #: src/ui/update.rs:25 src/ui/update.rs:38
-msgid "Update ZapFast"
+msgid "Update Solmu"
 msgstr ""
 
 #: src/ui/update.rs:49
@@ -3588,7 +3588,7 @@ msgstr ""
 
 #: src/ui/update.rs:113
 msgid ""
-"Finish any unsent messages or recordings before restarting. ZapFast will "
+"Finish any unsent messages or recordings before restarting. Solmu will "
 "briefly disconnect, then reconnect automatically."
 msgstr ""
 

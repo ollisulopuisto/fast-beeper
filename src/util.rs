@@ -769,9 +769,9 @@ pub fn hue(seed: &str) -> f32 {
 }
 
 /// Embedded SVG app logo used across platform surfaces.
-const MARK: &[u8] = include_bytes!("../packaging/icons/zapfast.svg");
+const MARK: &[u8] = include_bytes!("../packaging/icons/solmu.svg");
 /// The same mark without its rim and shading, which blur below this size.
-const SMALL_MARK: &[u8] = include_bytes!("../packaging/icons/zapfast-small.svg");
+const SMALL_MARK: &[u8] = include_bytes!("../packaging/icons/solmu-small.svg");
 const SMALL_BELOW: usize = 40;
 
 /// Rasterizes the logo to straight-alpha RGBA.
@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn image_loader_reads_native_paths() {
         use egui::load::BytesPoll;
-        let dir = std::env::temp_dir().join(format!("zapfast-image-paths-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("solmu-image-paths-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("猫 photo 100% #1.png");
         std::fs::write(&path, b"image bytes").unwrap();
@@ -1026,7 +1026,7 @@ mod tests {
         // tray that asks for the themed icon then draws a missing-icon
         // marker (#396).
         let svg = std::str::from_utf8(MARK).expect("the icon is UTF-8");
-        assert!(!svg.contains("<filter"), "packaging/icons/zapfast.svg");
+        assert!(!svg.contains("<filter"), "packaging/icons/solmu.svg");
     }
 
     #[test]

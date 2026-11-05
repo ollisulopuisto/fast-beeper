@@ -1,7 +1,7 @@
 //! The sticker picker's lists and their sync with the phone.
 //!
 //! WhatsApp names a sticker in app-state sync by its `filehash`: the base64
-//! SHA-256 of the decrypted file. ZapFast names it by the same digest in hex,
+//! SHA-256 of the decrypted file. Solmu names it by the same digest in hex,
 //! which is also the name of every saved or packed copy, so both sides agree
 //! on which sticker a change is about.
 
@@ -153,12 +153,12 @@ const REFERENCE_SEARCH: usize = 2000;
 /// How many stickers others sent the Received shelf holds.
 const RECEIVED_SHELF: usize = 200;
 
-/// Archive marker: favorites the phone synced before ZapFast followed them
+/// Archive marker: favorites the phone synced before Solmu followed them
 /// have been replayed.
 pub(super) const FAVORITES_RECOVERED: &str = "favorite_stickers_recovered_v1";
 
 /// The phone's "Keep chats archived" lives in RegularLow too, and syncs
-/// from before ZapFast followed it consumed it, so it needs the same replay.
+/// from before Solmu followed it consumed it, so it needs the same replay.
 pub(super) const UNARCHIVE_SETTING_RECOVERED: &str = "unarchive_setting_recovered_v1";
 
 /// A favorite sticker the phone told us about, fetched by its references.
@@ -897,7 +897,7 @@ impl Worker {
         }
     }
 
-    /// Favorites saved on the phone before ZapFast followed them, and the
+    /// Favorites saved on the phone before Solmu followed them, and the
     /// phone's "Keep chats archived", were already consumed by earlier syncs,
     /// and incremental syncs never repeat them. Rebuilds the collection
     /// holding them once, so they replay.
@@ -1754,7 +1754,7 @@ mod tests {
     }
 
     /// Carmine's test: a sticker favorited on the phone never showed up. The
-    /// phone favorites a sticker from its own tray, which ZapFast already has
+    /// phone favorites a sticker from its own tray, which Solmu already has
     /// as one of the phone's recent stickers.
     #[test]
     fn a_sticker_favorited_on_the_phone_appears_in_favorites() {

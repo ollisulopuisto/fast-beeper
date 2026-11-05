@@ -320,7 +320,7 @@ impl WallpaperColor {
     }
 }
 
-/// How long ZapFast may go without input before the app lock locks it:
+/// How long Solmu may go without input before the app lock locks it:
 /// WhatsApp Web's three choices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -400,12 +400,12 @@ pub enum NotificationSound {
     System,
     /// No sound.
     None,
-    /// An audio file ZapFast plays itself.
+    /// An audio file Solmu plays itself.
     Custom(std::path::PathBuf),
 }
 
 /// One Beeper chat's local Silence promise: the halves of "Hide and mute
-/// indefinitely" that fast-beeper keeps itself when the bridge does not
+/// indefinitely" that Solmu keeps itself when the bridge does not
 /// persist them. Unarchive and Unmute each clear their own half.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Silence {
@@ -423,7 +423,7 @@ pub struct Settings {
     /// [`SETTINGS_VERSION`] when written; missing, and so 0, in older files.
     #[serde(default)]
     pub version: u32,
-    /// Where the zapfast-scheduler companion service answers. Localhost by
+    /// Where the solmu-scheduler companion service answers. Localhost by
     /// default; a remote scheduler is reached through an SSH tunnel, so the
     /// value stays a loopback URL.
     #[serde(default = "default_scheduler_url")]
@@ -447,7 +447,7 @@ pub struct Settings {
     pub(crate) messages_theme: bool,
     /// The interface's typeface.
     pub font: FontChoice,
-    /// Windows and Linux: draw ZapFast's own title bar and window buttons
+    /// Windows and Linux: draw Solmu's own title bar and window buttons
     /// instead of the desktop's. Off by default: on some Intel graphics
     /// drivers a frameless window shows a black band at the top and its
     /// clicks land below where they are drawn (Spotifast #348, #554).
@@ -500,7 +500,7 @@ pub struct Settings {
     pub wallpaper_color: WallpaperColor,
     /// Colour selected for the dark wallpaper picker.
     pub dark_wallpaper_color: WallpaperColor,
-    /// ZapFast's own copy of the chosen wallpaper image, drawn in place of the
+    /// Solmu's own copy of the chosen wallpaper image, drawn in place of the
     /// colour and doodles in light and dark mode alike.
     pub wallpaper_image: Option<std::path::PathBuf>,
     /// Last open chat, restored at startup.
@@ -567,12 +567,12 @@ pub struct Settings {
     /// Salted, slow verifier of the app lock password
     /// ([`crate::app_lock::verifier`]); `None` leaves the app lock off.
     pub app_lock_hash: Option<String>,
-    /// How long ZapFast may go unused before the app lock locks it.
+    /// How long Solmu may go unused before the app lock locks it.
     pub app_lock_after: AutoLock,
     /// Offer Touch ID on the lock screen. After the next successful
     /// password unlock, the password is kept in the OS keychain for it.
     pub app_lock_touch_id: bool,
-    /// Let macOS put ZapFast into App Nap. Off, ZapFast holds a power
+    /// Let macOS put Solmu into App Nap. Off, Solmu holds a power
     /// assertion so messaging keeps working from the background.
     pub allow_app_nap: bool,
     /// Last window width in logical pixels (points at zoom 1), remembered
@@ -673,9 +673,9 @@ impl Default for Settings {
 ///    mode) become [`WallpaperColor::Theme`], the new default.
 pub const SETTINGS_VERSION: u32 = 2;
 
-/// Optional build-time GIPHY key from `ZAPFAST_GIPHY_KEY`.
+/// Optional build-time GIPHY key from `SOLMU_GIPHY_KEY`.
 /// The previous name remains accepted for existing build setups.
-pub const BUILT_IN_GIPHY_KEY: Option<&str> = match option_env!("ZAPFAST_GIPHY_KEY") {
+pub const BUILT_IN_GIPHY_KEY: Option<&str> = match option_env!("SOLMU_GIPHY_KEY") {
     Some(key) if !key.is_empty() => Some(key),
     _ => option_env!("FASTSAPP_GIPHY_KEY"),
 };
@@ -1342,7 +1342,7 @@ mod tests {
 
     #[test]
     fn round_trips_through_disk() {
-        let dir = std::env::temp_dir().join(format!("zapfast-settings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("solmu-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         let settings = Settings {
             zoom: 1.25,
@@ -1631,7 +1631,7 @@ mod giphy_tests {
             account: "account".to_owned(),
             chat: chat.to_owned(),
         };
-        let root = std::env::temp_dir().join(format!("zapfast-migrate-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-migrate-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("settings.json");
         // A legacy file: one saved member flagged the person's every chat.

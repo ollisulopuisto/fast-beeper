@@ -1,5 +1,5 @@
 //! Real GUI-library checks for wrapped controls and exact keyboard dispatch.
-use zapfast::{
+use solmu::{
     app::App,
     backend::LinkStatus,
     model::{Chat, ChatFilter},
@@ -65,7 +65,7 @@ fn main() {
     assert!(
         app.actions
             .iter()
-            .any(|a| matches!(a,zapfast::model::Action::OpenChat(id) if id=="chat2"))
+            .any(|a| matches!(a,solmu::model::Action::OpenChat(id) if id=="chat2"))
     );
     assert_eq!(app.beeper_network_filter.as_deref(), Some("Network 9"));
     app.actions.clear();
@@ -83,14 +83,14 @@ fn main() {
     assert!(
         app.actions
             .iter()
-            .any(|a| matches!(a,zapfast::model::Action::OpenChat(id) if id=="chat9"))
+            .any(|a| matches!(a,solmu::model::Action::OpenChat(id) if id=="chat9"))
     );
     app.actions.clear();
     press(&mut app, egui::Key::Num0, list_mod);
     assert!(
         !app.actions
             .iter()
-            .any(|a| matches!(a, zapfast::model::Action::OpenChat(_)))
+            .any(|a| matches!(a, solmu::model::Action::OpenChat(_)))
     );
     app.backend.shutdown();
     let _ = ChatFilter::All;

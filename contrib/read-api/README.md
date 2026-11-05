@@ -1,8 +1,8 @@
-# fast-beeper read API (EXPERIMENTAL, local only, not ready)
+# Solmu read API (EXPERIMENTAL, local only, not ready)
 
-`zapfast-reader` lets other apps on the same machine read messages through
-fast-beeper with their own revocable credentials. It runs beside the Beeper
-Server, like `zapfast-scheduler`. This is code and docs only: nothing here
+`solmu-reader` lets other apps on the same machine read messages through
+Solmu with their own revocable credentials. It runs beside the Beeper
+Server, like `solmu-scheduler`. This is code and docs only: nothing here
 is installed, deployed, or granted to any app.
 
 ## What exists and what it adds
@@ -12,7 +12,7 @@ is installed, deployed, or granted to any app.
   least privilege. It is left alone and never exposed.
 - The Send Later daemon has one shared control token and can queue sends.
   It is not reused here.
-- `zapfast-reader` holds the Server token itself and offers only GET on four
+- `solmu-reader` holds the Server token itself and offers only GET on four
   endpoint families. No send, edit, delete, read-marker, reaction or
   focus endpoint is routable (tests assert this).
 
@@ -26,9 +26,9 @@ is installed, deployed, or granted to any app.
 | `search:read` | `GET /v1/messages/search?query=` |
 | `people:read` | `GET /v1/people`, `GET /v1/people/{id}/messages?limit=` |
 
-## Linked people (fast-beeper's own view)
+## Linked people (Solmu's own view)
 
-Set `ZAPFAST_SETTINGS_FILE` to the app's `settings.json` (read-only; only
+Set `SOLMU_SETTINGS_FILE` to the app's `settings.json` (read-only; only
 `beeper.people` is read, nothing else in the file is parsed into a
 response). `/v1/people` lists linked persons: a content-derived `id`, name,
 primary destination and members, each marked `readable`. `/v1/people/{id}/messages`
@@ -37,7 +37,7 @@ capped at 100, no paging), adds `chatID`/`accountID` to each item, and lists
 every member it could not read under `unavailable` with `partial: true`.
 - A member's `origin` is the API base URL the app read that chat from
   (BeeperConfig base URL, e.g. `http://127.0.0.1:23374`). The reader serves
-  members whose origin is in `ZAPFAST_READER_ORIGINS` (comma list; default
+  members whose origin is in `SOLMU_READER_ORIGINS` (comma list; default
   `BEEPER_BASE_URL`). Compare with what the app records: a tunnel on the
   laptop and the Server's own URL differ, so set the list to the app's
   value. Other origins are listed `readable: false`, left out of merged
@@ -46,7 +46,7 @@ every member it could not read under `unavailable` with `partial: true`.
   and belong to the recorded account) before its messages are read.
 - A restricted client sees a person only if every member is inside its
   account allowlist, so a cross-account link is never revealed.
-- Without `ZAPFAST_SETTINGS_FILE`, or if the file is unreadable or over
+- Without `SOLMU_SETTINGS_FILE`, or if the file is unreadable or over
   4 MiB, people endpoints return 502.
 
 Query keys are limited to `cursor`, `direction` (before/after), `limit`
@@ -55,7 +55,7 @@ Responses come from the Server unchanged for unrestricted clients.
 
 ### Validating the origin match (non-secret)
 
-`ZAPFAST_SETTINGS_FILE=<settings.json> zapfast-reader people-check` lists
+`SOLMU_SETTINGS_FILE=<settings.json> solmu-reader people-check` lists
 each origin recorded in the app's people links, how many members use it,
 and whether this reader serves it; it exits 1 if any is unserved. The same
 lines are logged at startup. It prints only API base URLs and counts: no
@@ -65,11 +65,11 @@ names, chat ids or message content, and it never contacts the Server.
 
 One configured Beeper origin, read through that Server's API, plus the
 linked-person view over members recorded under that origin. Not claimed:
-multiple origins, ZapFast native WhatsApp mode, live behavior.
+multiple origins, Solmu native WhatsApp mode, live behavior.
 
 ## Authentication and authorization
 
-- One named token per app: `zapfast-reader token add NAME --scopes a,b
+- One named token per app: `solmu-reader token add NAME --scopes a,b
   [--accounts x,y] [--days N]`. The token prints once on the terminal.
   Only its SHA-256 is stored, in `~/.config/zapfast/reader-clients.json`
   (mode 0600 from creation; a looser file is refused on load).
@@ -95,7 +95,7 @@ multiple origins, ZapFast native WhatsApp mode, live behavior.
 ## Not covered (explicitly)
 
 - Chats served by a different API backend than this reader's (another
-  origin), and ZapFast's native WhatsApp mode (no Beeper backend; chats
+  origin), and Solmu's native WhatsApp mode (no Beeper backend; chats
   have no origin and cannot be linked people), are not served.
   Reading them is the main remaining coverage work; see DIRECT-NETWORKS.md
   for the design (in-app read-only broker, opt-in, nothing persisted).
@@ -120,8 +120,8 @@ multiple origins, ZapFast native WhatsApp mode, live behavior.
 ## Run (manual)
 
     export BEEPER_ACCESS_TOKEN_FILE=~/.config/zapfast/server-token
-    zapfast-reader token add dashboard --scopes chats:read,messages:read
-    zapfast-reader                       # serves 127.0.0.1:23377
+    solmu-reader token add dashboard --scopes chats:read,messages:read
+    solmu-reader                       # serves 127.0.0.1:23377
     curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:23377/v1/chats
 
 ## Open security work before this can be called ready

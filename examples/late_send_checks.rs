@@ -1,5 +1,5 @@
 //! A late send failure must retain old text without replacing a newer draft.
-use zapfast::{
+use solmu::{
     app::App,
     backend::{Event, LinkStatus},
     model::Chat,

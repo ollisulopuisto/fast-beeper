@@ -1,20 +1,20 @@
-//! zapfast-scheduler: the Send Later companion service.
+//! solmu-scheduler: the Send Later companion service.
 //!
 //! Runs beside the Beeper Server (same host, localhost-only) and delivers
 //! scheduled messages through the documented Server API at their due time,
-//! whether or not the fast-beeper app is open. The app talks to it over a
+//! whether or not the Solmu app is open. The app talks to it over a
 //! small local HTTP interface.
 //!
 //! Configuration (environment):
 //! - BEEPER_BASE_URL       Server API base, e.g. http://127.0.0.1:23374
 //! - BEEPER_ACCESS_TOKEN   Server API token (required)
-//! - ZAPFAST_QUEUE_PATH    queue file (default: ~/.local/share/zapfast/scheduled.json)
-//! - ZAPFAST_LISTEN        listen address (default: 127.0.0.1:23376; ALWAYS
+//! - SOLMU_QUEUE_PATH    queue file (default: ~/.local/share/solmu/scheduled.json)
+//! - SOLMU_LISTEN        listen address (default: 127.0.0.1:23376; ALWAYS
 //!   keep this localhost - there is no auth on the control socket beyond
 //!   the loopback binding)
-//! - ZAPFAST_TICK_SECS     seconds between due checks (default: 15, min 1)
-//! - ZAPFAST_CONTROL_TOKEN bearer token REQUIRED on every request; the
-//!   daemon refuses to start without one. Prefer ZAPFAST_CONTROL_TOKEN_FILE
+//! - SOLMU_TICK_SECS     seconds between due checks (default: 15, min 1)
+//! - SOLMU_CONTROL_TOKEN bearer token REQUIRED on every request; the
+//!   daemon refuses to start without one. Prefer SOLMU_CONTROL_TOKEN_FILE
 //!   (default: ~/.config/zapfast/scheduler-token, 0600) over the environment,
 //!   so the secret stays out of the process list.
 //!
@@ -47,8 +47,8 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use zapfast::scheduler::{Queue, Scheduler, Send};
-use zapfast::scheduler_api::ServerSender;
+use solmu::scheduler::{Queue, Scheduler, Send};
+use solmu::scheduler_api::ServerSender;
 
 fn now() -> i64 {
     SystemTime::now()
@@ -58,11 +58,11 @@ fn now() -> i64 {
 }
 
 fn queue_path() -> PathBuf {
-    if let Ok(path) = std::env::var("ZAPFAST_QUEUE_PATH") {
+    if let Ok(path) = std::env::var("SOLMU_QUEUE_PATH") {
         return PathBuf::from(path);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".local/share/zapfast/scheduled.json")
+    PathBuf::from(home).join(".local/share/solmu/scheduled.json")
 }
 
 fn new_id() -> String {
@@ -182,7 +182,7 @@ fn handle(
             return json_response(stream, "403 Forbidden", r#"{"error":"bad control token"}"#);
         }
     }
-    let (status, response, changed) = zapfast::scheduler_api::control(
+    let (status, response, changed) = solmu::scheduler_api::control(
         queue,
         &method,
         &req_path,
@@ -208,13 +208,13 @@ fn handle(
 /// The shared secret guarding the control socket. From the environment,
 /// or better, a 0600 file the installer creates.
 fn control_token() -> Option<String> {
-    if let Ok(token) = std::env::var("ZAPFAST_CONTROL_TOKEN") {
+    if let Ok(token) = std::env::var("SOLMU_CONTROL_TOKEN") {
         let token = token.trim().to_string();
         if !token.is_empty() {
             return Some(token);
         }
     }
-    let path = std::env::var("ZAPFAST_CONTROL_TOKEN_FILE")
+    let path = std::env::var("SOLMU_CONTROL_TOKEN_FILE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
@@ -228,7 +228,7 @@ fn control_token() -> Option<String> {
 
 fn persist(queue: &Queue, path: &std::path::Path) {
     if let Err(e) = queue.save(path) {
-        eprintln!("zapfast-scheduler: queue save failed: {e}");
+        eprintln!("solmu-scheduler: queue save failed: {e}");
     }
 }
 
@@ -250,13 +250,13 @@ fn main() {
         Some(token) => token,
         None => {
             eprintln!(
-                "zapfast-scheduler: no control token. Set ZAPFAST_CONTROL_TOKEN or run the installer, which writes the token file."
+                "solmu-scheduler: no control token. Set SOLMU_CONTROL_TOKEN or run the installer, which writes the token file."
             );
             std::process::exit(1);
         }
     };
-    let listen = std::env::var("ZAPFAST_LISTEN").unwrap_or_else(|_| "127.0.0.1:23376".into());
-    let tick_secs = std::env::var("ZAPFAST_TICK_SECS")
+    let listen = std::env::var("SOLMU_LISTEN").unwrap_or_else(|_| "127.0.0.1:23376".into());
+    let tick_secs = std::env::var("SOLMU_TICK_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(15)
@@ -269,28 +269,28 @@ fn main() {
     let sender = match ServerSender::new(base_url.clone(), &token) {
         Ok(sender) => sender,
         Err(e) => {
-            eprintln!("zapfast-scheduler: {e}");
+            eprintln!("solmu-scheduler: {e}");
             std::process::exit(1);
         }
     };
     let mut reconciler = match ServerSender::new(base_url.clone(), &token) {
         Ok(sender) => sender,
         Err(e) => {
-            eprintln!("zapfast-scheduler: {e}");
+            eprintln!("solmu-scheduler: {e}");
             std::process::exit(1);
         }
     };
     let mut validator = match ServerSender::new(base_url, &token) {
         Ok(sender) => sender,
         Err(e) => {
-            eprintln!("zapfast-scheduler: {e}");
+            eprintln!("solmu-scheduler: {e}");
             std::process::exit(1);
         }
     };
     let queue = match Queue::load(&path) {
         Ok(queue) => queue,
         Err(e) => {
-            eprintln!("zapfast-scheduler: cannot load {}: {e}", path.display());
+            eprintln!("solmu-scheduler: cannot load {}: {e}", path.display());
             std::process::exit(1);
         }
     };
@@ -298,7 +298,7 @@ fn main() {
     let recovered = scheduler.recover();
     if !recovered.is_empty() {
         eprintln!(
-            "zapfast-scheduler: {} item(s) crashed mid-send, now Uncertain: {}",
+            "solmu-scheduler: {} item(s) crashed mid-send, now Uncertain: {}",
             recovered.len(),
             recovered.join(", ")
         );
@@ -308,13 +308,13 @@ fn main() {
     let listener = match TcpListener::bind(&listen) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("zapfast-scheduler: cannot bind {listen}: {e}");
+            eprintln!("solmu-scheduler: cannot bind {listen}: {e}");
             std::process::exit(1);
         }
     };
     listener.set_nonblocking(true).ok();
     eprintln!(
-        "zapfast-scheduler: listening on {listen}, queue {}",
+        "solmu-scheduler: listening on {listen}, queue {}",
         path.display()
     );
 
@@ -338,7 +338,7 @@ fn main() {
         }
         let outcomes = scheduler.tick(now(), &mut |queue| persist(queue, &path));
         for outcome in outcomes {
-            eprintln!("zapfast-scheduler: {outcome:?}");
+            eprintln!("solmu-scheduler: {outcome:?}");
         }
         std::thread::sleep(tick.saturating_sub(started.elapsed()));
     }

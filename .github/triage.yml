@@ -66,9 +66,9 @@ instructions: |
   Keep replies short, direct, and free of status chatter, implementation
   plans, headings, and em dashes.
 
-  ZapFast is a native WhatsApp client using whatsapp-rust. A protobuf field
+  Solmu is a native WhatsApp client using whatsapp-rust. A protobuf field
   alone does not prove a supported capability. No browser engine, telemetry,
-  hosted backend, ZapFast-operated account, or feature that sends message
+  hosted backend, Solmu-operated account, or feature that sends message
   content to a third party. No automation, ever: bots, MCP servers, APIs or
   scripting interfaces that read or send messages, and scheduled, bulk or
   automatic replies are out of scope (AGENTS.md, Product boundaries), since

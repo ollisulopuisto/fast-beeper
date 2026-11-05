@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install ZapFast, link your phone, and load chat history.
+description: Install Solmu, link your phone, and load chat history.
 nav_order: 2
 ---
 
@@ -13,13 +13,13 @@ Or build from source with a recent stable [Rust](https://rustup.rs):
 
 ```sh
 git clone https://github.com/crmne/zapfast zapfast
-cd zapfast
+cd solmu
 cargo install --path .
-zapfast
+solmu
 ```
 
 On Linux, `cargo install` puts the binary on your `PATH` but does not add a
-launcher entry. To get one (ZapFast under your application launcher, with its
+launcher entry. To get one (Solmu under your application launcher, with its
 own icon and no terminal), install a release build instead:
 
 ```sh
@@ -50,17 +50,17 @@ sudo apt install build-essential cmake perl clang libclang-dev libasound2-dev li
 ```
 
 With Nix, `nix develop` provides the toolchain and every native dependency,
-and `nix run .#zapfast` builds and runs it.
+and `nix run .#solmu` builds and runs it.
 
-The packaged desktop entry is `packaging/applications/zapfast.desktop`;
+The packaged desktop entry is `packaging/applications/solmu.desktop`;
 `packaging/install-user.sh` derives the user copy above from it.
 
 ## Link with your phone
 
-On first launch, ZapFast follows your system appearance. Choose another theme
-in **Settings > Appearance**; ZapFast remembers your choice.
+On first launch, Solmu follows your system appearance. Choose another theme
+in **Settings > Appearance**; Solmu remembers your choice.
 
-ZapFast links as a companion device, like WhatsApp Web. Start it and either:
+Solmu links as a companion device, like WhatsApp Web. Start it and either:
 
 - scan the QR code with your phone (WhatsApp, **Settings**, **Linked
   devices**, **Link a device**). The phone's camera app also reads the code
@@ -69,7 +69,7 @@ ZapFast links as a companion device, like WhatsApp Web. Start it and either:
   phone.
 
 The link survives restarts. Your phone does not need to stay on the same
-network or be online to read messages already stored in ZapFast.
+network or be online to read messages already stored in Solmu.
 
 Several numbers can stay linked in one window. Click your own picture at the
 bottom of the rail beside the chat list to switch between them or to add
@@ -86,9 +86,9 @@ and its unread chats count toward neither the dot nor the app icon's badge.
 ## Message history
 
 After linking, the phone sends recent history. The chat list appears within
-seconds, and messages can take a few minutes to finish loading. ZapFast stores
+seconds, and messages can take a few minutes to finish loading. Solmu stores
 new messages in its own archive. When you scroll past the stored history,
-ZapFast asks your phone for older messages. The phone must be online.
+Solmu asks your phone for older messages. The phone must be online.
 
 ## Try it in your own chat
 

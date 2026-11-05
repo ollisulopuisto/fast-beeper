@@ -1,5 +1,5 @@
 # Maintainer: Carmine Paolino <carmine@paolino.me>
-pkgname=zapfast-bin
+pkgname=solmu-bin
 pkgver=@VERSION@
 pkgrel=@PKGREL@
 pkgdesc="Fast native WhatsApp client built with Rust and egui"
@@ -19,8 +19,8 @@ conflicts=('zapfast' 'zapfast-git' 'fastsapp' 'fastsapp-bin' 'fastsapp-git')
 replaces=('fastsapp-bin')
 options=('!debug' '!strip')
 _repo="https://github.com/crmne/zapfast"
-source_x86_64=("${_repo}/releases/download/v${pkgver}/zapfast-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
-source_aarch64=("${_repo}/releases/download/v${pkgver}/zapfast-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
+source_x86_64=("${_repo}/releases/download/v${pkgver}/solmu-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
+source_aarch64=("${_repo}/releases/download/v${pkgver}/solmu-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
 sha256sums_x86_64=('@AMD64_SHA256@')
 sha256sums_aarch64=('@ARM64_SHA256@')
 
@@ -30,22 +30,22 @@ package() {
     x86_64) target="x86_64-unknown-linux-gnu" ;;
     aarch64) target="aarch64-unknown-linux-gnu" ;;
   esac
-  local dir="${srcdir}/zapfast-v${pkgver}-${target}"
+  local dir="${srcdir}/solmu-v${pkgver}-${target}"
 
-  install -Dm755 "${dir}/zapfast" "${pkgdir}/usr/bin/zapfast"
+  install -Dm755 "${dir}/solmu" "${pkgdir}/usr/bin/solmu"
   install -Dm644 "${dir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 "${dir}/THIRD-PARTY-NOTICES.md" "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY-NOTICES.md"
   install -Dm644 "${dir}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-  install -Dm644 "${dir}/packaging/applications/zapfast.desktop" \
-    "${pkgdir}/usr/share/applications/zapfast.desktop"
-  install -Dm644 "${dir}/packaging/icons/zapfast.svg" \
-    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/zapfast.svg"
+  install -Dm644 "${dir}/packaging/applications/solmu.desktop" \
+    "${pkgdir}/usr/share/applications/solmu.desktop"
+  install -Dm644 "${dir}/packaging/icons/solmu.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/solmu.svg"
   # Releases predating theme integration remain valid packaging inputs.
-  if [[ -f "${dir}/contrib/omarchy/zapfast.json.tpl" ]]; then
-    install -Dm644 "${dir}/contrib/omarchy/zapfast.json.tpl" \
-      "${pkgdir}/usr/share/zapfast/omarchy/zapfast.json.tpl"
-    install -Dm755 "${dir}/contrib/omarchy/zapfast-theme" \
-      "${pkgdir}/usr/share/zapfast/omarchy/zapfast-theme"
+  if [[ -f "${dir}/contrib/omarchy/solmu.json.tpl" ]]; then
+    install -Dm644 "${dir}/contrib/omarchy/solmu.json.tpl" \
+      "${pkgdir}/usr/share/solmu/omarchy/solmu.json.tpl"
+    install -Dm755 "${dir}/contrib/omarchy/solmu-theme" \
+      "${pkgdir}/usr/share/solmu/omarchy/solmu-theme"
   fi
 
 }

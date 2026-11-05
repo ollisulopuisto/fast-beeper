@@ -41,10 +41,10 @@ jobs:
           python3 - <<'PY'
           import json, os
           rows = [
-              dict(os='macos-15', target='aarch64-apple-darwin', executable='zapfast'),
-              dict(os='macos-15-intel', target='x86_64-apple-darwin', executable='zapfast'),
-              dict(os='ubuntu-24.04', target='x86_64-unknown-linux-gnu', executable='zapfast'),
-              dict(os='windows-2025', target='x86_64-pc-windows-msvc', executable='zapfast.exe'),
+              dict(os='macos-15', target='aarch64-apple-darwin', executable='solmu'),
+              dict(os='macos-15-intel', target='x86_64-apple-darwin', executable='solmu'),
+              dict(os='ubuntu-24.04', target='x86_64-unknown-linux-gnu', executable='solmu'),
+              dict(os='windows-2025', target='x86_64-pc-windows-msvc', executable='solmu.exe'),
           ]
           selected = [r for r in rows if os.environ['TARGET'] in ('all', r['target'])]
           if not selected and os.environ['TARGET'] != 'shots-only':
@@ -99,7 +99,7 @@ jobs:
         run: xcrun swiftc -swift-version 5 -framework AppKit -typecheck packaging/macos/BeeperLauncher.swift
       - name: Build real release binary
         shell: bash
-        run: cargo build --locked --release --bin zapfast --target '${{ matrix.target }}'
+        run: cargo build --locked --release --bin solmu --target '${{ matrix.target }}'
       - name: Package trial
         shell: bash
         run: |
@@ -109,7 +109,7 @@ jobs:
       - name: Build scheduler sidecar
         if: matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu'
         shell: bash
-        run: cargo build --locked --release --bin zapfast-scheduler --target '${{ matrix.target }}'
+        run: cargo build --locked --release --bin solmu-scheduler --target '${{ matrix.target }}'
       - name: Scheduler end-to-end test on Linux (stub Server, no network or accounts)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         shell: bash
@@ -119,8 +119,8 @@ jobs:
         shell: bash
         run: |
           python contrib/beeper-tools/package_app_dmg.py \
-            --binary 'target/${{ matrix.target }}/release/zapfast' \
-            --scheduler-binary 'target/${{ matrix.target }}/release/zapfast-scheduler' \
+            --binary 'target/${{ matrix.target }}/release/solmu' \
+            --scheduler-binary 'target/${{ matrix.target }}/release/solmu-scheduler' \
             --output app-dist --version 2026.11.4.3 --commit "$GITHUB_SHA"
       # A maintainer enables uploads after checking account storage/no-spend
       # settings. Compilation still runs with this unset, without paid storage.
@@ -128,7 +128,7 @@ jobs:
         if: vars.FAST_BEEPER_UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: fast-beeper-${{ matrix.target }}-${{ github.sha }}
+          name: Solmu-${{ matrix.target }}-${{ github.sha }}
           path: |
             dist/*.zip
             dist/*.sha256
@@ -169,7 +169,7 @@ jobs:
           mkdir -p "$out"
           shot() {
             name="$1"; size="$2"; page="$3"; shift 3
-            ./target/debug/zapfast --demo-shot "$out/$name.png" \
+            ./target/debug/solmu --demo-shot "$out/$name.png" \
               --demo-size "$size" --demo-page "$page" --demo-shot-delay 6000 "$@"
             test -s "$out/$name.png"
           }
@@ -259,7 +259,7 @@ jobs:
           # Transcription settings: the local-service fields and the
           # delete control, found by the settings search.
           shot settings-transcription-960x780 960x780 settings-search=Transcription,transcript
-          # ZapFast's own title bar (GNOME): the header clears the buttons.
+          # Solmu's own title bar (GNOME): the header clears the buttons.
           shot chat-titlebar-700x600 700x600 chat --demo-titlebar
           # A short window scrolls the rail instead of losing its foot.
           shot chat-1180x300 1180x300 chat

@@ -1,4 +1,4 @@
-//! Where ZapFast keeps its files.
+//! Where Solmu keeps its files.
 //!
 //! Configuration, session state, and caches use separate standard platform
 //! directories. Clearing a cache does not remove device keys.
@@ -20,18 +20,20 @@ pub struct AppDirs {
 
 impl AppDirs {
     pub fn discover() -> Self {
-        if let Some(root) = std::env::var_os("ZAPFAST_PROFILE_ROOT") {
+        if let Some(root) = std::env::var_os("SOLMU_PROFILE_ROOT") {
             return Self::under(std::path::Path::new(&root));
         }
+        // The data directory keeps its original name: existing chats, settings and
+        // credentials live under it, so renaming would orphan them.
         match Self::of("zapfast") {
             Some(dirs) => dirs,
             None => {
                 let fallback = std::env::current_dir().unwrap_or_default();
                 Self {
-                    config: fallback.join("zapfast-config"),
-                    state: fallback.join("zapfast-state"),
-                    cache: fallback.join("zapfast-cache"),
-                    runtime: fallback.join("zapfast-run"),
+                    config: fallback.join("solmu-config"),
+                    state: fallback.join("solmu-state"),
+                    cache: fallback.join("solmu-cache"),
+                    runtime: fallback.join("solmu-run"),
                 }
             }
         }
@@ -60,7 +62,7 @@ impl AppDirs {
                 self.adopt(&old)?;
             }
             if let (Some(from), Some(to)) =
-                (eframe::storage_dir(name), eframe::storage_dir("zapfast"))
+                (eframe::storage_dir(name), eframe::storage_dir("solmu"))
             {
                 adopt_directory(&from, &to)?;
             }
@@ -195,7 +197,7 @@ impl AppDirs {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
                 format!(
-                    "{} holds a single-account setup, but {} already exists. Nothing was moved; move one of them away and start ZapFast again",
+                    "{} holds a single-account setup, but {} already exists. Nothing was moved; move one of them away and start Solmu again",
                     self.state.display(),
                     blocked[0].display()
                 ),
@@ -233,7 +235,7 @@ impl AppDirs {
 
     /// Current-run log, replaced at startup.
     pub fn log_file(&self) -> PathBuf {
-        self.state.join("zapfast.log")
+        self.state.join("solmu.log")
     }
 
     /// Panic log written before process exit.
@@ -261,7 +263,7 @@ impl AppDirs {
         self.state.join("stickers")
     }
 
-    /// ZapFast's copy of the chosen chat wallpaper image. User data, so it
+    /// Solmu's copy of the chosen chat wallpaper image. User data, so it
     /// sits beside saved stickers rather than in the cache.
     pub fn wallpaper_file(&self, extension: &str) -> PathBuf {
         self.state.join(format!("wallpaper.{extension}"))
@@ -350,7 +352,7 @@ impl AccountDirs {
         self.state.join("stickers")
     }
 
-    /// ZapFast's copy of the chosen chat wallpaper image for this account.
+    /// Solmu's copy of the chosen chat wallpaper image for this account.
     pub fn wallpaper_file(&self, extension: &str) -> PathBuf {
         self.state.join(format!("wallpaper.{extension}"))
     }
@@ -427,7 +429,7 @@ mod tests {
 
     fn root(name: &str) -> PathBuf {
         let root =
-            std::env::temp_dir().join(format!("zapfast-paths-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("solmu-paths-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -489,7 +491,7 @@ mod tests {
         for name in ["fastsapp", "fastwhatsapp"] {
             let root = root(name);
             let old = AppDirs::under(&root.join(name));
-            let new = AppDirs::under(&root.join("zapfast"));
+            let new = AppDirs::under(&root.join("solmu"));
             old.ensure().unwrap();
             for path in [
                 old.settings_file(),
@@ -526,7 +528,7 @@ mod tests {
     #[test]
     fn newest_data_wins_without_merging_archives() {
         let root = root("precedence");
-        let new = AppDirs::under(&root.join("zapfast"));
+        let new = AppDirs::under(&root.join("solmu"));
         let recent = AppDirs::under(&root.join("fastsapp"));
         let oldest = AppDirs::under(&root.join("fastwhatsapp"));
         recent.ensure().unwrap();

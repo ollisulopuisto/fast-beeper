@@ -855,7 +855,7 @@ pub struct App {
     /// texture each is drawn through.
     pub call_member_frames: HashMap<String, std::sync::Arc<egui::ColorImage>>,
     pub call_member_textures: HashMap<String, CallTexture>,
-    /// Whether ZapFast starts at login, when this installation supports it.
+    /// Whether Solmu starts at login, when this installation supports it.
     pub start_with_system: Option<bool>,
     /// The read or change of the login item running on its thread.
     login_item: crate::autostart::LoginItem,
@@ -877,7 +877,7 @@ pub struct App {
     /// its command line tool.
     #[cfg(test)]
     test_raised: bool,
-    /// Whether the tray menu offers "Lock ZapFast": whether an app lock
+    /// Whether the tray menu offers "Lock Solmu": whether an app lock
     /// password was set when it last changed.
     tray_lockable: bool,
     /// Whether the app is running without a window.
@@ -1118,7 +1118,7 @@ fn wayland_session() -> bool {
 }
 
 /// The app outlives its window: closing it with "keep running" on hides
-/// ZapFast, and the tray, a notification or another launch brings it back.
+/// Solmu, and the tray, a notification or another launch brings it back.
 impl fastframe_shell::Resident for App {
     fn closed(&self) -> fastframe_shell::Closed {
         if self.quit_requested {
@@ -1209,7 +1209,7 @@ fn transcriber_worker(
     let store = match crate::transcriber::Store::new(dirs.state.join("transcripts"), 32 << 20) {
         Ok(store) => store,
         Err(error) => {
-            eprintln!("zapfast: transcript store unavailable: {error}");
+            eprintln!("solmu: transcript store unavailable: {error}");
             return None;
         }
     };
@@ -1229,25 +1229,25 @@ fn transcriber_worker(
     ))
 }
 
-/// The tray item: ZapFast's icon, and a menu to show or hide the window,
+/// The tray item: Solmu's icon, and a menu to show or hide the window,
 /// to lock it while an app lock password is set, and to quit. The title and
 /// the menu never name a chat, so they are safe while locked.
 ///
-/// "Lock ZapFast" is always in the menu, hidden without a password;
+/// "Lock Solmu" is always in the menu, hidden without a password;
 /// `App::sync_tray` shows or hides it as the password is set or removed.
 fn tray_config(lockable: bool) -> fastframe_tray::Config {
     use fastframe_tray::MenuItem;
     fastframe_tray::Config {
-        id: "zapfast",
-        title: "ZapFast".into(),
+        id: "solmu",
+        title: "Solmu".into(),
         icon: crate::util::app_icon_rgba,
         template_icon: Some(crate::util::tray_template_rgba),
         // The tray icon is the app icon, so hosts that draw only named icons
         // may use the installed one.
         themed_icon: true,
         menu: vec![
-            MenuItem::action(TRAY_SHOW, "Show or hide ZapFast"),
-            MenuItem::action(TRAY_LOCK, "Lock ZapFast").visible(lockable),
+            MenuItem::action(TRAY_SHOW, "Show or hide Solmu"),
+            MenuItem::action(TRAY_LOCK, "Lock Solmu").visible(lockable),
             MenuItem::Separator,
             MenuItem::action(TRAY_QUIT, "Quit"),
         ],
@@ -1325,7 +1325,7 @@ impl App {
         app.pauses_media = true;
         app.call_tones = crate::call_tones::Tones::new(true);
         app.badge = Some(crate::notify::Badge::new(fastframe_desktop::desktop_entry(
-            "zapfast",
+            "solmu",
         )));
         app.custom_themes
             .enable_desktop_themes(crate::theme::DESKTOP_THEMES);
@@ -1414,7 +1414,7 @@ impl App {
     pub fn start_hidden(&mut self) {
         self.hide_intent = true;
         // No window will attach the tray, which makes the macOS item; make
-        // it now without bringing ZapFast forward.
+        // it now without bringing Solmu forward.
         if let Some(tray) = &mut self.tray {
             tray.create_item();
         }
@@ -1464,7 +1464,7 @@ impl App {
                 _ => Palette::dark(),
             });
         let locale = crate::i18n::resolve(settings.interface_language);
-        // With a password set, ZapFast starts locked.
+        // With a password set, Solmu starts locked.
         let app_lock = crate::app_lock::AppLock::new(settings.app_lock_hash.is_some());
         let tray_lockable = settings.app_lock_hash.is_some();
         let mut app = Self {
@@ -2185,7 +2185,7 @@ impl App {
 
     /// Whether a panel shows the tray item now, so a hidden window can be
     /// brought back from it. On Linux the item exists before a panel shows
-    /// it (ZapFast started at login before the panel), and on a desktop
+    /// it (Solmu started at login before the panel), and on a desktop
     /// without one it never is.
     fn tray_shown(&self) -> bool {
         #[cfg(test)]
@@ -2235,7 +2235,7 @@ impl App {
         );
     }
 
-    /// Offers "Lock ZapFast" in the tray exactly while an app lock password
+    /// Offers "Lock Solmu" in the tray exactly while an app lock password
     /// is set, so setting or removing one changes the menu at once.
     fn sync_tray(&mut self) {
         let lockable = self.settings.app_lock_hash.is_some();
@@ -2416,11 +2416,11 @@ impl App {
     }
 
     /// Announces a message while the app lock is on, or with notification
-    /// content turned off: "New message" from ZapFast, without the chat, the
+    /// content turned off: "New message" from Solmu, without the chat, the
     /// sender, the text or a picture, so the desktop shows nothing the lock
     /// screen hides. A chat's own sound and the mention sound would tell who
     /// wrote, so only the message sound plays, still silent for groups when
-    /// group sounds are off. The click target stays inside ZapFast: it opens
+    /// group sounds are off. The click target stays inside Solmu: it opens
     /// the message, once unlocked behind the lock.
     fn notify_without_content(
         &mut self,
@@ -5226,7 +5226,7 @@ impl App {
             Event::UpdateAvailable { version, url } => {
                 let notice = crate::updates::Release { version, url };
                 if self.update.as_ref() != Some(&notice) {
-                    self.toast(format!("ZapFast {} is available", notice.version));
+                    self.toast(format!("Solmu {} is available", notice.version));
                 }
                 self.update = Some(notice);
             }
@@ -5426,7 +5426,7 @@ impl App {
                     .into_owned(),
                     crate::calls::CALL_LINKS_OFF => crate::i18n::gettext(
                         self.locale,
-                        "ZapFast can't join group calls yet: open the link on your phone.",
+                        "Solmu can't join group calls yet: open the link on your phone.",
                     )
                     .into_owned(),
                     _ => message,
@@ -6223,7 +6223,7 @@ impl App {
             ),
             Refusal::Offline => crate::i18n::gettext(
                 self.locale,
-                "Not sent: ZapFast is not connected to WhatsApp.",
+                "Not sent: Solmu is not connected to WhatsApp.",
             ),
             Refusal::QuoteUnavailable => crate::i18n::gettext(
                 self.locale,
@@ -8301,7 +8301,7 @@ impl App {
                     // own, or one that never decodes would download forever:
                     // the bubble offers the retry, as a failed download does.
                     log::warn!("a downloaded attachment could not be displayed");
-                    media.state = MediaState::Failed("ZapFast could not display this file".into());
+                    media.state = MediaState::Failed("Solmu could not display this file".into());
                 } else if !matches!(media.state, MediaState::Downloading) {
                     // Gone from the disk: it downloads again like any
                     // attachment that was never downloaded.
@@ -8498,7 +8498,7 @@ impl App {
                     } else {
                         self.toast(crate::i18n::gettext(
                             self.locale,
-                            "ZapFast can't join group calls yet: open the link on your phone.",
+                            "Solmu can't join group calls yet: open the link on your phone.",
                         ));
                     }
                 } else if let Some(code) = crate::safety::group_invite_code(&url) {
@@ -8511,7 +8511,7 @@ impl App {
                 } else if let Some(url) = crate::safety::external_url(&url) {
                     ctx.open_url(egui::OpenUrl::new_tab(url));
                 } else {
-                    self.toast_error("This link type cannot be opened from ZapFast");
+                    self.toast_error("This link type cannot be opened from Solmu");
                 }
             }
             Action::CopyText(text) => {
@@ -9865,7 +9865,7 @@ impl App {
                     self.toast_error(
                         crate::i18n::gettext(
                             self.locale,
-                            "You have {limit} labels, the most ZapFast keeps.",
+                            "You have {limit} labels, the most Solmu keeps.",
                         )
                         .replace("{limit}", &crate::archive::LABEL_LIMIT.to_string()),
                     );
@@ -10549,7 +10549,7 @@ impl App {
             }
             Action::TryTouchId => {
                 if self.app_lock.can_try_touch_id() {
-                    let reason = crate::i18n::gettext(self.locale, "Unlock ZapFast");
+                    let reason = crate::i18n::gettext(self.locale, "Unlock Solmu");
                     self.app_lock
                         .begin_touch_id(crate::biometrics::evaluate(&reason));
                 }
@@ -11081,7 +11081,7 @@ impl App {
                 self.start_with_system = crate::autostart::switch(state);
                 if outcome.changed && matches!(state, fastframe_autostart::State::NeedsApproval(_))
                 {
-                    self.toast("Allow ZapFast in System Settings, under Login Items.");
+                    self.toast("Allow Solmu in System Settings, under Login Items.");
                 }
             }
             Err(error) => {
@@ -11092,7 +11092,7 @@ impl App {
         }
     }
 
-    /// Collects a finished password check, and locks once ZapFast has gone
+    /// Collects a finished password check, and locks once Solmu has gone
     /// unused for the chosen time. Inactivity counts while the window is
     /// hidden too: only input in the window restarts it.
     fn tick_app_lock(&mut self, ctx: &egui::Context) {
@@ -11122,7 +11122,7 @@ impl App {
         if self.app_lock.is_locked() {
             return;
         }
-        // Recording a voice message is using ZapFast, keys or not.
+        // Recording a voice message is using Solmu, keys or not.
         if self.recording.is_some() {
             self.app_lock.note_input();
         }
@@ -13092,7 +13092,7 @@ mod tests {
     }
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-app-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-app-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
@@ -14788,7 +14788,7 @@ mod tests {
         );
     }
 
-    /// `zapfast quit` takes the tray's Quit path, and does even behind the
+    /// `solmu quit` takes the tray's Quit path, and does even behind the
     /// app lock, since quitting reveals nothing.
     #[test]
     fn a_quit_request_quits_even_behind_the_lock() {
@@ -15288,7 +15288,7 @@ mod tests {
         );
     }
 
-    /// Demo and test runs share the machine with a linked ZapFast, whose real
+    /// Demo and test runs share the machine with a linked Solmu, whose real
     /// taskbar badge they must not overwrite.
     /// A background page is not an answer to a request the reader made.
     /// Counting it as one would look like the phone missing, and back off the
@@ -16755,7 +16755,7 @@ mod tests {
 
     #[test]
     fn an_album_answer_for_another_chat_is_dropped() {
-        let root = std::env::temp_dir().join(format!("zapfast-album-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-album-{}", std::process::id()));
         let (mut app, events) = App::headless(AppDirs::under(&root), Settings::default());
         app.viewer_media_chat = Some("1@s.whatsapp.net".into());
         // An album for a chat the viewer has already left arrives too late.
@@ -17340,7 +17340,7 @@ mod tests {
         assert!(!app.hide_intent);
     }
 
-    /// On Linux the tray item exists before a panel shows it (ZapFast started
+    /// On Linux the tray item exists before a panel shows it (Solmu started
     /// at login before the panel, or a desktop without one). Until a panel
     /// shows it, closing quits and the window is not hidden, since nothing
     /// could bring it back. A hidden start waits for a panel instead; see
@@ -17916,7 +17916,7 @@ mod tests {
 
     #[test]
     fn a_gone_label_leaves_the_list_showing_all_chats() {
-        let root = std::env::temp_dir().join(format!("zapfast-labels-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-labels-{}", std::process::id()));
         let (mut app, events) = App::headless(AppDirs::under(&root), Settings::default());
         let ctx = egui::Context::default();
         app.labels = vec![label("label-1", "Work"), label("label-2", "Home")];
@@ -17984,8 +17984,8 @@ mod tests {
             assert_eq!(
                 super::tray_config(lockable).menu,
                 [
-                    fastframe_tray::MenuItem::action(super::TRAY_SHOW, "Show or hide ZapFast"),
-                    fastframe_tray::MenuItem::action(super::TRAY_LOCK, "Lock ZapFast")
+                    fastframe_tray::MenuItem::action(super::TRAY_SHOW, "Show or hide Solmu"),
+                    fastframe_tray::MenuItem::action(super::TRAY_LOCK, "Lock Solmu")
                         .visible(lockable),
                     fastframe_tray::MenuItem::Separator,
                     fastframe_tray::MenuItem::action(super::TRAY_QUIT, "Quit"),
@@ -17994,7 +17994,7 @@ mod tests {
         }
     }
 
-    /// The tray offers "Lock ZapFast" as soon as a password is set and stops
+    /// The tray offers "Lock Solmu" as soon as a password is set and stops
     /// as soon as it is removed, not at the next start.
     #[test]
     fn the_tray_offers_the_lock_while_a_password_is_set() {
@@ -18124,7 +18124,7 @@ mod tests {
         app.maybe_download_update();
         assert!(matches!(app.update_download, DownloadState::Idle));
         let installation = Installation {
-            executable: PathBuf::from("/fixture/zapfast"),
+            executable: PathBuf::from("/fixture/solmu"),
             kind: Kind::Portable,
         };
         app.update_support = Some(Ok(installation.clone()));
@@ -18169,7 +18169,7 @@ mod tests {
 
     #[test]
     fn losing_focus_takes_effect_before_processing_an_incoming_chat_update() {
-        let root = std::env::temp_dir().join("zapfast-focus-test");
+        let root = std::env::temp_dir().join("solmu-focus-test");
         let (mut app, events) = App::headless(AppDirs::under(&root), Settings::default());
         let mut chat = Chat::new("peer@s.whatsapp.net".into(), "Peer".into());
         chat.unread = 1;
@@ -20531,7 +20531,7 @@ mod tests {
             .unwrap();
         app.handle_events();
         assert_eq!(states(&app), [MediaState::Idle, MediaState::Downloading]);
-        let path = PathBuf::from("/cache/zapfast/media/carousel-card-1.jpg");
+        let path = PathBuf::from("/cache/solmu/media/carousel-card-1.jpg");
         events
             .send(Event::Media {
                 card: Some(1),
@@ -24682,7 +24682,7 @@ mod tests {
 
     #[test]
     fn a_saved_speed_between_choices_snaps_to_one() {
-        let root = std::env::temp_dir().join(format!("zapfast-speed-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-speed-{}", std::process::id()));
         let settings = Settings {
             voice_speed: 1.3,
             ..Settings::default()
@@ -25092,7 +25092,7 @@ mod name_tests {
     use crate::model::{Contact, Content, Delivery, MentionRef};
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-names-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-names-{}", std::process::id()));
         let (mut app, _events) = App::headless(AppDirs::under(&root), Settings::default());
         app.me = Some("15550001111@s.whatsapp.net".into());
         app.me_name = Some("Carmine".into());
@@ -25397,7 +25397,7 @@ mod app_lock_tests {
 
     fn app_with(settings: Settings) -> App {
         let root = std::env::temp_dir().join(format!(
-            "zapfast-app-lock-{}-{:?}",
+            "solmu-app-lock-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));
@@ -25491,7 +25491,7 @@ mod app_lock_tests {
         app.maybe_notify(CHAT, &message);
         let shown = app.notifications.shown.last().unwrap();
         assert_eq!(shown.body, "New message");
-        assert_eq!(shown.title, "ZapFast");
+        assert_eq!(shown.title, "Solmu");
         assert_eq!(shown.sound, crate::settings::NotificationSound::None);
     }
 
@@ -25974,7 +25974,7 @@ mod app_lock_tests {
         app.lock_app();
         app.maybe_notify(CHAT, &message);
         let shown = app.notifications.shown.last().unwrap();
-        assert_eq!(shown.title, "ZapFast");
+        assert_eq!(shown.title, "Solmu");
         assert_eq!(shown.body, "New message");
         assert_eq!(shown.picture, None);
         assert_eq!(
@@ -26009,7 +26009,7 @@ mod app_lock_tests {
         app.settings.notification_content = false;
         app.maybe_notify(CHAT, &message);
         let shown = app.notifications.shown.last().unwrap().clone();
-        assert_eq!(shown.title, "ZapFast");
+        assert_eq!(shown.title, "Solmu");
         assert_eq!(shown.body, "New message");
         assert_eq!(shown.picture, None);
         assert_eq!(shown.sound, app.settings.message_sound);
@@ -26294,7 +26294,7 @@ mod person_tests {
     use crate::model::ChatKind;
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-person-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-person-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
@@ -26450,7 +26450,7 @@ mod transcription_tests {
     use super::*;
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-transcribe-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-transcribe-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
@@ -26658,7 +26658,7 @@ mod account_background_tests {
     use crate::settings::WallpaperColor;
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-acctbg-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-acctbg-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
@@ -26734,7 +26734,7 @@ mod network_tint_tests {
     use crate::settings::WallpaperColor;
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-nettint-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-nettint-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
@@ -26833,7 +26833,7 @@ mod conversation_palette_tests {
     use crate::theme::Palette;
 
     fn app() -> App {
-        let root = std::env::temp_dir().join(format!("zapfast-accttheme-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-accttheme-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
@@ -26981,7 +26981,7 @@ mod conversation_palette_tests {
 
     #[test]
     fn later_marks_survive_a_settings_roundtrip() {
-        let root = std::env::temp_dir().join(format!("zapfast-later-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-later-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("settings.json");
         let mut app = app();

@@ -14,51 +14,51 @@ spec.loader.exec_module(module)
 class FinderAppTests(unittest.TestCase):
     def test_native_assembly_uses_real_bundle_and_beeper_mode(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / 'ZapFast Beeper.app'
+            app = Path(directory) / 'Solmu.app'
             def run(command, **kwargs):
                 self.assertEqual(command[-1], 'beeper')
                 self.assertEqual(command[1], str(ROOT / 'packaging/macos/bundle.sh'))
                 (app / 'Contents/MacOS').mkdir(parents=True)
                 (app / 'Contents/Resources').mkdir()
-                (app / 'Contents/Resources/zapfast.icns').write_bytes(b'fixture')
-                (app / 'Contents/MacOS/zapfast-client').write_bytes(b'fixture')
+                (app / 'Contents/Resources/solmu.icns').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/solmu-client').write_bytes(b'fixture')
                 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
                     'CFBundleIdentifier': 'fi.sulopuisto.fast-beeper',
-                    'CFBundleExecutable': 'zapfast', 'CFBundleVersion': '2026.10.30.1'}))
+                    'CFBundleExecutable': 'solmu', 'CFBundleVersion': '2026.10.30.1'}))
             with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(module.subprocess, 'run', side_effect=run):
-                module.assemble(ROOT, Path('/tmp/native-zapfast'), app, '2026.10.30.1')
+                module.assemble(ROOT, Path('/tmp/native-solmu'), app, '2026.10.30.1')
 
     def test_scheduler_sidecar_passed_to_bundle_and_validated(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / 'ZapFast Beeper.app'
+            app = Path(directory) / 'Solmu.app'
             def run(command, **kwargs):
                 self.assertEqual(command[-1], str(Path('/tmp/native-scheduler').resolve()))
                 (app / 'Contents/MacOS').mkdir(parents=True)
                 (app / 'Contents/Resources').mkdir()
-                (app / 'Contents/Resources/zapfast.icns').write_bytes(b'fixture')
-                (app / 'Contents/MacOS/zapfast-client').write_bytes(b'fixture')
-                (app / 'Contents/MacOS/zapfast-scheduler').write_bytes(b'fixture')
+                (app / 'Contents/Resources/solmu.icns').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/solmu-client').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/solmu-scheduler').write_bytes(b'fixture')
                 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
                     'CFBundleIdentifier': 'fi.sulopuisto.fast-beeper',
-                    'CFBundleExecutable': 'zapfast', 'CFBundleVersion': '2026.10.30.1'}))
+                    'CFBundleExecutable': 'solmu', 'CFBundleVersion': '2026.10.30.1'}))
             with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(module.subprocess, 'run', side_effect=run):
-                module.assemble(ROOT, Path('/tmp/native-zapfast'), app, '2026.10.30.1',
+                module.assemble(ROOT, Path('/tmp/native-solmu'), app, '2026.10.30.1',
                                 Path('/tmp/native-scheduler'))
 
     def test_missing_scheduler_sidecar_fails_assembly(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / 'ZapFast Beeper.app'
+            app = Path(directory) / 'Solmu.app'
             def run(command, **kwargs):
                 (app / 'Contents/MacOS').mkdir(parents=True)
                 (app / 'Contents/Resources').mkdir()
-                (app / 'Contents/Resources/zapfast.icns').write_bytes(b'fixture')
-                (app / 'Contents/MacOS/zapfast-client').write_bytes(b'fixture')
+                (app / 'Contents/Resources/solmu.icns').write_bytes(b'fixture')
+                (app / 'Contents/MacOS/solmu-client').write_bytes(b'fixture')
                 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
                     'CFBundleIdentifier': 'fi.sulopuisto.fast-beeper',
-                    'CFBundleExecutable': 'zapfast', 'CFBundleVersion': '2026.10.30.1'}))
+                    'CFBundleExecutable': 'solmu', 'CFBundleVersion': '2026.10.30.1'}))
             with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(module.subprocess, 'run', side_effect=run):
                 with self.assertRaises(ValueError):
-                    module.assemble(ROOT, Path('/tmp/native-zapfast'), app, '2026.10.30.1',
+                    module.assemble(ROOT, Path('/tmp/native-solmu'), app, '2026.10.30.1',
                                     Path('/tmp/native-scheduler'))
 
     def test_non_mac_does_not_fake_native_app(self):
@@ -73,7 +73,7 @@ class FinderAppTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
         for required in ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'ExitOnForwardFailure=yes',
                          '127.0.0.1:23374:127.0.0.1:23374', 'target["id"] as? String == "server"',
-                         'env["ZAPFAST_BACKEND"] = "beeper"', 'env["BEEPER_SIGN_IN"] = "0"',
+                         'env["SOLMU_BACKEND"] = "beeper"', 'env["BEEPER_SIGN_IN"] = "0"',
                          '.zapfast-beeper-prototype', 'defer { stop(tunnel) }',
                          'marker == Data("READY".utf8)']:
             self.assertIn(required, source)
@@ -84,5 +84,5 @@ class FinderAppTests(unittest.TestCase):
     def test_original_icon_and_non_terminal_bundle_identity(self):
         info = plistlib.loads((ROOT / 'packaging/macos/Info.plist').read_bytes())
         self.assertEqual(info['CFBundlePackageType'], 'APPL')
-        self.assertEqual(info['CFBundleIconFile'], 'zapfast')
+        self.assertEqual(info['CFBundleIconFile'], 'solmu')
         self.assertGreater((ROOT / 'packaging/macos/icon-1024.png').stat().st_size, 10000)

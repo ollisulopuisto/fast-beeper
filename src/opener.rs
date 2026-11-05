@@ -75,7 +75,7 @@ fn attempts(path: &Path) -> Vec<Attempt<'_>> {
 /// Opens the window's web links the way attachments and folders are opened.
 ///
 /// eframe hands `ctx.open_url` to the `webbrowser` crate, which on Linux and
-/// the BSDs starts the browser as a child of ZapFast and never waits for it,
+/// the BSDs starts the browser as a child of Solmu and never waits for it,
 /// so each clicked link left a defunct process behind until the app quit
 /// (#446). This takes every `OpenUrl` out of the frame's output before eframe
 /// sees it and opens it with `open::that_detached`, whose launcher is
@@ -99,7 +99,7 @@ impl Default for DetachedLinks {
 #[cfg(all(unix, not(target_os = "macos")))]
 impl egui::plugin::Plugin for DetachedLinks {
     fn debug_name(&self) -> &'static str {
-        "zapfast-links"
+        "solmu-links"
     }
 
     fn output_hook(&mut self, _ctx: &egui::Context, output: &mut egui::FullOutput) {
@@ -237,8 +237,8 @@ mod tests {
     fn file_uris_escape_what_a_path_segment_cannot_carry() {
         use linux::file_uri;
         assert_eq!(
-            file_uri(Path::new("/home/ada/.local/state/zapfast/zapfast.log")),
-            "file:///home/ada/.local/state/zapfast/zapfast.log"
+            file_uri(Path::new("/home/ada/.local/state/solmu/solmu.log")),
+            "file:///home/ada/.local/state/solmu/solmu.log"
         );
         assert_eq!(
             file_uri(Path::new("/home/José Ω/a#b%c.log")),
@@ -315,9 +315,9 @@ mod tests {
         assert_eq!(launch(Command::new("sh").args(["-c", "exit 0"])), Ok(()));
         let failed = launch(Command::new("sh").args(["-c", "exit 4"])).unwrap_err();
         assert!(failed.starts_with("sh failed"), "{failed}");
-        let missing = launch(&mut Command::new("zapfast-no-such-launcher")).unwrap_err();
+        let missing = launch(&mut Command::new("solmu-no-such-launcher")).unwrap_err();
         assert!(
-            missing.starts_with("zapfast-no-such-launcher: "),
+            missing.starts_with("solmu-no-such-launcher: "),
             "{missing}"
         );
         let started = Instant::now();

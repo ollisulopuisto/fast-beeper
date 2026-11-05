@@ -2,7 +2,7 @@
 //! frame of a keyboard scenario. A screen reader speaks each change of that
 //! focus, so a frame that reports the window (the tree's root), or a key
 //! that moves focus twice (to a node and on, or away and straight back), is
-//! heard as "ZapFast window" or as an extra item, however briefly it lasts.
+//! heard as "Solmu window" or as an extra item, however briefly it lasts.
 
 use egui::accesskit::{NodeId, TreeUpdate};
 

@@ -241,7 +241,7 @@ impl Worker {
         let Some(client) = self.client.clone() else {
             log::warn!("[CALL] cannot start a call: WhatsApp is not connected");
             self.emit(Event::Error(
-                "ZapFast is not connected to WhatsApp".to_owned(),
+                "Solmu is not connected to WhatsApp".to_owned(),
             ));
             self.emit_call(placing.not_placed());
             return;
@@ -314,7 +314,7 @@ impl Worker {
         let Some(client) = self.client.clone() else {
             log::warn!("[CALL] cannot start a call: WhatsApp is not connected");
             self.emit(Event::Error(
-                "ZapFast is not connected to WhatsApp".to_owned(),
+                "Solmu is not connected to WhatsApp".to_owned(),
             ));
             self.emit_call(placing.not_placed());
             return;
@@ -397,7 +397,7 @@ impl Worker {
         let Some(client) = self.client.clone() else {
             log::warn!("[CALL] cannot join a call link: WhatsApp is not connected");
             self.emit(Event::Error(
-                "ZapFast is not connected to WhatsApp".to_owned(),
+                "Solmu is not connected to WhatsApp".to_owned(),
             ));
             self.emit_call(placing.not_placed());
             return;
@@ -995,7 +995,7 @@ pub(super) struct CallEntry {
 impl Worker {
     /// Files a call among its chat's messages, as WhatsApp shows calls, unless
     /// the chat already has an entry for it (the phone's own call-log
-    /// message). The entry is local: an id of ZapFast's own, never sent, never
+    /// message). The entry is local: an id of Solmu's own, never sent, never
     /// unread.
     pub(super) fn file_call_entry(&mut self, entry: CallEntry) {
         if entry.chat.is_empty() || entry.call_id.is_empty() || entry.timestamp <= 0 {
@@ -1064,7 +1064,7 @@ impl Worker {
         self.emit_chat(&entry.chat);
     }
 
-    /// Removes ZapFast's own entries for a call once the phone's own message
+    /// Removes Solmu's own entries for a call once the phone's own message
     /// for it is filed, so the chat shows the call once.
     pub(super) fn retire_local_call_twins(&mut self, message: &Message) {
         if !matches!(message.content, Content::Call { .. })

@@ -17,12 +17,12 @@ thread_local! {
 static EVENTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Dock/activation diagnostics: one short line per event, in
-/// `<profile>/dock-diagnostic.log`, only when `ZAPFAST_PROFILE_ROOT` is set.
+/// `<profile>/dock-diagnostic.log`, only when `SOLMU_PROFILE_ROOT` is set.
 /// Event names and window counts only, never chat, message or token content.
 /// The file is cut back once it passes 32 KiB.
 fn dock_diag(line: &str) {
     use std::io::Write;
-    let Some(root) = std::env::var_os("ZAPFAST_PROFILE_ROOT") else {
+    let Some(root) = std::env::var_os("SOLMU_PROFILE_ROOT") else {
         return;
     };
     let path = std::path::Path::new(&root).join("dock-diagnostic.log");
@@ -58,7 +58,7 @@ struct MenuInput(Arc<Mutex<Vec<egui::Event>>>);
 
 impl egui::plugin::Plugin for MenuInput {
     fn debug_name(&self) -> &'static str {
-        "zapfast-macos-menu"
+        "solmu-macos-menu"
     }
 
     fn input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
@@ -79,19 +79,19 @@ fn item(id: &str, text: &str, shortcut: Option<&str>) -> MenuItem {
 
 fn build_menu() -> tray_icon::menu::Result<Menu> {
     let menu = Menu::new();
-    let app = Submenu::new("ZapFast", true);
+    let app = Submenu::new("Solmu", true);
     app.append_items(&[
-        &item("about", "About ZapFast", None),
+        &item("about", "About Solmu", None),
         &Native::separator(),
         &item("settings", "Settings…", Some("Super+Comma")),
         &Native::separator(),
         &Native::services(None),
         &Native::separator(),
-        &Native::hide(Some("Hide ZapFast")),
+        &Native::hide(Some("Hide Solmu")),
         &Native::hide_others(None),
         &Native::show_all(None),
         &Native::separator(),
-        &item("quit", "Quit ZapFast", Some("Super+KeyQ")),
+        &item("quit", "Quit Solmu", Some("Super+KeyQ")),
     ])?;
     let file = Submenu::new("File", true);
     file.append_items(&[
@@ -128,13 +128,13 @@ fn build_menu() -> tray_icon::menu::Result<Menu> {
         &Native::minimize(None),
         &Native::maximize(Some("Zoom")),
         &Native::separator(),
-        &item("show-window", "Show ZapFast", None),
+        &item("show-window", "Show Solmu", None),
     ])?;
     let help = Submenu::new("Help", true);
     help.append_items(&[
         &item("whats-new", "What's New", None),
         &item("shortcuts", "Keyboard Shortcuts", Some("Super+Slash")),
-        &item("help", "ZapFast Help", None),
+        &item("help", "Solmu Help", None),
     ])?;
     menu.append_items(&[&app, &file, &edit, &view, &window, &help])?;
     window.set_as_windows_menu_for_nsapp();
@@ -190,7 +190,7 @@ pub fn attach(ctx: &egui::Context) {
 
 /// `applicationShouldHandleReopen:hasVisibleWindows:` injected onto the
 /// application delegate's class: winit deliberately registers no handler for
-/// it (its platform docs assign the decision to the app), and ZapFast's
+/// it (its platform docs assign the decision to the app), and Solmu's
 /// window is destroyed when it closes to the tray, so reopening the app
 /// from the Dock or Finder with no window left surfaced none. AppKit does
 /// not send this message for Cmd-Tab or app-switcher activation; that path

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the winget manifests for a published ZapFast release.
+"""Write the winget manifests for a published Solmu release.
 
     python3 packaging/winget/manifests.py v1.2.3 OUTPUT_DIR
 
@@ -21,8 +21,8 @@ REPOSITORY = "crmne/zapfast"
 HERE = Path(__file__).resolve().parent
 TEMPLATES = sorted(HERE.glob("*.yaml.in"))
 INSTALLERS = {
-    "X64_SHA256": "zapfast-{tag}-x86_64-pc-windows-msvc.msi",
-    "ARM64_SHA256": "zapfast-{tag}-aarch64-pc-windows-msvc.msi",
+    "X64_SHA256": "solmu-{tag}-x86_64-pc-windows-msvc.msi",
+    "ARM64_SHA256": "solmu-{tag}-aarch64-pc-windows-msvc.msi",
 }
 
 

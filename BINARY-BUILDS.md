@@ -27,10 +27,10 @@ Keep the existing Beeper Desktop or Server endpoint running. Extract the inner
 zip. From its extracted directory, using Python 3 (or `uv run --no-project python`):
 
 ```sh
-python contrib/beeper-tools/run_client.py --binary ./zapfast
+python contrib/beeper-tools/run_client.py --binary ./solmu
 ```
 
-On Windows use `--binary ./zapfast.exe`. This starts read-only; add
+On Windows use `--binary ./solmu.exe`. This starts read-only; add
 `--allow-writes` only when you intend to send and update read state. The launcher
 prompts for the existing Beeper API token locally, never in chat. It defaults to
 Desktop's `http://127.0.0.1:23373`; use `--base-url` for an existing Server. It does

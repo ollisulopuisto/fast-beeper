@@ -125,7 +125,7 @@ mod tests {
             pairing_phone: Some(phone.into()),
         };
 
-        // The previous Debug formatting leaked every field into zapfast.log.
+        // The previous Debug formatting leaked every field into solmu.log.
         let previous = format!("link: {status:?}");
         assert!(previous.contains(qr));
         assert!(previous.contains(code));
@@ -536,12 +536,12 @@ pub enum Command {
         complete: bool,
     },
     /// Internal: the one-time replay of the phone's contacts, for the first
-    /// names saved before ZapFast kept them, finished.
+    /// names saved before Solmu kept them, finished.
     FirstNamesRecovered {
         complete: bool,
     },
     /// Internal: the one-time replay of the phone's stars, for those made
-    /// before ZapFast followed them, finished.
+    /// before Solmu followed them, finished.
     StarsRecovered {
         complete: bool,
     },
@@ -895,7 +895,7 @@ pub enum Command {
     /// Sets aside an unreadable archive and the linked session, then starts
     /// over with a new archive and a new link.
     StartOverArchive,
-    /// Whether the person is looking at ZapFast. While they are not, the
+    /// Whether the person is looking at Solmu. While they are not, the
     /// linked phone keeps receiving push notifications.
     SetOnline(bool),
     Shutdown,
@@ -1390,7 +1390,7 @@ pub enum Event {
     },
     /// The current call changed state. The UI renders this and nothing else.
     Call(Box<crate::calls::CallUpdate>),
-    /// A group call ZapFast cannot join while [`crate::calls::GROUP_CALLS_ENABLED`] is off:
+    /// A group call Solmu cannot join while [`crate::calls::GROUP_CALLS_ENABLED`] is off:
     /// ringing (`phase` is `Incoming`), so the window says who is calling and to answer on the
     /// phone, or over, so that word is taken back. It never takes the call screen.
     PhoneOnlyCall(Box<crate::calls::CallUpdate>),
@@ -1584,14 +1584,14 @@ impl Backend {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("zapfast-runtime")
+            .thread_name("solmu-runtime")
             .enable_all()
             .build()
             .expect("unable to start the async runtime");
         let worker_commands = command_tx.clone();
         let (startup, started) = tokio::sync::oneshot::channel();
         let thread = std::thread::Builder::new()
-            .name("zapfast-backend".to_string())
+            .name("solmu-backend".to_string())
             .spawn(move || {
                 runtime.block_on(async move {
                     if started.await.is_ok() {
@@ -1619,7 +1619,7 @@ impl Backend {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let thread = std::thread::Builder::new()
-            .name("zapfast-beeper-backend".to_string())
+            .name("solmu-beeper-backend".to_string())
             .spawn(move || beeper::run(cfg, dirs, event_tx, command_rx, waker))
             .expect("unable to start the Beeper backend thread");
         Self {

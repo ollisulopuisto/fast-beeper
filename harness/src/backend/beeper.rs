@@ -5,8 +5,8 @@
 //!
 //! This is the "swap the backend from WhatsApp to Beeper/Matrix" demo: the
 //! whole egui UI (chat list, conversation pane, composer, settings) is
-//! unchanged ZapFast code; only the source of chats, messages and sends is
-//! different. Selected at startup with `ZAPFAST_BACKEND=beeper`; see
+//! unchanged Solmu code; only the source of chats, messages and sends is
+//! different. Selected at startup with `SOLMU_BACKEND=beeper`; see
 //! README-BEEPER.md.
 //!
 //! Multi-account Client API adapter. Current coverage and validation gaps are
@@ -40,10 +40,10 @@ pub struct BeeperConfig {
 }
 
 impl BeeperConfig {
-    /// The demo runs when `ZAPFAST_BACKEND=beeper`; without it ZapFast starts
+    /// The demo runs when `SOLMU_BACKEND=beeper`; without it Solmu starts
     /// its normal WhatsApp worker, untouched.
     pub fn from_env() -> Option<Self> {
-        let which = std::env::var("ZAPFAST_BACKEND").ok()?;
+        let which = std::env::var("SOLMU_BACKEND").ok()?;
         if !which.eq_ignore_ascii_case("beeper") {
             return None;
         }
@@ -688,7 +688,7 @@ impl Api {
     }
 }
 
-// ---------- Mapping: Beeper -> zapfast model ----------
+// ---------- Mapping: Beeper -> solmu model ----------
 
 fn unix(ts: &Option<String>) -> i64 {
     ts.as_deref()

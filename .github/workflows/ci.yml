@@ -170,18 +170,18 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 3
         run: |
-          target/debug/zapfast --demo --demo-shot "$RUNNER_TEMP/zapfast-content.png" --demo-shot-delay 8000 &
+          target/debug/solmu --demo --demo-shot "$RUNNER_TEMP/solmu-content.png" --demo-shot-delay 8000 &
           demo_pid=$!
           sleep 6
-          screencapture -x "$RUNNER_TEMP/zapfast-window.png" || true
+          screencapture -x "$RUNNER_TEMP/solmu-window.png" || true
           wait "$demo_pid"
-          test -s "$RUNNER_TEMP/zapfast-content.png"
+          test -s "$RUNNER_TEMP/solmu-content.png"
       - name: macOS preview
         if: runner.os == 'macOS' && vars.FAST_BEEPER_UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: macos-preview
-          path: ${{ runner.temp }}/zapfast-*.png
+          path: ${{ runner.temp }}/solmu-*.png
 
   # Linux releases build in Debian 12 for its older glibc (release.yml).
   # Building here too catches a dependency that needs newer system

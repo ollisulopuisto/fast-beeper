@@ -62,5 +62,5 @@ class MacBuildTests(unittest.TestCase):
             self.assertFalse(info['native_runtime_tested']);self.assertFalse(info['server_bundled'])
             import hashlib
             hashes=json.loads((out/'checksums.json').read_text())
-            self.assertEqual(hashes['zapfast'],hashlib.sha256((out/'zapfast').read_bytes()).hexdigest())
+            self.assertEqual(hashes['solmu'],hashlib.sha256((out/'solmu').read_bytes()).hexdigest())
             self.assertIn('contrib/beeper-tools/run_client.py',hashes)

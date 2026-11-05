@@ -15,8 +15,8 @@ def plan(root, machine):
     if machine not in targets:
         raise ValueError('Unsupported Mac architecture')
     target = targets[machine]
-    return {'target': target, 'build': ['cargo', 'build', '--locked', '--release', '--bin', 'zapfast', '--target', target, '--target-dir', str(root / 'target')],
-            'binary': root / 'target' / target / 'release' / 'zapfast'}
+    return {'target': target, 'build': ['cargo', 'build', '--locked', '--release', '--bin', 'solmu', '--target', target, '--target-dir', str(root / 'target')],
+            'binary': root / 'target' / target / 'release' / 'solmu'}
 
 
 def build(root, destination, spec):
@@ -29,10 +29,10 @@ def build(root, destination, spec):
     # Assemble separately, then rename only a complete source-backed trial.
     import tempfile
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.zapfast-trial-', dir=destination.parent) as tmp:
+    with tempfile.TemporaryDirectory(prefix='.solmu-trial-', dir=destination.parent) as tmp:
         stage = pathlib.Path(tmp) / 'trial'
         stage.mkdir()
-        shutil.copy2(spec['binary'], stage / 'zapfast')
+        shutil.copy2(spec['binary'], stage / 'solmu')
         scripts = stage / 'contrib' / 'beeper-tools'
         scripts.mkdir(parents=True)
         for name in ('run_client.py', 'check_endpoint.py'):

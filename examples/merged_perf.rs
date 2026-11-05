@@ -1,4 +1,4 @@
-use zapfast::{
+use solmu::{
     merged,
     model::{Content, Delivery, Message},
 };

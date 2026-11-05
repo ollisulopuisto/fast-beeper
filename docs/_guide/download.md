@@ -1,17 +1,17 @@
 ---
 title: Download
-description: Get ZapFast for Linux, macOS, or Windows, with install instructions for each.
+description: Get Solmu for Linux, macOS, or Windows, with install instructions for each.
 nav_order: 1
 ---
 
-{% assign v = site.zapfast_version %}
+{% assign v = site.solmu_version %}
 {% assign name = site.release_asset_prefix %}
 {% assign app = site.release_app_name %}
 {% assign base = "https://github.com/crmne/zapfast/releases/download/v" | append: v %}
 
-ZapFast was previously called FastsApp. Version 0.13.0 introduces the new
+Solmu was previously called FastsApp. Version 0.13.0 introduces the new
 package and executable names. Your existing session and local data move
-automatically when you first start ZapFast; quit FastsApp before upgrading.
+automatically when you first start Solmu; quit FastsApp before upgrading.
 
 The current version is **v{{ v }}**. SHA-256 checksums are in
 [checksums.txt]({{ base }}/checksums.txt). Older versions are on the
@@ -35,7 +35,7 @@ nix profile install github:crmne/zapfast
 ```
 
 NixOS configurations can add the repository as a flake input and include
-`inputs.zapfast.packages.${pkgs.system}.default` in
+`inputs.solmu.packages.${pkgs.system}.default` in
 `environment.systemPackages`.
 
 For other distributions, download a tarball with the binary, desktop file,
@@ -82,7 +82,7 @@ The app is signed with Developer ID and notarized by Apple. The DMG includes
 a validated notarization ticket.
 
 When upgrading from FastsApp, remove the old FastsApp application bundle
-after installing ZapFast.
+after installing Solmu.
 
 ## Windows
 

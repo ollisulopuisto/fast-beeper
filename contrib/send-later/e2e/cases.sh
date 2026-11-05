@@ -1,10 +1,10 @@
 #!/bin/bash
-# Controlled send-later tests: the real zapfast-scheduler daemon against a
+# Controlled send-later tests: the real solmu-scheduler daemon against a
 # stub Beeper Server API. Run via run-e2e.sh, which builds the daemon from
 # this repo's sources first. Ports/paths overridable for parallel runs.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
-BIN=${SL_E2E_BIN:-$HERE/../../target/release/zapfast-scheduler}
+BIN=${SL_E2E_BIN:-$HERE/../../target/release/solmu-scheduler}
 WORK=${SL_E2E_WORK:-/tmp/sltest}
 STUB_PORT=${SL_E2E_STUB_PORT:-23901}
 DAEMON_PORT=${SL_E2E_DAEMON_PORT:-23902}
@@ -16,8 +16,8 @@ PASS=0; FAIL=0
 ok() { if [ "$1" = "$2" ]; then PASS=$((PASS+1)); echo "PASS: $3"; else FAIL=$((FAIL+1)); echo "FAIL: $3 (want [$2] got [$1])"; fi; }
 
 start_daemon() {
-  BEEPER_BASE_URL=http://127.0.0.1:$STUB_PORT BEEPER_ACCESS_TOKEN=x ZAPFAST_CONTROL_TOKEN=ctl \
-  ZAPFAST_QUEUE_PATH=$Q ZAPFAST_LISTEN=$DAEMON ZAPFAST_TICK_SECS=1 \
+  BEEPER_BASE_URL=http://127.0.0.1:$STUB_PORT BEEPER_ACCESS_TOKEN=x SOLMU_CONTROL_TOKEN=ctl \
+  SOLMU_QUEUE_PATH=$Q SOLMU_LISTEN=$DAEMON SOLMU_TICK_SECS=1 \
   "$BIN" >> $WORK/daemon.log 2>&1 &
   echo $! > $WORK/daemon.pid
   sleep 0.7
@@ -35,7 +35,7 @@ d=json.load(urllib.request.urlopen('http://127.0.0.1:$STUB_PORT/v1/messages/sear
 print('|'.join(i['text'] for i in d['items']))"; }
 state_of() { curl -s "${AUTH[@]}" http://$DAEMON/v1/scheduled | python3 -c "import json,sys; d=json.load(sys.stdin); m=[x for x in d if x['id']=='$1']; print(m[0]['state'] if m else 'MISSING', (m[0].get('error') or '')[:12] if m else '')" 2>/dev/null; }
 
-pkill -f 'zapfast-scheduler' 2>/dev/null; sleep 0.5
+pkill -f 'solmu-scheduler' 2>/dev/null; sleep 0.5
 rm -f $Q $WORK/daemon.log $WORK/mode
 SL_STUB_PORT=$STUB_PORT python3 "$HERE/stub.py" & echo $! > $WORK/stub.pid
 sleep 0.5

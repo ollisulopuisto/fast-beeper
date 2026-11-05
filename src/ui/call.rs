@@ -19,7 +19,7 @@ use crate::theme::{self, Icon, Palette};
 use crate::ui::widgets;
 
 /// The area's id, so the surface keeps its place in the layer order.
-const SURFACE: &str = "zapfast-call-surface";
+const SURFACE: &str = "solmu-call-surface";
 /// Padding between the window edge and everything the surface draws.
 const PADDING: f32 = 24.0;
 /// The round controls along the bottom.
@@ -69,7 +69,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 egui::Id::new(SURFACE).with("backdrop"),
                 egui::Sense::click_and_drag(),
             );
-            // Where ZapFast draws the title bar, the screen's top drags the
+            // Where Solmu draws the title bar, the screen's top drags the
             // window, beneath the corner's buttons.
             super::caption_drag(
                 ui,
@@ -181,7 +181,7 @@ fn live(
         let texture = call_texture(
             ui,
             &mut app.call_remote_texture,
-            "zapfast-call-remote",
+            "solmu-call-remote",
             image,
         );
         egui::Image::new((texture, at.size())).paint_at(ui, at);
@@ -299,7 +299,7 @@ fn corner_buttons(
         (palette.secondary, palette.text)
     };
     let corner = Rect::from_min_size(area.min, vec2(area.width(), 40.0));
-    // Clear of the caption buttons ZapFast draws over the window's corners.
+    // Clear of the caption buttons Solmu draws over the window's corners.
     let room = super::caption_room(ui.ctx(), corner, 120.0);
     let corner = Rect::from_min_max(
         egui::pos2(corner.left() + room.left, corner.top() + room.top),
@@ -341,7 +341,7 @@ fn own_preview(ui: &mut egui::Ui, app: &mut App, call: &CallUpdate, palette: &Pa
         let texture = call_texture(
             ui,
             &mut app.call_local_texture,
-            "zapfast-call-local",
+            "solmu-call-local",
             &image,
         );
         egui::Image::new((texture, size))
@@ -1027,7 +1027,7 @@ fn group_live(
             {
                 Some(image) => {
                     let mut kept = app.call_member_textures.remove(&person.id);
-                    let texture = call_texture(ui, &mut kept, "zapfast-call-member", &image);
+                    let texture = call_texture(ui, &mut kept, "solmu-call-member", &image);
                     if let Some(kept) = kept {
                         app.call_member_textures.insert(person.id.clone(), kept);
                     }
@@ -1041,7 +1041,7 @@ fn group_live(
                 let texture = call_texture(
                     ui,
                     &mut app.call_local_texture,
-                    "zapfast-call-local",
+                    "solmu-call-local",
                     &image,
                 );
                 video_tile(ui, &you, texture, image_size(&image), rect);

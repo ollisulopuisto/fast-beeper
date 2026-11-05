@@ -1,4 +1,4 @@
-//! Socket side of zapfast-reader: one connection per thread behind a
+//! Socket side of solmu-reader: one connection per thread behind a
 //! global cap, a shared upstream and rate limiter, and the checks that
 //! must run before authentication (web-origin refusal, bounded head).
 
@@ -122,7 +122,7 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
         return respond(stream, 400, r#"{"error":"bad request"}"#);
     };
     let Ok(registry) = Registry::load(path) else {
-        eprintln!("zapfast-reader: client registry unusable, refusing all requests");
+        eprintln!("solmu-reader: client registry unusable, refusing all requests");
         return respond(stream, 401, r#"{"error":"unauthorized"}"#);
     };
     let bearer = header(&head, "authorization").and_then(|v| v.strip_prefix("Bearer "));
@@ -156,7 +156,7 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
         at,
     );
     eprintln!(
-        "zapfast-reader: client={} route={label} status={status}",
+        "solmu-reader: client={} route={label} status={status}",
         client.as_deref().unwrap_or("-")
     );
     respond(stream, status, &body);

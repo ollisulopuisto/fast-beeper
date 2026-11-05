@@ -1,4 +1,4 @@
-//! Harness stub: opaque payloads only. Real: zapfast src/updates.rs.
+//! Harness stub: opaque payloads only. Real: solmu src/updates.rs.
 #[derive(Debug)]
 pub struct Installation;
 

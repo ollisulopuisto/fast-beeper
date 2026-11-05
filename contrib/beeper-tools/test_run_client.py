@@ -81,18 +81,18 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('internal.example',env['NO_PROXY']); self.assertIn('127.0.0.1',env['no_proxy'])
     def test_target_resolution_is_exact_and_read_only(self):
         import json
-        data={'success':True,'data':{'id':'zapfast-headless','baseURL':self.base,'auth':{'accessToken':'local-only'}}}
+        data={'success':True,'data':{'id':'solmu-headless','baseURL':self.base,'auth':{'accessToken':'local-only'}}}
         result=mock.Mock(returncode=0,stdout=json.dumps(data).encode())
         with mock.patch.object(launcher.subprocess,'run',return_value=result) as run:
-            self.assertEqual(launcher.resolve_beeper_target('zapfast-headless'),(self.base,'local-only'))
-            self.assertEqual(run.call_args.args[0],['beeper','targets','show','zapfast-headless','--json'])
+            self.assertEqual(launcher.resolve_beeper_target('solmu-headless'),(self.base,'local-only'))
+            self.assertEqual(run.call_args.args[0],['beeper','targets','show','solmu-headless','--json'])
         data['data']['id']='other'
         result.stdout=json.dumps(data).encode()
         with mock.patch.object(launcher.subprocess,'run',return_value=result), self.assertRaisesRegex(ValueError,'private target output'):
-            launcher.resolve_beeper_target('zapfast-headless')
+            launcher.resolve_beeper_target('solmu-headless')
     def test_explicit_target_does_not_use_desktop_environment_token(self):
         Handler.status='auth'
-        with mock.patch('sys.argv',['run_client.py','--beeper-target','zapfast-headless','--binary','/tmp/fixture-binary']), mock.patch.object(launcher,'resolve_beeper_target',return_value=(self.base,'local-only')), mock.patch.dict(os.environ,{'BEEPER_ACCESS_TOKEN':'wrong-desktop'}), mock.patch.object(launcher.subprocess,'call',return_value=0) as call, tempfile.TemporaryDirectory() as home, mock.patch.object(launcher.pathlib.Path,'home',return_value=pathlib.Path(home)), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch('sys.argv',['run_client.py','--beeper-target','solmu-headless','--binary','/tmp/fixture-binary']), mock.patch.object(launcher,'resolve_beeper_target',return_value=(self.base,'local-only')), mock.patch.dict(os.environ,{'BEEPER_ACCESS_TOKEN':'wrong-desktop'}), mock.patch.object(launcher.subprocess,'call',return_value=0) as call, tempfile.TemporaryDirectory() as home, mock.patch.object(launcher.pathlib.Path,'home',return_value=pathlib.Path(home)), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(launcher.main(),0)
             self.assertEqual(call.call_args.kwargs['env']['BEEPER_ACCESS_TOKEN'],'local-only')
             self.assertEqual(call.call_args.kwargs['env']['BEEPER_DESKTOP_BASE_URL'],self.base)

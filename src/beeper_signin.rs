@@ -365,7 +365,7 @@ impl SignIn {
                 }
                 if matches!(state.as_str(), "initializing" | "needs-first-sync") { ui.label("Server is syncing. Refresh when ready; this does not imply your other networks are connected."); }
                 if state == "needs-cross-signing-setup" { ui.label("This account requires recovery setup. Automatic key creation/reset is intentionally unavailable; finish recovery setup in an official Beeper client."); }
-                if state == "ready" && !self.token.is_empty() && ui.button("Connect fast-beeper").clicked() {
+                if state == "ready" && !self.token.is_empty() && ui.button("Connect Solmu").clicked() {
                     self.connect = Some(crate::backend::beeper::BeeperConfig { base_url: self.endpoint.clone(), token: self.token.to_string() });
                     self.open = false;
                 }

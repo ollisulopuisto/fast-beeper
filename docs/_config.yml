@@ -1,7 +1,7 @@
-title: ZapFast
-zapfast_version: "0.20.0"
-release_asset_prefix: zapfast
-release_app_name: ZapFast
+title: Solmu
+solmu_version: "0.20.0"
+release_asset_prefix: solmu
+release_app_name: Solmu
 description: A fast, lightweight WhatsApp app for Linux, macOS, and Windows.
 lang: en-US
 timezone: Europe/Berlin
@@ -52,7 +52,7 @@ jekyll_vitepress:
     page_type: TechArticle
     image:
       path: /screenshot.png
-      alt: ZapFast showing a chat with a photo, a voice message, a quoted reply, and a link preview
+      alt: Solmu showing a chat with a photo, a voice message, a quoted reply, and a link preview
     publisher:
       type: Person
       name: Carmine Paolino
@@ -60,9 +60,9 @@ jekyll_vitepress:
       same_as:
         - https://github.com/crmne/zapfast
   llms:
-    title: ZapFast
+    title: Solmu
     description: >-
-      Documentation for ZapFast, a native WhatsApp client for chats, voice
+      Documentation for Solmu, a native WhatsApp client for chats, voice
       messages, attachments, and notifications on Linux, macOS, and Windows.
     full: true
     details: >-
@@ -70,10 +70,10 @@ jekyll_vitepress:
       WhatsApp connection. Source is on
       [GitHub](https://github.com/crmne/zapfast).
   branding:
-    site_title: ZapFast
+    site_title: Solmu
     logo:
       default: /assets/images/logo.svg
-      alt: ZapFast
+      alt: Solmu
   syntax:
     light_theme: github
     dark_theme: github.dark
@@ -83,7 +83,7 @@ jekyll_vitepress:
     message: >-
       Brought to you by <a href="https://paolino.me" target="_blank" rel="noreferrer">Carmine Paolino</a>, maker of
     copyright: >-
-      <span class="footer-brand-links"><a href="https://chatwithwork.com" class="footer-chatwithwork-link" target="_blank" rel="noreferrer"><img class="footer-chatwithwork-logo theme-image light" src="https://chatwithwork.com/logotype.svg" alt="Chat with Work"><img class="footer-chatwithwork-logo theme-image dark" src="https://chatwithwork.com/logotype-dark.svg" alt="Chat with Work"></a><a href="https://rubyllm.com" class="footer-rubyllm-link" target="_blank" rel="noreferrer"><img class="footer-rubyllm-logo theme-image light" src="https://rubyllm.com/assets/images/logotype.svg" alt="RubyLLM"><img class="footer-rubyllm-logo theme-image dark" src="https://rubyllm.com/assets/images/logotype_dark.svg" alt="RubyLLM"></a><a href="https://paolino.me/projects" target="_blank" rel="noreferrer" aria-label="More projects by Carmine Paolino">and more</a></span><br><span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. ZapFast is an independent project, not affiliated with or endorsed by WhatsApp LLC or Meta. WhatsApp is a trademark of WhatsApp LLC.</span>
+      <span class="footer-brand-links"><a href="https://chatwithwork.com" class="footer-chatwithwork-link" target="_blank" rel="noreferrer"><img class="footer-chatwithwork-logo theme-image light" src="https://chatwithwork.com/logotype.svg" alt="Chat with Work"><img class="footer-chatwithwork-logo theme-image dark" src="https://chatwithwork.com/logotype-dark.svg" alt="Chat with Work"></a><a href="https://rubyllm.com" class="footer-rubyllm-link" target="_blank" rel="noreferrer"><img class="footer-rubyllm-logo theme-image light" src="https://rubyllm.com/assets/images/logotype.svg" alt="RubyLLM"><img class="footer-rubyllm-logo theme-image dark" src="https://rubyllm.com/assets/images/logotype_dark.svg" alt="RubyLLM"></a><a href="https://paolino.me/projects" target="_blank" rel="noreferrer" aria-label="More projects by Carmine Paolino">and more</a></span><br><span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Solmu is an independent project, not affiliated with or endorsed by WhatsApp LLC or Meta. WhatsApp is a trademark of WhatsApp LLC.</span>
   doc_footer:
     enabled: true
     previous_label: Previous page

@@ -27,8 +27,8 @@ name = "harness"
 path = "src/lib.rs"
 
 [[bin]]
-name = "zapfast-scheduler"
-path = "src/bin/zapfast-scheduler.rs"
+name = "solmu-scheduler"
+path = "src/bin/solmu-scheduler.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -40,7 +40,7 @@ jiff = "0.2"
 debug = false
 TOML
 cat > "$HARNESS/src/lib.rs" <<'RS'
-//! Harness compiling the real fast-beeper scheduler modules standalone.
+//! Harness compiling the real Solmu scheduler modules standalone.
 pub mod scheduler {
     include!("scheduler.inc");
 }
@@ -50,9 +50,9 @@ pub mod scheduler_api {
 RS
 sed 's|^//!|//|' "$REPO/src/scheduler.rs" > "$HARNESS/src/scheduler.inc"
 sed 's|^//!|//|' "$REPO/src/scheduler_api.rs" > "$HARNESS/src/scheduler_api.inc"
-sed 's/zapfast::/harness::/g' "$REPO/src/bin/zapfast-scheduler.rs" > "$HARNESS/src/bin/zapfast-scheduler.rs"
-(cd "$HARNESS" && cargo +1.98.0 build --release --bin zapfast-scheduler)
-export SL_E2E_BIN="$HARNESS/target/release/zapfast-scheduler"
+sed 's/solmu::/harness::/g' "$REPO/src/bin/solmu-scheduler.rs" > "$HARNESS/src/bin/solmu-scheduler.rs"
+(cd "$HARNESS" && cargo +1.98.0 build --release --bin solmu-scheduler)
+export SL_E2E_BIN="$HARNESS/target/release/solmu-scheduler"
 
 echo "== running cases =="
 "$HERE/cases.sh"

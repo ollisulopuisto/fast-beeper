@@ -78,7 +78,7 @@ class DmgTests(unittest.TestCase):
                     hashes = json.loads((trial / 'checksums.json').read_text())
                     for relative, digest in hashes.items():
                         self.assertEqual(hashlib.sha256((trial / relative).read_bytes()).hexdigest(), digest)
-                    self.assertEqual((trial / 'zapfast').stat().st_mode & 0o777, 0o755)
+                    self.assertEqual((trial / 'solmu').stat().st_mode & 0o777, 0o755)
                     Path(command[-1]).write_bytes(b'mocked image, not a real DMG')
             with mock.patch.object(dmg.subprocess, 'run', side_effect=run), mock.patch.object(dmg, 'verify_mounted') as mounted:
                 image = self.call(root, binary)
@@ -117,7 +117,7 @@ class MountedImageTests(unittest.TestCase):
                     mount = Path(command[command.index('-mountpoint') + 1])
                     trial = mount / 'trial'
                     trial.mkdir(parents=True)
-                    binary = trial / 'zapfast'
+                    binary = trial / 'solmu'
                     binary.write_bytes(struct.pack('<IIIIIIII', 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0))
                     info = trial / 'build-info.json'
                     info.write_text(json.dumps({'target': 'aarch64-apple-darwin', 'installable_app': False}))

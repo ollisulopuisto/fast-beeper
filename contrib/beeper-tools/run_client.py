@@ -169,7 +169,7 @@ def main():
     parser.add_argument('--target-stdin', action='store_true', help='Read private target JSON piped by the working local shell CLI; requires --beeper-target')
     parser.add_argument('--check-only', action='store_true', help='Check transport only, without prompting for a token or launching the client')
     parser.add_argument('--allow-writes', action='store_true', help='Enable deliberate sends, typing and mark-read changes')
-    parser.add_argument('--binary', help='Existing local ZapFast binary, instead of cargo run')
+    parser.add_argument('--binary', help='Existing local Solmu binary, instead of cargo run')
     args = parser.parse_args()
     if args.target_stdin and not args.beeper_target:
         parser.error('--target-stdin requires --beeper-target')
@@ -204,18 +204,18 @@ def main():
         print(str(error), file=sys.stderr)
         return 1
     env = loopback_child_environment(os.environ, parsed)
-    env.update(ZAPFAST_BACKEND='beeper', BEEPER_DESKTOP_BASE_URL=args.base_url,
+    env.update(SOLMU_BACKEND='beeper', BEEPER_DESKTOP_BASE_URL=args.base_url,
                BEEPER_ACCESS_TOKEN=token, BEEPER_SIGN_IN='1' if args.sign_in else '0', BEEPER_READONLY='0' if args.allow_writes else '1')
-    # Keep the prototype separate from any installed stock WhatsApp ZapFast profile.
+    # Keep the prototype separate from any installed stock WhatsApp Solmu profile.
     state = pathlib.Path.home() / '.zapfast-beeper-prototype'
-    env['ZAPFAST_PROFILE_ROOT'] = str(state)
+    env['SOLMU_PROFILE_ROOT'] = str(state)
     for kind in ('config', 'data', 'cache'):
         directory = state / kind
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         env['XDG_%s_HOME' % kind.upper()] = str(directory)
     print('Write actions ENABLED.' if args.allow_writes else 'Read-only mode: no sends, typing or read-state changes.')
     print('Using an existing endpoint only. No accounts will be linked or migrated by this launcher.')
-    command = [os.path.abspath(args.binary)] if args.binary else ['cargo', 'run', '--locked', '--bin', 'zapfast']
+    command = [os.path.abspath(args.binary)] if args.binary else ['cargo', 'run', '--locked', '--bin', 'solmu']
     root = pathlib.Path(__file__).resolve().parents[2]
     try:
         return subprocess.call(command, cwd=root, env=env)

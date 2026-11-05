@@ -31,7 +31,7 @@ pub(super) fn key_for(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
     let entry = store
         .build("rocks.zapfast.ZapFast", &identity_for(parent)?, None)
         .map_err(keyring_error)
-        .context("The OS keyring could not open ZapFast's archive key")?;
+        .context("The OS keyring could not open Solmu's archive key")?;
     key_from_entry(path, &entry)
 }
 
@@ -64,7 +64,7 @@ fn copy_archive_key_in(
     let old_entry = store
         .build("rocks.zapfast.ZapFast", &identity_for(old_parent)?, None)
         .map_err(keyring_error)
-        .context("The OS keyring could not open ZapFast's archive key")?;
+        .context("The OS keyring could not open Solmu's archive key")?;
     let key = match old_entry.get_secret() {
         Ok(secret) => {
             ensure!(
@@ -83,13 +83,13 @@ fn copy_archive_key_in(
             return Ok(());
         }
         Err(error) => {
-            return Err(keyring_error(error)).context("Unlock your OS keyring and restart ZapFast");
+            return Err(keyring_error(error)).context("Unlock your OS keyring and restart Solmu");
         }
     };
     let new_entry = store
         .build("rocks.zapfast.ZapFast", &identity_for(new_parent)?, None)
         .map_err(keyring_error)
-        .context("The OS keyring could not open ZapFast's archive key")?;
+        .context("The OS keyring could not open Solmu's archive key")?;
     new_entry
         .set_secret(key.as_ref())
         .map_err(keyring_error)
@@ -147,7 +147,7 @@ pub(crate) fn platform_store() -> Result<std::sync::Arc<dyn CredentialStoreApi>>
     let store = windows_native_keyring_store::Store::new();
     Ok(store
         .map_err(keyring_error)
-        .context("Unlock your OS keyring and restart ZapFast")?
+        .context("Unlock your OS keyring and restart Solmu")?
         as std::sync::Arc<dyn CredentialStoreApi>)
 }
 
@@ -177,7 +177,7 @@ fn key_from_entry(path: &Path, entry: &keyring_core::Entry) -> Result<Zeroizing<
             create_key(entry)
         }
         Err(error) => {
-            Err(keyring_error(error)).context("Unlock your OS keyring and restart ZapFast")
+            Err(keyring_error(error)).context("Unlock your OS keyring and restart Solmu")
         }
     }
 }
@@ -355,7 +355,7 @@ mod tests {
         let directory = directory();
         let path = directory.path().join("archive.db");
         let store = keyring_core::mock::Store::new().unwrap();
-        let entry = store.build("zapfast-test", "archive", None).unwrap();
+        let entry = store.build("solmu-test", "archive", None).unwrap();
         let key = key_from_entry(&path, &entry).unwrap();
         assert_eq!(*key, *key_from_entry(&path, &entry).unwrap());
         let connection = open(&path, &key).unwrap();
@@ -450,7 +450,7 @@ mod tests {
             let path = directory.path().join("archive.db");
             let kept = directory.path().join("archive-unreadable.db");
             let store = keyring_core::mock::Store::new().unwrap();
-            let entry = store.build("zapfast-test", "archive", None).unwrap();
+            let entry = store.build("solmu-test", "archive", None).unwrap();
             let original_key = key_from_entry(&path, &entry).unwrap();
             let connection = open(&path, &original_key).unwrap();
             connection
@@ -481,7 +481,7 @@ mod tests {
         let directory = directory();
         let path = directory.path().join("archive.db");
         let store = keyring_core::mock::Store::new().unwrap();
-        let entry = store.build("zapfast-test", "archive", None).unwrap();
+        let entry = store.build("solmu-test", "archive", None).unwrap();
         entry.set_secret(&[]).unwrap();
         for contents in [b"".as_slice(), HEADER.as_slice()] {
             fs::write(&path, contents).unwrap();

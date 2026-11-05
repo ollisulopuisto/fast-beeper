@@ -17,7 +17,7 @@ Or use the existing local Server root explicitly:
 uv run --no-project python contrib/beeper-tools/run_client.py --base-url http://127.0.0.1:23374 --sign-in
 ```
 
-For a compiled trial, append `--binary /actual/path/to/zapfast`. Source launch
+For a compiled trial, append `--binary /actual/path/to/solmu`. Source launch
 requires the normal build prerequisites. Read-only messaging remains the default;
 sign-in and verification are separate, deliberate setup actions.
 
@@ -32,7 +32,7 @@ sign-in and verification are separate, deliberate setup actions.
    No key is generated or reset here.
 4. For `initializing` or `needs-first-sync`, refresh later. No background rapid
    polling is performed. `ready` is not proof that every network is connected.
-5. Choose "Connect fast-beeper" only when Server is ready.
+5. Choose "Connect Solmu" only when Server is ready.
 
 The bearer credential is stored by loopback origin in the platform OS keyring.
 If saving fails, the session remains in memory with an explicit warning and a

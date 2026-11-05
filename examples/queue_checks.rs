@@ -1,5 +1,5 @@
 //! Local triage persistence and exact confirmation, no live transport.
-use zapfast::{
+use solmu::{
     app::App,
     backend::{Event, LinkStatus},
     model::Chat,
@@ -29,7 +29,7 @@ fn main() {
                 }],
                 ..Default::default()
             },
-            |ui| zapfast::ui::keys::handle(app, ui.ctx()),
+            |ui| solmu::ui::keys::handle(app, ui.ctx()),
         );
         output.textures_delta.clear();
     };
@@ -41,7 +41,7 @@ fn main() {
     assert!(
         !app.actions
             .iter()
-            .any(|a| matches!(a, zapfast::model::Action::LockApp))
+            .any(|a| matches!(a, solmu::model::Action::LockApp))
     );
     app.actions.clear();
     press(
@@ -51,7 +51,7 @@ fn main() {
     assert!(
         app.actions
             .iter()
-            .any(|a| matches!(a, zapfast::model::Action::LockApp))
+            .any(|a| matches!(a, solmu::model::Action::LockApp))
     );
     app.actions.clear();
     let encoded = serde_json::to_string(&app.settings).unwrap();
@@ -93,13 +93,13 @@ fn main() {
         .unwrap();
     app.background_frame(&ctx);
     assert!(!app.reply_later_contains(&chat));
-    let member = zapfast::merged::Member::of(&chat).unwrap();
+    let member = solmu::merged::Member::of(&chat).unwrap();
     let mut other = chat.clone();
     other.id = "linked".into();
     other.backend_account = Some("personal".into());
-    let linked = zapfast::merged::Member::of(&other).unwrap();
+    let linked = solmu::merged::Member::of(&other).unwrap();
     app.chats.push(other.clone());
-    app.settings.beeper.people.push(zapfast::merged::Person {
+    app.settings.beeper.people.push(solmu::merged::Person {
         name: "Fixture person".into(),
         members: vec![member, linked.clone()],
         primary: None,
@@ -111,7 +111,7 @@ fn main() {
     app.settings.save(&path).unwrap();
     let loaded = Settings::load(&path);
     assert_eq!(loaded.beeper.reply_later, app.settings.beeper.reply_later);
-    app.chat_filter = zapfast::model::ChatFilter::ReplyLater;
+    app.chat_filter = solmu::model::ChatFilter::ReplyLater;
     assert_eq!(app.visible_chats().len(), 1);
     // A send in the linked chat leaves this chat's mark alone.
     events
@@ -139,7 +139,7 @@ fn main() {
     assert!(
         app.actions
             .iter()
-            .any(|a| matches!(a, zapfast::model::Action::LockApp))
+            .any(|a| matches!(a, solmu::model::Action::LockApp))
     );
     app.backend.shutdown();
     println!(

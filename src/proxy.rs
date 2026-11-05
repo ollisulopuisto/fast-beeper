@@ -557,11 +557,11 @@ mod tests {
 mod live {
     use super::*;
 
-    /// Opens the real WhatsApp WebSocket through `ZAPFAST_TEST_PROXY`.
+    /// Opens the real WhatsApp WebSocket through `SOLMU_TEST_PROXY`.
     #[tokio::test]
-    #[ignore = "needs network and a proxy in ZAPFAST_TEST_PROXY"]
+    #[ignore = "needs network and a proxy in SOLMU_TEST_PROXY"]
     async fn reaches_whatsapp_through_the_proxy() {
-        let proxy = Proxy::parse(&std::env::var("ZAPFAST_TEST_PROXY").unwrap()).unwrap();
+        let proxy = Proxy::parse(&std::env::var("SOLMU_TEST_PROXY").unwrap()).unwrap();
         let factory = ProxyTransportFactory::new(proxy);
         let (transport, _events) = factory.create_transport().await.unwrap();
         transport.disconnect().await;

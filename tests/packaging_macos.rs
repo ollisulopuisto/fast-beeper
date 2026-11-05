@@ -1,4 +1,4 @@
-//! The macOS bundle carries the launch agent that starts ZapFast in the tray
+//! The macOS bundle carries the launch agent that starts Solmu in the tray
 //! at login, exactly as fastframe-autostart registers it.
 use std::fs;
 use std::path::PathBuf;
