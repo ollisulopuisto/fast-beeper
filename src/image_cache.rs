@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 /// Image URIs kept resident. Anything the current frame drew is always kept,
 /// so this only bounds what has scrolled away.
-const RESIDENT: usize = 96;
+const RESIDENT: usize = 24;
 
 struct Entry {
     /// Frame the image was last drawn on.
@@ -103,12 +103,7 @@ pub fn sweep(ctx: &egui::Context) {
     let stale: Vec<String> = {
         let registry = registry(ctx);
         let mut entries = registry.0.lock().unwrap_or_else(|p| p.into_inner());
-        let resident = if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-            24
-        } else {
-            RESIDENT
-        };
-        let over = entries.len().saturating_sub(resident);
+        let over = entries.len().saturating_sub(RESIDENT);
         if over == 0 {
             return;
         }
