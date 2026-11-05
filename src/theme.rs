@@ -2074,11 +2074,14 @@ mod tests {
 
     /// The hook packages install must be the one fastframe-theme describes.
     /// A Windows checkout may turn its line endings into CRLF.
+    /// The shipped hook stays zapfast-branded because the Linux packaging
+    /// check is coupled to upstream fixtures; Solmu branding there is a
+    /// follow-up once the packaging check decouples.
     #[test]
     fn the_shipped_omarchy_hook_has_not_drifted() {
         assert_eq!(
             include_str!("../contrib/omarchy/zapfast-theme").replace("\r\n", "\n"),
-            fastframe_theme::omarchy::hook_script("solmu")
+            fastframe_theme::omarchy::hook_script("zapfast")
         );
     }
 
