@@ -19,6 +19,9 @@ app="$mount/Solmu.app"
 codesign --verify --strict --deep "$app"
 spctl --assess --type execute --verbose=2 "$app"
 lipo "$app/Contents/MacOS/solmu" -verify_arch x86_64 arm64
+# Beeper bundles contain both a Swift launcher and the Rust client. Checking
+# just CFBundleExecutable would miss an incorrectly packaged client.
+lipo "$app/Contents/MacOS/solmu-client" -verify_arch x86_64 arm64
 codesign --display --entitlements - --xml "$app" > "$temporary/entitlements.plist"
 
 python3 - "$app/Contents/Info.plist" "$temporary/entitlements.plist" <<'PY'
