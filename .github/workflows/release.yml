@@ -193,12 +193,13 @@ jobs:
       attestations: write
     runs-on: macos-latest
     env:
-      # Complete Apple credentials enable native-packages signing/notarization.
-      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      # The package builder expects a base64 PKCS#12 certificate and its
+      # export password. Map the generic repository secrets to those names.
+      APPLE_CERTIFICATE_P12: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: "Developer ID Application: Olli Sulopuisto (LWSR8T5392)"
       APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_TEAM_ID: "LWSR8T5392"
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
