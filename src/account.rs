@@ -113,7 +113,6 @@ pub struct Account {
     pub show_archived: bool,
     pub chat_filter: ChatFilter,
     /// The chip the Calls page's history shows.
-    pub call_filter: crate::model::CallFilter,
     pub labels: Vec<Label>,
     /// Starred messages, newest star first, and whether the left panel lists
     /// them instead of the chats.
@@ -136,18 +135,6 @@ pub struct Account {
     pub(crate) reported_online: Option<bool>,
     /// Chats this account may pin; WhatsApp Plus raises it once known.
     pub pin_limit: usize,
-    /// The call entries the Calls page lists, newest first, once read.
-    pub call_log: Vec<Message>,
-    pub call_log_loaded: bool,
-    /// The call history row last picked on the Calls page, whose chat shows
-    /// beside the list: its chat and its first call.
-    pub picked_call: Option<(ChatId, String)>,
-    /// Whether the new-call list covers the call history.
-    pub new_call: bool,
-    /// What the Calls list's search field holds.
-    pub calls_search: String,
-    /// What the new-call list's search field holds.
-    pub new_call_search: String,
 }
 
 impl Account {
@@ -173,7 +160,6 @@ impl Account {
             Some(crate::model::ListFilter::Chip(chip)) => chip,
             _ => ChatFilter::All,
         };
-        let call_filter = crate::model::CallFilter::parse(settings.call_filter.as_deref());
         Self {
             id,
             dirs,
@@ -244,7 +230,6 @@ impl Account {
             scheduled_messages: None,
             show_archived: false,
             chat_filter,
-            call_filter,
             labels: Vec::new(),
             starred: Vec::new(),
             show_starred: false,
@@ -257,12 +242,6 @@ impl Account {
             group_saving: HashSet::new(),
             reported_online: None,
             pin_limit: crate::backend::PINNED_CHATS,
-            call_log: Vec::new(),
-            call_log_loaded: false,
-            picked_call: None,
-            new_call: false,
-            calls_search: String::new(),
-            new_call_search: String::new(),
         }
     }
 

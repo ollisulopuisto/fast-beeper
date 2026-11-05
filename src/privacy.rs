@@ -9,8 +9,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use whatsapp_rust::wacore::iq::privacy::{PrivacyCategory, PrivacySettingsResponse, PrivacyValue};
-
 use crate::i18n::{Locale, gettext, pgettext};
 
 /// Account privacy category shown in Settings.
@@ -92,32 +90,6 @@ impl PrivacyKind {
         }
     }
 
-    pub fn from_wire(category: &PrivacyCategory) -> Option<Self> {
-        match category {
-            PrivacyCategory::Last => Some(Self::LastSeen),
-            PrivacyCategory::Online => Some(Self::Online),
-            PrivacyCategory::Profile => Some(Self::Profile),
-            PrivacyCategory::Status => Some(Self::About),
-            PrivacyCategory::GroupAdd => Some(Self::GroupAdd),
-            PrivacyCategory::ReadReceipts => Some(Self::ReadReceipts),
-            PrivacyCategory::CallAdd => Some(Self::CallAdd),
-            PrivacyCategory::Messages
-            | PrivacyCategory::DefenseMode
-            | PrivacyCategory::Other(_) => None,
-        }
-    }
-
-    pub fn to_wire(self) -> PrivacyCategory {
-        match self {
-            Self::LastSeen => PrivacyCategory::Last,
-            Self::Online => PrivacyCategory::Online,
-            Self::Profile => PrivacyCategory::Profile,
-            Self::About => PrivacyCategory::Status,
-            Self::GroupAdd => PrivacyCategory::GroupAdd,
-            Self::ReadReceipts => PrivacyCategory::ReadReceipts,
-            Self::CallAdd => PrivacyCategory::CallAdd,
-        }
-    }
 }
 
 /// One account privacy value. Not every value is valid for every category.
@@ -145,28 +117,6 @@ impl PrivacyChoice {
         }
     }
 
-    pub fn from_wire(value: &PrivacyValue) -> Option<Self> {
-        match value {
-            PrivacyValue::All => Some(Self::Everyone),
-            PrivacyValue::Contacts => Some(Self::Contacts),
-            PrivacyValue::ContactBlacklist => Some(Self::Except),
-            PrivacyValue::None => Some(Self::Nobody),
-            PrivacyValue::MatchLastSeen => Some(Self::SameAsLastSeen),
-            PrivacyValue::Known => Some(Self::Known),
-            PrivacyValue::Off | PrivacyValue::OnStandard | PrivacyValue::Other(_) => None,
-        }
-    }
-
-    pub fn to_wire(self) -> PrivacyValue {
-        match self {
-            Self::Everyone => PrivacyValue::All,
-            Self::Contacts => PrivacyValue::Contacts,
-            Self::Except => PrivacyValue::ContactBlacklist,
-            Self::Nobody => PrivacyValue::None,
-            Self::SameAsLastSeen => PrivacyValue::MatchLastSeen,
-            Self::Known => PrivacyValue::Known,
-        }
-    }
 }
 
 /// The account's privacy as the phone last reported it, with the writes still
@@ -265,41 +215,9 @@ impl Snapshot {
     }
 }
 
-/// The categories and values the phone reported that Solmu shows. A value
-/// the library does not consider valid for its category is left out.
-pub fn values_from_response(
-    settings: &PrivacySettingsResponse,
-) -> Vec<(PrivacyKind, PrivacyChoice)> {
-    settings
-        .settings
-        .iter()
-        .filter(|setting| setting.category.is_valid_value(&setting.value))
-        .filter_map(|setting| {
-            Some((
-                PrivacyKind::from_wire(&setting.category)?,
-                PrivacyChoice::from_wire(&setting.value)?,
-            ))
-        })
-        .collect()
-}
-
-/// The wire form of a write, for a value the picker offers.
-pub fn wire_set(
-    kind: PrivacyKind,
-    choice: PrivacyChoice,
-) -> Option<(PrivacyCategory, PrivacyValue)> {
-    if !kind.choices().contains(&choice) {
-        return None;
-    }
-    let value = choice.to_wire();
-    let category = kind.to_wire();
-    category.is_valid_value(&value).then_some((category, value))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use whatsapp_rust::wacore::iq::privacy::PrivacySetting;
 
     const ALL_CHOICES: [PrivacyChoice; 6] = [
         PrivacyChoice::Everyone,
@@ -310,63 +228,6 @@ mod tests {
         PrivacyChoice::Known,
     ];
 
-    #[test]
-    fn only_offered_values_are_written() {
-        for kind in PrivacyKind::ALL {
-            for choice in ALL_CHOICES {
-                assert_eq!(
-                    wire_set(kind, choice).is_some(),
-                    kind.choices().contains(&choice),
-                    "{kind:?} {choice:?}"
-                );
-            }
-        }
-        // An Except list is edited on the phone, never written from here.
-        for kind in PrivacyKind::ALL {
-            assert!(wire_set(kind, PrivacyChoice::Except).is_none());
-        }
-        assert!(wire_set(PrivacyKind::GroupAdd, PrivacyChoice::Nobody).is_none());
-        assert!(wire_set(PrivacyKind::Online, PrivacyChoice::Nobody).is_none());
-        assert!(wire_set(PrivacyKind::ReadReceipts, PrivacyChoice::Contacts).is_none());
-    }
-
-    #[test]
-    fn every_offered_value_is_one_the_library_accepts() {
-        for kind in PrivacyKind::ALL {
-            for choice in kind.choices() {
-                assert!(
-                    kind.to_wire().is_valid_value(&choice.to_wire()),
-                    "{kind:?} {choice:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn fetch_maps_phone_categories_and_skips_the_rest() {
-        let setting = |category, value| PrivacySetting { category, value };
-        let settings = PrivacySettingsResponse {
-            settings: vec![
-                setting(PrivacyCategory::Last, PrivacyValue::ContactBlacklist),
-                setting(PrivacyCategory::Online, PrivacyValue::MatchLastSeen),
-                setting(PrivacyCategory::ReadReceipts, PrivacyValue::None),
-                setting(PrivacyCategory::GroupAdd, PrivacyValue::None),
-                setting(PrivacyCategory::DefenseMode, PrivacyValue::Off),
-                setting(PrivacyCategory::Messages, PrivacyValue::Contacts),
-                // Not a value this category takes.
-                setting(PrivacyCategory::Online, PrivacyValue::None),
-            ],
-        };
-        assert_eq!(
-            values_from_response(&settings),
-            vec![
-                (PrivacyKind::LastSeen, PrivacyChoice::Except),
-                (PrivacyKind::Online, PrivacyChoice::SameAsLastSeen),
-                (PrivacyKind::ReadReceipts, PrivacyChoice::Nobody),
-                (PrivacyKind::GroupAdd, PrivacyChoice::Nobody),
-            ]
-        );
-    }
 
     #[test]
     fn a_failed_write_restores_the_confirmed_value() {

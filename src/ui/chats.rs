@@ -107,14 +107,9 @@ pub fn full_show(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
-/// What the list pane holds under its header: the chats, or on the Calls
-/// tab the call history or the new-call list.
+/// What the list pane holds under its header: the chats.
 fn body(app: &mut App, ui: &mut egui::Ui) {
-    if app.page == Page::Calls {
-        super::calls::list(app, ui);
-    } else {
-        list(app, ui);
-    }
+    list(app, ui);
 }
 
 /// Walks matching chats while the global search field keeps keyboard focus.
@@ -219,9 +214,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                     // The title measures its room from the buttons and the
                     // caption buttons' room after them.
                     let buttons_width = header_buttons_width(ui, &buttons) + room.right;
-                    if app.page == Page::Calls && app.new_call {
-                        new_call_header(app, ui, 20.0, buttons_width);
-                    } else if app.page != Page::Calls && app.show_starred {
+                    if app.show_starred {
                         if theme::icon_button(
                             ui,
                             Icon::ArrowLeft,
@@ -242,7 +235,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                             palette.text,
                             buttons_width,
                         );
-                    } else if app.page != Page::Calls && (app.show_archived || app.locked_folder) {
+                    } else if app.show_archived || app.locked_folder {
                         if theme::icon_button(
                             ui,
                             Icon::ArrowLeft,
@@ -296,74 +289,19 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// The header's title beside our avatar: the tab the list shows.
-fn tab_title(page: &Page) -> &'static str {
-    if *page == Page::Calls {
-        "Calls"
-    } else {
-        "Chats"
-    }
+fn tab_title(_page: &Page) -> &'static str {
+    "Chats"
 }
 
 /// The new-call list's header, as WhatsApp's drawer has it: Back and "New
 /// call" in place of the avatar and the tab's title.
-fn new_call_header(app: &mut App, ui: &mut egui::Ui, title: f32, buttons: f32) {
-    let palette = app.palette;
-    if theme::icon_button(
-        ui,
-        Icon::ArrowLeft,
-        18.0,
-        palette.secondary,
-        palette.text,
-        crate::i18n::gettext(app.locale, "Back to the calls").as_ref(),
-    )
-    .tab_stop(Stop::Back)
-    .clicked()
-    {
-        app.actions.push(Action::ShowNewCall(false));
-    }
-    header_title(
-        ui,
-        crate::i18n::gettext(app.locale, "New call").as_ref(),
-        theme::bold(title),
-        palette.text,
-        buttons,
-    );
-}
+
 
 /// The search field under the header's first row, and the filter chips
-/// under it. The Calls tab searches its own list by name or number, and its
-/// chips pick every call or the missed ones.
+/// under it.
 fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let width = ui.available_width();
-    if app.page == Page::Calls {
-        let hint = crate::i18n::gettext(app.locale, "Search name or number");
-        let (id, mut text) = if app.new_call {
-            ("new-call-search", app.new_call_search.clone())
-        } else {
-            ("calls-search", app.calls_search.clone())
-        };
-        let response = widgets::search_field(
-            ui,
-            &palette,
-            egui::Id::new(id),
-            &mut text,
-            hint.as_ref(),
-            width,
-        )
-        .tab_stop(Stop::Search);
-        if app.new_call {
-            // The list opens ready for a name, as New chat does.
-            if ui.memory(|memory| memory.focused().is_none()) && ui.is_enabled() {
-                response.request_focus();
-            }
-            app.new_call_search = text;
-        } else {
-            app.calls_search = text;
-            super::calls::filter_chips(app, ui);
-        }
-        return;
-    }
     let mut text = app.search.clone();
     let response = widgets::search_field(
         ui,
@@ -453,7 +391,6 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeaderButton {
     NewChat,
-    NewCall,
     HideList,
 }
 
@@ -466,15 +403,9 @@ const LIST_HEADER_MIN_CONTENT: f32 = 230.0;
 
 /// The buttons on the right of the chat list header, rightmost first, as
 /// `header_button_row` draws them: New chat, and Hide the chat list unless
-/// the window is narrow. Calls, Starred and Settings are in the rail beside
+/// the window is narrow. Starred and Settings are in the rail beside
 /// the list. The title before them measures its room from the same list.
-///
-/// On the Calls tab, as in WhatsApp's Calls pane, New call takes New chat's
-/// place and Hide the chat list leaves: the call history needs the list.
-fn header_buttons(ctx: &egui::Context, calls: bool) -> Vec<HeaderButton> {
-    if calls {
-        return vec![HeaderButton::NewCall];
-    }
+fn header_buttons(ctx: &egui::Context) -> Vec<HeaderButton> {
     let mut buttons = vec![HeaderButton::NewChat];
     if !super::narrow(ctx) {
         buttons.push(HeaderButton::HideList);
@@ -483,13 +414,12 @@ fn header_buttons(ctx: &egui::Context, calls: bool) -> Vec<HeaderButton> {
 }
 
 /// The buttons the list header draws for what it shows: none over the
-/// new-call list or the starred messages, whose Back leads out of them.
+/// starred messages, whose Back leads out of them.
 fn list_header_buttons(app: &App, ctx: &egui::Context) -> Vec<HeaderButton> {
-    let calls = app.page == Page::Calls;
-    if (calls && app.new_call) || (!calls && app.show_starred) {
+    if app.show_starred {
         return Vec::new();
     }
-    header_buttons(ctx, calls)
+    header_buttons(ctx)
 }
 
 /// Draws `buttons` in a right-to-left layout, with the macOS shortcuts in
@@ -511,21 +441,6 @@ fn header_button_row(app: &mut App, ui: &mut egui::Ui, buttons: &[HeaderButton],
                 .clicked()
                 {
                     app.actions.push(Action::ShowDialog(Dialog::NewChat));
-                }
-            }
-            HeaderButton::NewCall => {
-                if theme::icon_button(
-                    ui,
-                    Icon::PhonePlus,
-                    HEADER_ICON,
-                    palette.secondary,
-                    palette.text,
-                    crate::i18n::gettext(app.locale, "New call").as_ref(),
-                )
-                .tab_stop(Stop::NewChat)
-                .clicked()
-                {
-                    app.actions.push(Action::ShowNewCall(true));
                 }
             }
             HeaderButton::HideList => {
@@ -615,9 +530,7 @@ fn macos_header(app: &mut App, ui: &mut egui::Ui) {
                 // The traffic lights reach past the rail over this header.
                 ui.add_space(super::rail::lights_overhang(ui.ctx()));
                 let buttons = list_header_buttons(app, ui.ctx());
-                if app.page == Page::Calls && app.new_call {
-                    new_call_header(app, ui, 16.0, header_buttons_width(ui, &buttons));
-                } else if app.page != Page::Calls && app.show_starred {
+                if app.show_starred {
                     if theme::icon_button(
                         ui,
                         Icon::ArrowLeft,
@@ -638,7 +551,7 @@ fn macos_header(app: &mut App, ui: &mut egui::Ui) {
                         palette.text,
                         header_buttons_width(ui, &buttons),
                     );
-                } else if app.page != Page::Calls && (app.show_archived || app.locked_folder) {
+                } else if app.show_archived || app.locked_folder {
                     if theme::icon_button(
                         ui,
                         Icon::ArrowLeft,
@@ -3090,25 +3003,6 @@ mod tests {
         assert_eq!(buttons(400.0), [NewChat]);
     }
 
-    /// The Calls tab's header carries New call, as WhatsApp's Calls pane
-    /// does; the new-call list's header and the starred messages' have none.
-    #[test]
-    fn the_calls_tab_header_offers_a_new_call() {
-        use HeaderButton::NewCall;
-        let root = tempfile::tempdir().unwrap();
-        let (mut app, _) = App::headless(
-            crate::paths::AppDirs::under(root.path()),
-            crate::settings::Settings::default(),
-        );
-        app.page = Page::Calls;
-        let ctx = egui::Context::default();
-        assert_eq!(list_header_buttons(&app, &ctx), [NewCall]);
-        app.new_call = true;
-        assert!(list_header_buttons(&app, &ctx).is_empty());
-        app.page = Page::Chats;
-        app.show_starred = true;
-        assert!(list_header_buttons(&app, &ctx).is_empty());
-    }
 
     use crate::paths::AppDirs;
     use crate::settings::Settings;

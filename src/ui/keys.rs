@@ -287,18 +287,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             && app.reaction_target.is_none()
             && app.recording.is_none()
             // The call screen covers the chats.
-            && (app.call.is_none() || app.call_surface_hidden)
-            && messages_key_free
+                && messages_key_free
         {
             key(Modifiers::CTRL, Key::Num2, Action::FocusMessages);
         }
-        // The rail's Chats and Calls, by the digit's place on the keyboard:
-        // with Shift held, layouts report the digits as their symbols.
+        // The rail's Chats, by the digit's place on the keyboard: with
+        // Shift held, layouts report the digit as its symbol.
         // Ctrl+1..9 without Shift open chats by their place in the list.
         if app.is_linked() {
             match take_destination(input) {
                 Some(1) => actions.extend(super::rail::Destination::Chats.actions(app)),
-                Some(2) => actions.extend(super::rail::Destination::Calls.actions(app)),
                 _ => {}
             }
         }
@@ -339,7 +337,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         && !app.show_update
         && app.picker.is_none()
         && app.reaction_target.is_none()
-        && (app.call.is_none() || app.call_surface_hidden)
         && !menu_open
         && let Some(chat) = app.open_chat.clone()
         && ctx.memory(|memory| memory.has_focus(crate::ui::conversation::messages_list_id(&chat)))
@@ -409,14 +406,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             actions.push(Action::CancelEdit);
         } else if app.reply_to.is_some() {
             actions.push(Action::CancelReply);
-        } else if app.call_fullscreen {
-            // The window shrinks back first, and only then does the next Escape put the surface
-            // aside. Neither one ends the call; only the hang-up button does that.
-            actions.push(Action::ToggleCallFullscreen);
-        } else if app.call_surface_open() {
-            // The same move the surface's own button makes: the call keeps running, and the bar at
-            // the bottom of the chat offers the way back.
-            actions.push(Action::LeaveCallSurface);
         } else if app.info_visible() && app.group_name_edit.is_some() {
             // Cancels the group rename and keeps the panel open.
             actions.push(Action::CloseGroupName);
@@ -438,13 +427,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             actions.push(Action::Open(Page::Settings));
         } else if app.page == Page::Settings && !app.settings_search.is_empty() {
             actions.push(Action::SearchSettings(String::new()));
-        } else if app.page == Page::Calls && app.new_call {
-            actions.push(Action::ShowNewCall(false));
-        } else if app.page == Page::Calls && super::narrow(ctx) && app.call_picked() {
-            // A narrow window shows the picked call's chat over the history:
-            // Escape goes back to it, as the chat's Back does.
-            actions.push(Action::CloseChat);
-        } else if app.page == Page::Settings || app.page == Page::Calls {
+        } else if app.page == Page::Settings {
             actions.push(Action::Open(Page::Chats));
         } else if search_focused || !app.search.is_empty() {
             if !app.search.is_empty() {
@@ -659,9 +642,9 @@ fn take_filter_number(input: &mut egui::InputState) -> Option<usize> {
     number
 }
 
-/// Takes Ctrl+Shift+1 or Ctrl+Shift+2 (Cmd on macOS), the rail's Chats and
-/// Calls, and says which. It goes by the key's place on the keyboard: with
-/// Shift held, each layout reports the digit as a symbol of its own.
+/// Takes Ctrl+Shift+1 (Cmd on macOS), the rail's Chats. It goes by the
+/// key's place on the keyboard: with Shift held, each layout reports the
+/// digit as a symbol of its own.
 fn take_destination(input: &mut egui::InputState) -> Option<u8> {
     let mut destination = None;
     input.events.retain(|event| {
@@ -677,7 +660,6 @@ fn take_destination(input: &mut egui::InputState) -> Option<u8> {
         {
             destination = match physical_key.unwrap_or(*key) {
                 Key::Num1 => Some(1),
-                Key::Num2 => Some(2),
                 _ => None,
             };
             return destination.is_none();
@@ -967,7 +949,7 @@ fn sticker_view_keys(app: &mut App, ctx: &egui::Context) {
 fn find_action(app: &App) -> Action {
     match app.page {
         Page::Settings => Action::FocusSettingsSearch,
-        Page::Chats | Page::Calls if app.open_chat.is_some() => Action::OpenChatSearch,
+        Page::Chats if app.open_chat.is_some() => Action::OpenChatSearch,
         _ => Action::FocusSearch,
     }
 }
@@ -1060,12 +1042,11 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
         "Pick a chat filter by its place in the sidebar (outside text fields)",
     ),
     ("Ctrl+Shift+1", "Chats"),
-    ("Ctrl+Shift+2", "Calls"),
     ("↑", "Edit the previous message (when the input is empty)"),
     ("Enter", "Send (Shift+Enter for a new line)"),
     (
         "Escape",
-        "Dismiss the current action, return from search, Calls or Starred, or close the chat",
+        "Dismiss the current action, return from search or Starred, or close the chat",
     ),
     ("Ctrl+N", "New chat or message yourself"),
     ("Ctrl+E", "Archive or unarchive the open chat"),
@@ -1160,114 +1141,6 @@ mod tests {
             app.actions.as_slice(),
             [Action::Open(Page::Chats)]
         ));
-    }
-
-    #[test]
-    fn escape_leaves_the_calls_page() {
-        let root = tempfile::tempdir().unwrap();
-        let mut app = App::headless(
-            crate::paths::AppDirs::under(root.path()),
-            crate::settings::Settings::default(),
-        )
-        .0;
-        app.page = Page::Calls;
-        escape(&mut app, &egui::Context::default());
-        assert!(matches!(
-            app.actions.as_slice(),
-            [Action::Open(Page::Chats)]
-        ));
-    }
-
-    #[test]
-    fn escape_closes_the_new_call_list_then_returns_to_the_chats() {
-        let root = tempfile::tempdir().unwrap();
-        let mut app = App::headless(
-            crate::paths::AppDirs::under(root.path()),
-            crate::settings::Settings::default(),
-        )
-        .0;
-        app.page = Page::Calls;
-        app.new_call = true;
-        app.open_chat = Some("ada@s.whatsapp.net".into());
-        app.picked_call = Some(("ada@s.whatsapp.net".into(), "call-1".into()));
-        let ctx = egui::Context::default();
-        escape(&mut app, &ctx);
-        assert!(matches!(
-            app.actions.as_slice(),
-            [Action::ShowNewCall(false)]
-        ));
-        app.actions.clear();
-        app.new_call = false;
-        // Beside the history, the picked chat stays open on the way out.
-        escape(&mut app, &ctx);
-        assert!(matches!(
-            app.actions.as_slice(),
-            [Action::Open(Page::Chats)]
-        ));
-    }
-
-    /// Escape leaves the call screen rather than the call.
-    ///
-    /// The window shrinks back first and only the next Escape puts the surface aside, and neither
-    /// one hangs up: a call the reader stepped away from is still running behind the bar. This is
-    /// the rule the whole call surface turns on, so it is checked through the real key handler
-    /// rather than only through the actions it pushes.
-    #[test]
-    fn escape_leaves_the_call_screen_without_ending_the_call() {
-        let root = tempfile::tempdir().unwrap();
-        let mut app = App::headless(
-            crate::paths::AppDirs::under(root.path()),
-            crate::settings::Settings::default(),
-        )
-        .0;
-        app.call = Some(crate::calls::CallUpdate {
-            generation: 1,
-            chat: "1@s.whatsapp.net".to_owned(),
-            direction: crate::model::CallDirection::Outgoing,
-            video: false,
-            phase: crate::calls::CallPhase::Active,
-            started: Some(std::time::Instant::now()),
-            muted: false,
-            camera_on: false,
-            remote_video: false,
-            video_requested: false,
-            outcome: None,
-            peer_audio: None,
-            lost_devices: Vec::new(),
-            microphone: None,
-            speaker: None,
-            camera: None,
-            group: None,
-        });
-        app.call_fullscreen = true;
-        let ctx = egui::Context::default();
-        escape(&mut app, &ctx);
-        assert!(
-            matches!(app.actions.as_slice(), [Action::ToggleCallFullscreen]),
-            "the window shrinks back first: {:?}",
-            app.actions
-        );
-        app.actions.clear();
-        // The window is back at its normal size, which is what that action does, so the next
-        // Escape reaches the surface rather than the full-screen state.
-        app.call_fullscreen = false;
-        escape(&mut app, &ctx);
-        assert!(
-            matches!(app.actions.as_slice(), [Action::LeaveCallSurface]),
-            "and only then does the surface step aside: {:?}",
-            app.actions
-        );
-        assert!(
-            !app.actions
-                .iter()
-                .any(|action| matches!(action, Action::HangupCall)),
-            "neither Escape hangs up"
-        );
-        assert_eq!(
-            app.call.as_ref().map(|call| call.phase),
-            Some(crate::calls::CallPhase::Active),
-            "Escape never ends the call"
-        );
     }
 
     /// Copy is for a picture. The header leaves the action out while a clip is
@@ -1864,11 +1737,11 @@ mod tests {
         assert!(app.actions.contains(&Action::OpenChat(ids[1].clone())));
     }
 
-    /// Ctrl+Shift+1 and Ctrl+Shift+2 (Cmd on macOS) lead to the rail's
-    /// Chats and Calls by where the digit sits, whatever symbol the layout
-    /// puts on it with Shift held; Ctrl+1 and Ctrl+2 still open chats.
+    /// Ctrl+Shift+1 (Cmd on macOS) leads to the rail's Chats by where the
+    /// digit sits, whatever symbol the layout puts on it with Shift held;
+    /// Ctrl+1 still opens chats.
     #[test]
-    fn shifted_digits_lead_to_the_chats_and_the_calls() {
+    fn shifted_digits_lead_to_the_chats() {
         let (_root, mut app, ids) = app_with_chats(2);
         app.link = crate::backend::LinkStatus::Connected;
         let ctx = egui::Context::default();
@@ -1890,17 +1763,7 @@ mod tests {
             output.textures_delta.clear();
             std::mem::take(&mut app.actions)
         };
-        // US layouts report Shift+2 as "@", which egui has no key for, and
-        // Shift+1 as "!".
-        assert_eq!(
-            shifted(&mut app, Key::Num2, Key::Num2),
-            [Action::Open(Page::Calls)]
-        );
-        app.page = Page::Calls;
-        assert!(
-            shifted(&mut app, Key::Num2, Key::Num2).is_empty(),
-            "Calls is not a toggle"
-        );
+        // US layouts report Shift+1 as "!".
         assert_eq!(
             shifted(&mut app, Key::Exclamationmark, Key::Num1),
             [Action::Open(Page::Chats)]
@@ -2221,7 +2084,7 @@ mod tests {
         assert!(app.actions.is_empty(), "{:?}", app.actions);
     }
 
-    /// The list's shortcut and the rail's Ctrl+Shift+2 (Cmd on macOS) never
+    /// The list's shortcut and the rail's Ctrl+Shift+1 (Cmd on macOS) never
     /// take each other's keys, and Shift does not turn one into the other.
     #[cfg(target_os = "macos")]
     #[test]
@@ -2238,21 +2101,7 @@ mod tests {
         press(&mut app, &ctx, Key::Num2, messages);
         assert_eq!(app.actions, [Action::FocusMessages]);
         app.actions.clear();
-        press(
-            &mut app,
-            &ctx,
-            Key::Num2,
-            Modifiers::COMMAND | Modifiers::SHIFT,
-        );
-        assert_eq!(app.actions, [Action::Open(Page::Calls)]);
-        app.actions.clear();
-        app.page = Page::Chats;
         press(&mut app, &ctx, Key::Num2, messages | Modifiers::SHIFT);
-        assert!(
-            !app.actions.contains(&Action::Open(Page::Calls)),
-            "{:?}",
-            app.actions
-        );
         assert!(
             !app.actions.contains(&Action::FocusMessages),
             "{:?}",

@@ -1,6 +1,7 @@
 //! Window layout: panels, overlays, keyboard shortcuts.
 
 pub mod accounts;
+pub mod call_log;
 pub mod chats;
 pub mod conversation;
 pub mod dialogs;
@@ -73,8 +74,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         && app.selection.is_none()
         // The day filter keeps egui's own order among its days.
         && !app.chat_search_calendar
-        // The call screen covers the chats.
-        && (app.call.is_none() || app.call_surface_hidden)
         // A name typed in the info panel keeps Tab between its fields.
         && !(app.info_visible() && (app.contact_edit.is_some() || app.group_name_edit.is_some()))
         && !egui::Popup::is_any_open(ctx);
@@ -112,8 +111,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         NarrowView::Detail
     });
     let slide = narrow_slide(ctx, view);
-    // A call the reader stepped away from keeps a strip along the bottom.
-    call::strip(app, ui);
     match slide {
         Some(progress) => slide_in(app, ui, list_only, progress),
         None => main_view(app, ui, list_only),
@@ -125,7 +122,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     dialogs::show(app, ctx);
     image_preview::show(app, ctx);
     image_preview::show_sticker(app, ctx);
-    call::show(app, ctx);
     image_editor::show(app, ctx);
     drop_target(app, ctx);
     toasts(app, ctx);
@@ -140,7 +136,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 fn list_pane_only(app: &App) -> bool {
     match app.page {
         Page::Chats => app.current_chat().is_none(),
-        Page::Calls => app.current_chat().is_none() || !app.call_picked(),
         Page::Settings | Page::Wallpaper => false,
     }
 }
@@ -162,9 +157,8 @@ fn main_view(app: &mut App, ui: &mut egui::Ui, list_only: bool) {
     // conversation header's Back returns to the list, and the rail beside
     // it. The info panel takes a column of its own, and when the list leaves
     // too little room for it and the conversation, the list and the rail
-    // step aside while the panel is open. The Calls tab's history needs the
-    // full list pane: only the chats collapse into the rail's avatars.
-    let full_list = app.sidebar_mode() == SidebarDisplayMode::Expanded || app.page == Page::Calls;
+    // step aside while the panel is open.
+    let full_list = app.sidebar_mode() == SidebarDisplayMode::Expanded;
     let rail_width = chats::compact_width(ui.ctx());
     ui.ctx()
         .data_mut(|data| data.insert_temp(rail::width_id(), rail_width));
@@ -195,9 +189,6 @@ fn main_view(app: &mut App, ui: &mut egui::Ui, list_only: bool) {
             match app.page {
                 Page::Settings => settings::show(app, ui),
                 Page::Chats => conversation::show(app, ui),
-                // The open chat stays beside the call history.
-                Page::Calls if app.current_chat().is_some() => conversation::show(app, ui),
-                Page::Calls => calls::show(app, ui),
                 Page::Wallpaper => settings::wallpaper_show(app, ui),
             }
         });
@@ -319,9 +310,7 @@ pub(crate) fn narrow(ctx: &egui::Context) -> bool {
 }
 
 fn central_background(app: &App) -> egui::Color32 {
-    // The Calls tab shows the open chat beside its history, or its own pane.
-    let conversation =
-        app.page == Page::Chats || (app.page == Page::Calls && app.current_chat().is_some());
+    let conversation = app.page == Page::Chats;
     if conversation && app.palette.vibrant() {
         // The conversation paints its own translucent background.
         egui::Color32::TRANSPARENT

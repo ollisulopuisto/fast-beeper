@@ -30,7 +30,6 @@ pub enum Stop {
     /// and buttons. Show the chat list takes the rail's top while the
     /// list is hidden, and keeps Hide the chat list's place in the order.
     Chats,
-    Calls,
     /// One network plate in the rail's bottom group, by its position.
     Network(u8),
     Starred,
@@ -42,10 +41,8 @@ pub enum Stop {
     NewChat,
     Sidebar,
     Search,
-    /// The first chip, All, on the chat list and on the Calls page.
+    /// The first chip, All, on the chat list.
     All,
-    /// The Calls page's Missed chip.
-    Missed,
     Unread,
     ReplyLater,
     ReadLater,

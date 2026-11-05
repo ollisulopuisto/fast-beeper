@@ -99,7 +99,6 @@ pub(crate) fn width_id() -> egui::Id {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Destination {
     Chats,
-    Calls,
     Starred,
     Archived,
     Locked,
@@ -117,7 +116,6 @@ impl Destination {
                     && !app.locked_folder_open()
                     && !app.beeper_scope_is_active()
             }
-            Self::Calls => app.page == Page::Calls,
             Self::Starred => app.page == Page::Chats && app.show_starred,
             Self::Archived => chats && app.show_archived,
             Self::Locked => chats && app.locked_folder_open(),
@@ -155,11 +153,6 @@ impl Destination {
                 }
                 if app.locked_folder {
                     actions.push(Action::CloseLockedFolder);
-                }
-            }
-            Self::Calls => {
-                if app.page != Page::Calls {
-                    actions.push(Action::Open(Page::Calls));
                 }
             }
             Self::Starred => {
@@ -269,9 +262,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                 // of leaving the bottom buttons beyond the window.
                 ui.set_height(height);
                 destination_button(app, ui, &palette, Destination::Chats, CELL);
-                destination_button(app, ui, &palette, Destination::Calls, CELL);
                 if hidden {
-                    // A cell of its own under Calls: nothing above it moves
+                    // A cell of its own under Chats: nothing above it moves
                     // when the list comes and goes.
                     show_list_button(app, ui, &palette);
                     ui.add_space(GAP / 2.0);
@@ -504,15 +496,6 @@ fn destination_plate(
                 super::keys::label("Ctrl+Shift+1")
             ),
         ),
-        Destination::Calls => (
-            Icon::Phone,
-            Stop::Calls,
-            format!(
-                "{} ({})",
-                gettext(app.locale, "Calls"),
-                super::keys::label("Ctrl+Shift+2")
-            ),
-        ),
         Destination::Starred => (
             Icon::Star,
             Stop::Starred,
@@ -619,7 +602,6 @@ mod tests {
         let lit = |app: &App| {
             [
                 Destination::Chats,
-                Destination::Calls,
                 Destination::Starred,
                 Destination::Archived,
                 Destination::Locked,
@@ -635,24 +617,13 @@ mod tests {
         app.show_archived = false;
         app.show_starred = true;
         assert_eq!(lit(&app), [Destination::Starred]);
-        app.page = Page::Calls;
-        assert_eq!(lit(&app), [Destination::Calls]);
         app.page = Page::Wallpaper;
         assert_eq!(lit(&app), [Destination::Settings]);
     }
 
     #[test]
-    fn calls_and_starred_are_left_through_chats_not_toggled() {
+    fn starred_is_left_through_chats_not_toggled() {
         let (_root, mut app) = app();
-        app.page = Page::Calls;
-        assert!(
-            Destination::Calls.actions(&app).is_empty(),
-            "Calls is not a toggle"
-        );
-        assert!(matches!(
-            Destination::Chats.actions(&app).as_slice(),
-            [Action::Open(Page::Chats)]
-        ));
         assert!(matches!(
             Destination::Starred.actions(&app).as_slice(),
             [Action::Open(Page::Chats), Action::ToggleStarred]

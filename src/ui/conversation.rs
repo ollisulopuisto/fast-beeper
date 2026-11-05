@@ -469,16 +469,9 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                 ui.add_space(room.left);
                 let picture = app.avatar(&chat.id);
                 let (subtitle, color) = subtitle(app, chat);
-                let call_here = app.call_live_here(&chat.id);
-                // More and Search, and Back in a narrow window, and the call
-                // buttons in a person's or a group's chat, each on its own
-                // glass with room around it on a vibrant window.
-                let call_buttons = if callable(chat, app.me.as_deref()) {
-                    if call_here { 1.0 } else { 2.0 }
-                } else {
-                    0.0
-                };
-                let buttons = if narrow { 3.0 } else { 2.0 } + call_buttons;
+                // More and Search, and Back in a narrow window, each on its
+                // own glass with room around it on a vibrant window.
+                let buttons = if narrow { 3.0 } else { 2.0 };
                 let right_controls = if palette.vibrant() {
                     buttons * 36.0 + (buttons - 0.5) * BUTTON_GAP + (BUTTON_GLASS - 30.0)
                 } else {
@@ -773,70 +766,6 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                                 app.actions.push(Action::CloseChat);
                             }
                         });
-                    // A person's chat calls them and a group's starts a call
-                    // in the group; a channel, a broadcast list and the chat
-                    // with ourselves have no call button. While this chat has
-                    // the call, the button ends it.
-                    if call_buttons > 0.0 {
-                        let (call_tooltip, call_icon, call_fill, call) = if call_here {
-                            (
-                                crate::i18n::gettext(app.locale, "Hang up").into_owned(),
-                                Icon::PhoneOff,
-                                palette.danger,
-                                Action::HangupCall,
-                            )
-                        } else {
-                            (
-                                crate::i18n::gettext(app.locale, "Voice call").into_owned(),
-                                Icon::Phone,
-                                palette.secondary,
-                                Action::StartCall(chat.id.clone()),
-                            )
-                        };
-                        // On a vibrant window each sits on its own glass, as
-                        // Search and More do.
-                        if palette.vibrant() {
-                            ui.add_space(BUTTON_GAP);
-                        }
-                        let call_glass = ui.painter().add(egui::Shape::Noop);
-                        let call_button = theme::icon_button(
-                            ui,
-                            call_icon,
-                            18.0,
-                            call_fill,
-                            palette.text,
-                            &call_tooltip,
-                        );
-                        if palette.vibrant() {
-                            ui.painter()
-                                .set(call_glass, glass_button(&palette, call_button.rect));
-                        }
-                        if call_button.clicked() {
-                            app.actions.push(call);
-                        }
-                        if !call_here {
-                            let tip = crate::i18n::gettext(app.locale, "Video call");
-                            if palette.vibrant() {
-                                ui.add_space(BUTTON_GAP);
-                            }
-                            let video_glass = ui.painter().add(egui::Shape::Noop);
-                            let video = theme::icon_button(
-                                ui,
-                                Icon::Video,
-                                18.0,
-                                palette.secondary,
-                                palette.text,
-                                &tip,
-                            );
-                            if palette.vibrant() {
-                                ui.painter()
-                                    .set(video_glass, glass_button(&palette, video.rect));
-                            }
-                            if video.clicked() {
-                                app.actions.push(Action::StartVideoCall(chat.id.clone()));
-                            }
-                        }
-                    }
                     let searching = app.chat_search_open;
                     let tip = format!(
                         "{} ({})",
@@ -878,13 +807,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                             ui.add_space(BUTTON_GAP);
                         }
                         let back_glass = ui.painter().add(egui::Shape::Noop);
-                        // On the Calls tab the list underneath is the call
-                        // history.
-                        let back_label = if app.page == crate::model::Page::Calls {
-                            crate::i18n::gettext(app.locale, "Back to the calls").into_owned()
-                        } else {
-                            "Back to chats".to_owned()
-                        };
+                        let back_label = "Back to chats".to_owned();
                         let back = theme::icon_button(
                             ui,
                             Icon::ArrowLeft,
@@ -3601,7 +3524,7 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat, under: f32) {
                             let body = if let Some(members) = album {
                                 album_label(&view, members)
                             } else {
-                                match super::calls::Entry::of(message) {
+                                match super::call_log::Entry::of(message) {
                                     Some(entry) => {
                                         crate::a11y::call_description(view.locale, &entry)
                                     }
@@ -4734,57 +4657,7 @@ pub fn edge_scroll(pointer: f32, top: f32, bottom: f32) -> f32 {
     }
 }
 
-/// Whether a chat's header offers to call it: a person's chat calls them, a
-/// group's starts a call in the group while group calls are on
-/// (`calls::GROUP_CALLS_ENABLED`). Never the chat with ourselves, a channel or
-/// a broadcast list.
-pub(crate) fn callable(chat: &crate::model::Chat, me: Option<&str>) -> bool {
-    match chat.kind {
-        crate::model::ChatKind::Direct => me != Some(chat.id.as_str()),
-        crate::model::ChatKind::Group => crate::calls::group_calls_enabled(),
-        _ => false,
-    }
-}
 
-/// A call's menu: calling back, in a chat that can take a call. A group's
-/// call is called back in its group while group calls are on; a call among
-/// several people with no group behind it cannot be started here.
-fn call_menu(ui: &mut egui::Ui, view: &View<'_>, group: bool, actions: &mut Vec<Action>) {
-    let palette = view.palette;
-    let chat = &view.chat.id;
-    let back = match view.chat.kind {
-        crate::model::ChatKind::Group => crate::calls::group_calls_enabled(),
-        crate::model::ChatKind::Direct => !group,
-        _ => false,
-    };
-    if !back {
-        ui.add_enabled_ui(false, |ui| {
-            widgets::menu_item(
-                ui,
-                &palette,
-                Some(Icon::Phone),
-                &crate::i18n::gettext(view.locale, "Group calls happen on the phone"),
-            );
-        });
-        return;
-    }
-    if widgets::menu_item(
-        ui,
-        &palette,
-        Some(Icon::Phone),
-        &crate::i18n::gettext(view.locale, "Voice call"),
-    ) {
-        actions.push(Action::StartCall(chat.clone()));
-    }
-    if widgets::menu_item(
-        ui,
-        &palette,
-        Some(Icon::Video),
-        &crate::i18n::gettext(view.locale, "Video call"),
-    ) {
-        actions.push(Action::StartVideoCall(chat.clone()));
-    }
-}
 
 /// Starts a reply when the response was double-clicked, as the menu's "Reply".
 fn reply_on_double_click(response: &egui::Response, message: &Message, actions: &mut Vec<Action>) {
@@ -5592,7 +5465,7 @@ const FOOTER_HEIGHT: f32 = 15.0;
 fn call_entry(
     ui: &mut egui::Ui,
     palette: &Palette,
-    entry: &super::calls::Entry,
+    entry: &super::call_log::Entry,
     locale: crate::i18n::Locale,
     tint: Color32,
     width: f32,
@@ -6579,10 +6452,6 @@ fn context_menu(
 ) {
     let palette = view.palette;
     let chat = &view.chat.id;
-    if let Content::Call { group, .. } = message.content {
-        call_menu(ui, view, group, actions);
-        return;
-    }
     let mine = own_reaction(message);
     ui.allocate_ui_with_layout(
         vec2(ui.available_width(), 34.0),
@@ -7588,7 +7457,7 @@ fn content(
             duration,
             group,
         } => {
-            let entry = super::calls::Entry {
+            let entry = super::call_log::Entry {
                 from_me: own,
                 video: *video,
                 status: *status,

@@ -47,17 +47,6 @@ pub const REVOKE_WINDOW: Duration = Duration::from_secs(2 * 24 * 60 * 60);
 /// input clock (`InputState::time`), not on the wall clock, so a slow frame
 /// is not taken for a pause and tests can run it at their pace.
 const SCROLL_GESTURE_GAP: f64 = 0.15;
-/// How long a finished call's outcome stays on screen before the surface goes away, about what
-/// WhatsApp's own clients show "Call ended" for. A call the reader hung up or declined here goes at
-/// once instead: they know how it ended.
-const CALL_FAREWELL: Duration = Duration::from_millis(1500);
-
-/// A video call's picture on the GPU, and the frame it was last filled from.
-pub struct CallTexture {
-    pub texture: egui::TextureHandle,
-    pub frame: std::sync::Arc<egui::ColorImage>,
-}
-
 /// A pane that scrolls on its own, which a scroll gesture stays with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScrollPane {
@@ -807,54 +796,6 @@ pub struct App {
     /// A notification went out this frame: highlight the taskbar entry of a
     /// window that is open but not focused.
     wants_attention: bool,
-    /// The live call, or the outcome of the one that just ended. One call at
-    /// a time across every account: there is one microphone.
-    pub call: Option<crate::calls::CallUpdate>,
-    /// The account the call is on, which need not be the one on screen.
-    pub call_account: Option<AccountId>,
-    /// When a finished call's surface should disappear.
-    call_surface_until: Option<Instant>,
-    /// The microphones and speakers the call screen offers.
-    pub call_devices: crate::calls::DeviceList,
-    /// Whether the call screen shows its device pickers.
-    pub call_devices_open: bool,
-    /// Whether the full call screen is put aside so a chat can be read while
-    /// the call runs. The call itself is untouched; a bar offers the way back.
-    pub call_surface_hidden: bool,
-    /// Whether the call surface has taken the whole screen. A window state:
-    /// leaving it never touches the call, and a call that ends puts the
-    /// window back itself.
-    pub call_fullscreen: bool,
-    /// The incoming call the desktop was told about, so its notification can
-    /// be taken back once it is answered or given up.
-    call_notified: Option<u64>,
-    /// The incoming call (by generation) whose notification may sound, so
-    /// its ringtone plays: notifications on, a sound chosen, and a chat that
-    /// is not muted, archived or locked.
-    call_rings: Option<u64>,
-    /// The ringback and ringtone, played on the default output in the real
-    /// app and only tracked in tests and demos.
-    call_tones: crate::call_tones::Tones,
-    /// The call the reader hung up or declined here: it left the screen at
-    /// once, and the worker's last updates about it are not drawn again.
-    call_dismissed: Option<u64>,
-    /// Set when the reader hangs up a call still being placed, so the worker
-    /// does not send its offer.
-    call_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    /// When the call on screen was placed here, while the worker has not
-    /// said anything about it yet.
-    call_placed: Option<Instant>,
-    /// The newest camera preview and peer picture of a video call.
-    pub call_local_frame: Option<std::sync::Arc<egui::ColorImage>>,
-    pub call_remote_frame: Option<std::sync::Arc<egui::ColorImage>>,
-    /// The textures those pictures are drawn through, updated in place rather
-    /// than made afresh for every frame.
-    pub call_local_texture: Option<CallTexture>,
-    pub call_remote_texture: Option<CallTexture>,
-    /// The newest picture of each group member whose video is arriving, by chat id, and the
-    /// texture each is drawn through.
-    pub call_member_frames: HashMap<String, std::sync::Arc<egui::ColorImage>>,
-    pub call_member_textures: HashMap<String, CallTexture>,
     /// Whether Solmu starts at login, when this installation supports it.
     pub start_with_system: Option<bool>,
     /// The read or change of the login item running on its thread.
@@ -1323,7 +1264,6 @@ impl App {
             .min(accounts.len() - 1);
         let mut app = Self::with_accounts(dirs, settings, roster, accounts, active, waker.clone());
         app.pauses_media = true;
-        app.call_tones = crate::call_tones::Tones::new(true);
         app.badge = Some(crate::notify::Badge::new(fastframe_desktop::desktop_entry(
             "solmu",
         )));
@@ -1667,25 +1607,6 @@ impl App {
             quit_requested: false,
             window_focused: false,
             wants_attention: false,
-            call: None,
-            call_account: None,
-            call_surface_until: None,
-            call_devices: crate::calls::DeviceList::default(),
-            call_devices_open: false,
-            call_surface_hidden: false,
-            call_fullscreen: false,
-            call_notified: None,
-            call_rings: None,
-            call_tones: Default::default(),
-            call_dismissed: None,
-            call_cancel: None,
-            call_placed: None,
-            call_local_frame: None,
-            call_remote_frame: None,
-            call_local_texture: None,
-            call_remote_texture: None,
-            call_member_frames: HashMap::new(),
-            call_member_textures: HashMap::new(),
             start_with_system: None,
             login_item: Default::default(),
             waker,
@@ -1858,12 +1779,7 @@ impl App {
         self.restore_composer();
         // Labels belong to their account: show the one this account showed.
         self.label_filter = self.remembered_label();
-        // The Calls tab stays open on the other account's calls.
-        if self.page == Page::Calls {
-            self.backend.send(Command::LoadCallLog);
-        } else {
-            self.page = Page::Chats;
-        }
+        self.page = Page::Chats;
         self.save_roster();
         self.wallpaper_image.reload();
         self.report_presence();
@@ -2011,9 +1927,7 @@ impl App {
             self.clear_account_ui();
         }
         self.accounts[index].backend.shutdown();
-        // The backend ends its call on the way out; the surface goes with it.
         let removed = self.accounts[index].id.clone();
-        self.forget_call_of(&removed);
         let dirs = self.accounts[index].dirs.clone();
         // The key outlives the archive only by mistake: forget it once the
         // archive is gone, never before.
@@ -2067,9 +1981,6 @@ impl App {
         self.window_focused = false;
         self.hide_intent = false;
         self.wants_show = false;
-        // The window is gone with the full screen it was in; a new one starts
-        // at its normal size.
-        self.call_fullscreen = false;
     }
 
     /// What the conversation shows behind its bubbles, for the chat and the
@@ -2310,9 +2221,7 @@ impl App {
                     chat: target.chat,
                     message,
                 }),
-                // A call's notification brings the window up, where the call
-                // is waiting.
-                None => self.actions.push(Action::ReturnToCall),
+                None => {}
             }
             self.actions.push(Action::ShowWindow);
         }
@@ -2674,14 +2583,7 @@ impl App {
     /// Whether the main pane can show the open chat: on the chat list's
     /// page, and on the Calls tab beside its history.
     pub fn chat_view(&self) -> bool {
-        matches!(self.page, Page::Chats | Page::Calls)
-    }
-
-    /// Whether the open chat is the one picked from the Calls tab's history.
-    pub fn call_picked(&self) -> bool {
-        self.picked_call
-            .as_ref()
-            .is_some_and(|(chat, _)| self.open_chat.as_deref() == Some(chat.as_str()))
+        matches!(self.page, Page::Chats)
     }
 
     pub fn current_chat(&self) -> Option<&Chat> {
@@ -4051,18 +3953,6 @@ impl App {
                 self.me_name = name;
                 self.me_about = about;
             }
-            Event::Call(update) => self.handle_call_update(*update),
-            Event::PhoneOnlyCall(update) => self.handle_phone_only_call(*update),
-            Event::CallDevices(devices) => self.call_devices = *devices,
-            Event::CallVideo {
-                local,
-                remote,
-                from,
-            } => self.handle_call_video(local, remote, from),
-            Event::CallLog(entries) => {
-                self.call_log = entries;
-                self.call_log_loaded = true;
-            }
             Event::Labels(labels) => {
                 self.labels = labels;
                 self.prune_labels();
@@ -4221,15 +4111,6 @@ impl App {
                 older,
                 complete,
             } => {
-                // A call filed while the Calls page is open joins its list.
-                if live
-                    && self.page == Page::Calls
-                    && messages
-                        .iter()
-                        .any(|message| matches!(message.content, Content::Call { .. }))
-                {
-                    self.backend.send(Command::LoadCallLog);
-                }
                 for message in &messages {
                     if !message.from_me
                         && let Some(name) =
@@ -5419,16 +5300,6 @@ impl App {
                         "This chat already has three pinned messages",
                     )
                     .into_owned(),
-                    crate::calls::GROUP_CALLS_NOT_ENABLED => crate::i18n::gettext(
-                        self.locale,
-                        "WhatsApp hasn't turned on group calls from a computer for your account yet. Ask someone in the group to call it, and answer here.",
-                    )
-                    .into_owned(),
-                    crate::calls::CALL_LINKS_OFF => crate::i18n::gettext(
-                        self.locale,
-                        "Solmu can't join group calls yet: open the link on your phone.",
-                    )
-                    .into_owned(),
                     _ => message,
                 };
                 self.toast_error(shown);
@@ -5751,8 +5622,6 @@ impl App {
         {
             self.hide_locked_chat(&id);
         }
-        // A live call in a locked chat goes back behind the bar.
-        self.hide_private_call();
         self.drop_locked_panel();
     }
 
@@ -6885,11 +6754,7 @@ impl App {
             }
             self.persist_open_tabs();
         }
-        // The Calls tab keeps its history beside the chat; every other page
-        // gives way to the chat list.
-        if self.page != Page::Calls {
-            self.page = Page::Chats;
-        }
+        self.page = Page::Chats;
         self.scroll_to_bottom = true;
         self.at_bottom = true;
         self.focus_composer = true;
@@ -7361,7 +7226,6 @@ impl App {
 
     fn tick(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
-        self.tick_call(ctx);
         if self.composing
             && let Some(last) = self.last_keystroke
             && now.duration_since(last) > COMPOSING_TIMEOUT
@@ -7785,9 +7649,7 @@ impl App {
         if crate::backend::beeper::BeeperConfig::from_env().is_some()
             && matches!(
                 &action,
-                Action::StartCall(_)
-                    | Action::StartVideoCall(_)
-                    | Action::StartRecording
+                Action::StartRecording
                     | Action::SendRecording
                     | Action::PasteImage { .. }
                     | Action::SendGif(_)
@@ -7797,13 +7659,10 @@ impl App {
             )
         {
             self.toast(
-                "Beeper: calls, recording, clipboard images and stickers are not supported yet",
+                "Beeper: recording, clipboard images and stickers are not supported yet",
             );
             return;
         }
-        let Some(action) = self.apply_call_action(action, ctx) else {
-            return;
-        };
         let reply_send = match &action {
             Action::SendText { chat, quoting, .. } | Action::SendLocation { chat, quoting, .. } => {
                 Some((chat.as_str(), quoting.as_ref()))
@@ -7853,18 +7712,6 @@ impl App {
                     let token = self.storage_token;
                     self.backend.send(Command::LoadStorageStats { token });
                 }
-                // The Calls page reads the account's calls as it opens, and
-                // opens on the call history rather than the new-call list.
-                if page == Page::Calls {
-                    self.backend.send(Command::LoadCallLog);
-                    if self.page != Page::Calls {
-                        self.new_call = false;
-                        self.picked_call = None;
-                    }
-                    // The rail's destinations take turns: Calls replaces the
-                    // starred messages as it replaces the chats.
-                    self.show_starred = false;
-                }
                 // Typed passwords do not wait in a form nobody sees.
                 if page != Page::Settings && !self.app_lock.checking() {
                     self.app_lock.form = None;
@@ -7905,41 +7752,6 @@ impl App {
                 }
             }
             // Applied by `apply_call_action` before anything else.
-            Action::StartCall(_)
-            | Action::AnswerCall
-            | Action::DeclineCall
-            | Action::HangupCall
-            | Action::StartVideoCall(_)
-            | Action::SetCallMuted(_)
-            | Action::SetCallCamera(_)
-            | Action::SetCallMicrophone(_)
-            | Action::SetCallSpeaker(_)
-            | Action::SetCallCameraDevice(_)
-            | Action::LeaveCallSurface
-            | Action::ReturnToCall
-            | Action::ToggleCallFullscreen => {}
-            Action::PickCall { chat, message } => {
-                self.new_call = false;
-                self.picked_call = Some((chat.clone(), message.clone()));
-                if self.chat(&chat).is_some() {
-                    self.apply(Action::OpenMessage { chat, message }, ctx);
-                } else {
-                    // A call from the phone's log with nobody we chat with.
-                    let name = self.display_name(&chat);
-                    self.apply(
-                        Action::StartChat {
-                            id: chat,
-                            name,
-                            dismiss_dialog: false,
-                        },
-                        ctx,
-                    );
-                }
-            }
-            Action::ShowNewCall(open) => {
-                self.new_call = open;
-                self.new_call_search.clear();
-            }
             Action::NavigateBack => self.navigate_back(ctx),
             Action::NavigateForward => self.navigate_forward(ctx),
             Action::StartChat {
@@ -8065,9 +7877,6 @@ impl App {
                 // The chat stays on the recent list the Cmd+K switcher
                 // shows; closing is not forgetting.
                 self.close_info();
-                // A narrow window's Back from a picked call returns to the
-                // call history.
-                self.picked_call = None;
                 if let Some(chat) = self.open_chat.take() {
                     self.invalidate_composer_undo();
                     self.save_attachment_draft(&chat);
@@ -8490,16 +8299,7 @@ impl App {
                 }
             }
             Action::OpenUrl(url) => {
-                if let Some((token, video)) = crate::safety::call_link(&url) {
-                    if crate::calls::group_calls_enabled() {
-                        self.join_call_link(token, video);
-                    } else {
-                        self.toast(crate::i18n::gettext(
-                            self.locale,
-                            "Solmu can't join group calls yet: open the link on your phone.",
-                        ));
-                    }
-                } else if let Some(code) = crate::safety::group_invite_code(&url) {
+                if let Some(code) = crate::safety::group_invite_code(&url) {
                     self.invite = Some(crate::model::GroupInvite {
                         code: code.clone(),
                         state: crate::model::InviteState::Loading,
@@ -9782,15 +9582,6 @@ impl App {
                 self.unread_kept.clear();
                 self.remember_list_filter();
             }
-            Action::SetCallFilter(filter) => {
-                self.call_filter = filter;
-                // Kept for the next start, as the chat list's chip is.
-                let key = filter.key();
-                if self.account().settings.call_filter != key {
-                    self.account_mut().settings.call_filter = key;
-                    self.account_mut().mark_settings_dirty();
-                }
-            }
             Action::JoinGroup => {
                 use crate::model::InviteState;
                 let ready = self.invite.as_ref().and_then(|invite| match &invite.state {
@@ -9992,13 +9783,7 @@ impl App {
             }
             Action::FocusMessages => {
                 if self.current_chat().is_some() {
-                    // The Calls tab keeps its history beside the chat, as
-                    // when a chat opens there, unless a narrow window shows
-                    // only the history; every other page gives way to the
-                    // chats.
-                    if self.page != Page::Calls || (crate::ui::narrow(ctx) && !self.call_picked()) {
-                        self.page = Page::Chats;
-                    }
+                    self.page = Page::Chats;
                     self.focus_search = false;
                     self.focus_composer = false;
                     // The list takes focus when it is next drawn.
@@ -11309,7 +11094,6 @@ impl App {
             .is_some_and(|(_, _, since)| since.elapsed() < VOICE_FETCH_HOLD);
         self.settings.pause_other_media
             && (self.recording.is_some()
-                || self.call_live()
                 || self.player.is_playing()
                 || fetching_next
                 || self.video.is_active() && !self.video.muted())
@@ -12121,7 +11905,6 @@ impl App {
     }
 
     pub fn shutdown(&mut self) {
-        self.call_tones.set(None);
         self.save_state();
         self.flush_open_draft();
         self.recording = None;
@@ -12531,8 +12314,6 @@ fn notification_eligible(chat: &Chat, now: i64, message_at: i64) -> bool {
     }
     now - message_at <= 60
 }
-
-pub use calls::CallPerson;
 
 #[cfg(test)]
 mod tests {
@@ -13392,41 +13173,7 @@ mod tests {
 
     /// The Calls tab stays open across a switch of account and shows that
     /// account's calls; what each account had chosen there stays its own.
-    #[test]
-    fn the_calls_tab_follows_a_switch_of_account() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut app, mut commands) = two_accounts(directory.path());
-        let ctx = egui::Context::default();
-        app.apply(Action::Open(Page::Calls), &ctx);
-        app.apply(
-            Action::PickCall {
-                chat: "15550003333@s.whatsapp.net".into(),
-                message: "call-1".into(),
-            },
-            &ctx,
-        );
-        app.apply(Action::ShowNewCall(true), &ctx);
-        assert!(app.new_call);
-        app.apply(Action::SwitchAccount(AccountId::parse("2").unwrap()), &ctx);
-        assert_eq!(app.page, Page::Calls);
-        assert!(
-            std::iter::from_fn(|| commands.try_recv().ok())
-                .any(|command| matches!(command, Command::LoadCallLog)),
-            "the second account reads its own calls"
-        );
-        assert!(!app.new_call && app.picked_call.is_none());
-        assert!(app.accounts[0].new_call && app.accounts[0].picked_call.is_some());
-        // Coming back to the tab from elsewhere starts at the history.
-        app.apply(Action::SwitchAccount(AccountId::parse("1").unwrap()), &ctx);
-        app.apply(Action::Open(Page::Chats), &ctx);
-        app.apply(Action::Open(Page::Calls), &ctx);
-        assert!(!app.new_call);
-        assert!(
-            app.picked_call.is_none(),
-            "a narrow window opens the tab on its history, not the last picked chat"
-        );
-        assert_eq!(app.page, Page::Calls);
-    }
+
 
     #[test]
     fn a_back_side_button_press_steps_back_through_a_frame() {
