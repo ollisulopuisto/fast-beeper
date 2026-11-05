@@ -1091,16 +1091,7 @@ fn about(app: &mut App, ui: &mut egui::Ui) {
         let (logo, _) = ui.allocate_exact_size(egui::Vec2::splat(44.0), egui::Sense::hover());
         theme::mark(ui, logo.center(), 44.0);
         ui.vertical(|ui| {
-            theme::text(
-                ui,
-                if crate::backend::beeper::BeeperConfig::is_beeper_mode() {
-                    "Solmu"
-                } else {
-                    "Solmu"
-                },
-                theme::bold(17.0),
-                palette.text,
-            );
+            theme::text(ui, "Solmu", theme::bold(17.0), palette.text);
             let version_label = crate::i18n::gettext(app.locale, "Version {version}")
                 .replace("{version}", env!("CARGO_PKG_VERSION"));
             theme::text(ui, version_label, theme::regular(13.0), palette.secondary);
