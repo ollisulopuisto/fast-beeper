@@ -21,17 +21,17 @@ fn has_encoded_control(value: &str) -> bool {
         let mut i = 0;
         let mut changed = false;
         while i < current.len() {
-            if current[i] == b'%' {
-                if let Some(b) = current.get(i + 1..i + 3).and_then(|h| {
+            if current[i] == b'%'
+                && let Some(b) = current.get(i + 1..i + 3).and_then(|h| {
                     std::str::from_utf8(h)
                         .ok()
                         .and_then(|s| u8::from_str_radix(s, 16).ok())
-                }) {
-                    next.push(b);
-                    i += 3;
-                    changed = true;
-                    continue;
-                }
+                })
+            {
+                next.push(b);
+                i += 3;
+                changed = true;
+                continue;
             }
             next.push(current[i]);
             i += 1;
