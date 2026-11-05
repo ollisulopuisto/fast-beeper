@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Installs a source build for the current user: the binary, the icon, and a
-# launcher entry that opens Solmu with no terminal.
+# launcher entry that opens ZapFast with no terminal.
 #
 # Usage: packaging/install-user.sh [binary] [prefix]
-#   binary  the built executable (default: target/release/solmu)
+#   binary  the built executable (default: target/release/zapfast)
 #   prefix  the install prefix   (default: $PREFIX, else ~/.local with data
 #           in $XDG_DATA_HOME when it is set)
 #
-# The desktop file in packaging/ names its binary as `Exec=solmu`, which is
+# The desktop file in packaging/ names its binary as `Exec=zapfast`, which is
 # right for a package: a package manager installs the binary to /usr/bin,
 # where every session finds it on PATH. A user install lands in ~/.local/bin,
-# which a graphical session often does not put on PATH, so `Exec=solmu`
+# which a graphical session often does not put on PATH, so `Exec=zapfast`
 # would find nothing and the launcher entry would do nothing when clicked.
 # This script therefore writes the installed entry with the full path to the
 # binary it just installed, computed here at install time. No machine's path
@@ -20,7 +20,7 @@ set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo=$(dirname -- "$here")
 
-binary=${1:-"$repo/target/release/solmu"}
+binary=${1:-"$repo/target/release/zapfast"}
 prefix=${2:-"${PREFIX:-}"}
 if [[ -n "$prefix" ]]; then
   # An explicit prefix owns everything, data included, and is made absolute
@@ -41,11 +41,11 @@ if [[ ! -x "$binary" ]]; then
   exit 1
 fi
 
-installed="$bin_dir/solmu"
+installed="$bin_dir/zapfast"
 install -Dm755 "$binary" "$installed"
-install -Dm644 "$here/icons/solmu.svg" "$icons_dir/solmu.svg"
+install -Dm644 "$here/icons/zapfast.svg" "$icons_dir/zapfast.svg"
 mkdir -p "$apps_dir"
-# The lines that change: `Exec=solmu`, and the actions' `Exec=solmu <verb>`,
+# The lines that change: `Exec=zapfast`, and the actions' `Exec=zapfast <verb>`,
 # name the path just installed, so the entry works whether or not ~/.local/bin
 # is on the session's PATH. Arguments after the binary are kept.
 #
@@ -81,18 +81,18 @@ EXEC_PATH="$installed" awk '
     next
   }
   { print }
-' "$here/applications/solmu.desktop" > "$apps_dir/solmu.desktop"
+' "$here/applications/zapfast.desktop" > "$apps_dir/zapfast.desktop"
 
 # desktop-file-validate rejects the `\\` that a literal backslash in a quoted
 # Exec must use, so a prefix containing one is installed without that check
 # rather than failing the install on a valid entry.
 if command -v desktop-file-validate >/dev/null 2>&1 && [[ "$installed" != *\\* ]]; then
-  desktop-file-validate "$apps_dir/solmu.desktop"
+  desktop-file-validate "$apps_dir/zapfast.desktop"
 fi
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$apps_dir" 2>/dev/null || true
 fi
 
 echo "Installed $installed"
-echo "Installed $apps_dir/solmu.desktop (Exec=\"$installed\")"
-echo "Solmu now opens from the application launcher."
+echo "Installed $apps_dir/zapfast.desktop (Exec=\"$installed\")"
+echo "ZapFast now opens from the application launcher."
