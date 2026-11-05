@@ -354,12 +354,3 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
 
-  packaging:
-    permissions:
-      contents: write
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
-    needs: publish
-    uses: ./.github/workflows/packaging.yml
-    with:
-      version: ${{ github.ref_name }}
-    secrets: inherit
