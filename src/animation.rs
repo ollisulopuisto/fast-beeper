@@ -522,8 +522,8 @@ fn decode_mp4_from<R: std::io::Read + std::io::Seek>(
     (!frames.is_empty()).then_some(Decoded { frames })
 }
 
-/// What an MP4 says about itself, with a picture from its start: what the
-/// message sending it carries, so it shows as a video before it is downloaded.
+/// What an MP4 says about itself, with a picture from its start.
+#[cfg(test)]
 pub(crate) struct Poster {
     /// A frame about a second in (openings are often black), scaled down.
     /// `None` when the codec is not one decoded in-process.
@@ -534,6 +534,7 @@ pub(crate) struct Poster {
 }
 
 /// Reads the size, length, and a poster frame of the MP4 in `bytes`.
+#[cfg(test)]
 pub(crate) fn poster(bytes: &[u8]) -> Option<Poster> {
     let size = bytes.len() as u64;
     let mp4 = mp4::Mp4Reader::read_header(std::io::Cursor::new(bytes), size).ok()?;

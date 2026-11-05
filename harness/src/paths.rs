@@ -20,9 +20,19 @@ pub struct AppDirs {
 
 impl AppDirs {
     pub fn discover() -> Self {
-        if let Some(root) = std::env::var_os("SOLMU_PROFILE_ROOT") {
-            return Self::under(std::path::Path::new(&root));
+        // Older launchers and scripts exported the pre-rename names; keep
+        // honoring them so a mixed old/new setup still finds the profile.
+        for var in [
+            "SOLMU_PROFILE_ROOT",
+            "ZAPFAST_PROFILE_ROOT",
+            "FASTSAPP_PROFILE_ROOT",
+        ] {
+            if let Some(root) = std::env::var_os(var) {
+                return Self::under(std::path::Path::new(&root));
+            }
         }
+        // The data directory keeps its original name: existing chats, settings and
+        // credentials live under it, so renaming would orphan them.
         match Self::of("zapfast") {
             Some(dirs) => dirs,
             None => {
@@ -278,7 +288,10 @@ impl AppDirs {
     }
 
     pub fn ensure(&self) -> std::io::Result<()> {
-        for dir in [&self.config, &self.state, &self.cache] {
+        // Protect config, state, caches, and the single-instance runtime directory
+        // with private permissions (0o700 on Unix) to prevent local privilege escalation
+        // or unauthorized IPC / socket access on multi-user systems.
+        for dir in [&self.config, &self.state, &self.cache, &self.runtime] {
             let mut builder = std::fs::DirBuilder::new();
             builder.recursive(true);
             // Create new directories privately, even with a permissive umask.
@@ -423,8 +436,7 @@ mod tests {
     use super::*;
 
     fn root(name: &str) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("solmu-paths-{name}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-paths-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -438,7 +450,7 @@ mod tests {
         let root = root("permissions");
         let dirs = AppDirs::under(&root);
         dirs.ensure().unwrap();
-        for path in [&dirs.config, &dirs.state, &dirs.cache] {
+        for path in [&dirs.config, &dirs.state, &dirs.cache, &dirs.runtime] {
             assert_eq!(
                 std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
                 0o700
@@ -454,13 +466,13 @@ mod tests {
 
         let root = root("existing-permissions");
         let dirs = AppDirs::under(&root);
-        for path in [&dirs.config, &dirs.state, &dirs.cache] {
+        for path in [&dirs.config, &dirs.state, &dirs.cache, &dirs.runtime] {
             std::fs::create_dir_all(path).unwrap();
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
             std::fs::write(path.join("fixture"), b"preserved").unwrap();
         }
         dirs.ensure().unwrap();
-        for path in [&dirs.config, &dirs.state, &dirs.cache] {
+        for path in [&dirs.config, &dirs.state, &dirs.cache, &dirs.runtime] {
             assert_eq!(
                 std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
                 0o700

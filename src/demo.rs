@@ -8017,12 +8017,10 @@ mod tests {
             apply_flags(&mut app, Some(page));
             render(&mut app, &ctx);
         }
-        for page in ["login"] {
-            let mut app = self::app();
-            apply_flags(&mut app, Some(page));
-            render(&mut app, &ctx);
-            assert!(!app.is_linked());
-        }
+        let mut app = self::app();
+        apply_flags(&mut app, Some("login"));
+        render(&mut app, &ctx);
+        assert!(!app.is_linked());
     }
 
     /// Where fastframe-titlebar draws the caption buttons for a footprint
@@ -21529,10 +21527,6 @@ mod rail_tests {
         recorded(ctx, crate::ui::chats::header_row_id())
     }
 
-    fn conversation_header(ctx: &egui::Context) -> Option<egui::Rect> {
-        recorded(ctx, crate::ui::conversation::header_row_id())
-    }
-
     /// Where the control registered for `stop` was drawn this frame.
     fn stop_rect(ctx: &egui::Context, stop: Stop) -> Option<egui::Rect> {
         focus::stops(ctx)
@@ -21564,18 +21558,6 @@ mod rail_tests {
             );
         }
         frame(app, ctx, width, Vec::new());
-    }
-
-    /// Ctrl+Shift (Cmd+Shift on macOS) and the digit at `physical`, which
-    /// the layout reports as `key` with Shift held.
-    fn shifted(key: egui::Key, physical: egui::Key) -> egui::Event {
-        egui::Event::Key {
-            key,
-            physical_key: Some(physical),
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-        }
     }
 
     fn escape() -> egui::Event {

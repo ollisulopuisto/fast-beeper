@@ -161,18 +161,8 @@ impl MixOutput {
         &self.mixer
     }
 
-    /// The stream's rate and channel count, which the mixer mixes at.
-    pub(crate) fn format(&self) -> (u32, u16) {
-        (self.output.sample_rate(), self.output.channels())
-    }
-
     pub(crate) fn device_id(&self) -> &fastframe_audio::DeviceId {
         self.output.device_id()
-    }
-
-    /// How far the output has played, and its latency as the device reports it.
-    pub(crate) fn clock(&self) -> fastframe_audio::Clock {
-        self.output.clock()
     }
 
     pub(crate) fn resume(&mut self) {

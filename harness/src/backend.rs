@@ -12,14 +12,13 @@ use crate::model::{
 };
 use crate::paths::AccountDirs;
 
+#[cfg(any(test, feature = "demo"))]
 pub(crate) mod picture_edit;
 
 // Re-exported so the picker can detect pasted Signal pack links.
 pub mod beeper;
 pub mod local_ai;
-mod read_sync;
 pub(crate) mod sticker_import;
-mod sticker_maker;
 pub(crate) mod sticker_store;
 /// Chats a free account pins; the worker enforces the cap.
 pub const PINNED_CHATS: usize = 3;
@@ -77,18 +76,6 @@ impl LinkStatus {
                 "Not linked to a phone"
             }
             .into(),
-        }
-    }
-
-    /// Stable, non-sensitive description suitable for the desktop log.
-    pub(crate) fn log_label(&self) -> &'static str {
-        match self {
-            Self::Starting => "starting",
-            Self::Connecting => "connecting",
-            Self::Connected => "connected",
-            Self::Disconnected { .. } => "disconnected",
-            Self::LoggedOut => "logged out",
-            Self::Failed(_) => "failed",
         }
     }
 }

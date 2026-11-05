@@ -293,9 +293,6 @@ fn tab_title(_page: &Page) -> &'static str {
     "Chats"
 }
 
-/// The new-call list's header, as WhatsApp's drawer has it: Back and "New
-/// call" in place of the avatar and the tab's title.
-
 /// The search field under the header's first row, and the filter chips
 /// under it.
 fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {

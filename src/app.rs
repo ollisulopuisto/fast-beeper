@@ -1927,7 +1927,6 @@ impl App {
             self.clear_account_ui();
         }
         self.accounts[index].backend.shutdown();
-        let removed = self.accounts[index].id.clone();
         let dirs = self.accounts[index].dirs.clone();
         // The key outlives the archive only by mistake: forget it once the
         // archive is gone, never before.
@@ -2216,12 +2215,11 @@ impl App {
                 continue;
             }
             self.switch_account(&target.account);
-            match target.message {
-                Some(message) => self.actions.push(Action::OpenMessage {
+            if let Some(message) = target.message {
+                self.actions.push(Action::OpenMessage {
                     chat: target.chat,
                     message,
-                }),
-                None => {}
+                });
             }
             self.actions.push(Action::ShowWindow);
         }
@@ -5411,9 +5409,6 @@ impl App {
                 if live {
                     self.announced_offline = false;
                     self.announced_connecting = false;
-                    self.dialog = match self.dialog.take() {
-                        other => other,
-                    };
                 }
                 if let Some(open) = self.open_chat.clone() {
                     self.ensure_loaded(&open);

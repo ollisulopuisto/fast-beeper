@@ -1322,34 +1322,6 @@ impl Output<'_> {
     }
 }
 
-/// Converts a YUV 4:2:0 picture to RGB, scaled to `out` when it differs from `size`.
-///
-/// Shared with the call screen, which has raw camera planes and decoded peer frames rather than a
-/// whole file to play. `turns` is quarter turns clockwise to apply while converting; a call passes
-/// [`orientation_turns`] of the peer's `device_orientation`, and `out` stays the size the picture
-/// has *before* those turns, since the rotation swaps the result's sides.
-pub(crate) fn rgb_image(
-    y: &[u8],
-    u: &[u8],
-    v: &[u8],
-    strides: (usize, usize, usize),
-    size: (usize, usize),
-    out: (usize, usize),
-    turns: u8,
-) -> ColorImage {
-    convert(
-        &Planes {
-            y,
-            u,
-            v,
-            strides,
-            size,
-        },
-        out,
-        turns,
-    )
-}
-
 /// How many quarter turns clockwise a peer's `device_orientation` asks the picture to take.
 ///
 /// WhatsApp's low two bits are a counter-clockwise quarter-turn count, not a clockwise one: the
@@ -1357,6 +1329,7 @@ pub(crate) fn rgb_image(
 /// `voip-cli` example undoes the same value with `transpose=cclock` for 1 and `transpose=clock`
 /// for 3 (`examples/voip-cli/src/video.rs`). [`convert`] turns clockwise, so the count flips; 2 is
 /// its own inverse. Anything else, including the 0 an upright camera reports, is no turn at all.
+#[cfg(test)]
 pub(crate) fn orientation_turns(orientation: u8) -> u8 {
     match orientation & 0x03 {
         1 => 3,
