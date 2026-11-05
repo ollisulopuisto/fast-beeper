@@ -674,10 +674,13 @@ impl Default for Settings {
 pub const SETTINGS_VERSION: u32 = 2;
 
 /// Optional build-time GIPHY key from `SOLMU_GIPHY_KEY`.
-/// The previous name remains accepted for existing build setups.
+/// The pre-rename names remain accepted for existing build setups.
 pub const BUILT_IN_GIPHY_KEY: Option<&str> = match option_env!("SOLMU_GIPHY_KEY") {
     Some(key) if !key.is_empty() => Some(key),
-    _ => option_env!("FASTSAPP_GIPHY_KEY"),
+    _ => match option_env!("ZAPFAST_GIPHY_KEY") {
+        Some(key) if !key.is_empty() => Some(key),
+        _ => option_env!("FASTSAPP_GIPHY_KEY"),
+    },
 };
 
 impl Settings {
