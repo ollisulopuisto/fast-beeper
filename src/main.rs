@@ -918,11 +918,9 @@ mod target_cli_tests {
     /// first launch's own queue and over the socket to a running copy.
     #[test]
     fn a_target_argument_carries_its_template() {
-        let cli = Cli::try_parse_from([
-            "solmu",
-            "whatsapp://send?phone=20123456789&text=Hi%20there",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["solmu", "whatsapp://send?phone=20123456789&text=Hi%20there"])
+                .unwrap();
         let request = solmu::target::parse(cli.target.as_deref().unwrap()).unwrap();
         assert_eq!(request.text.as_deref(), Some("Hi there"));
         // What the second launch sends is what the running copy reads back.
@@ -1133,11 +1131,7 @@ mod log_filter_tests {
             log::Level::Error,
             "arboard::platform::linux"
         ));
-        assert!(matches(
-            filter,
-            log::Level::Warn,
-            "solmu::backend::worker"
-        ));
+        assert!(matches(filter, log::Level::Warn, "solmu::backend::worker"));
     }
 
     /// Every log names the face chosen for each fallback script, without

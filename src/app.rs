@@ -6221,10 +6221,9 @@ impl App {
                 self.locale,
                 "Not sent: this content is not supported by the Beeper client. Your content was kept locally.",
             ),
-            Refusal::Offline => crate::i18n::gettext(
-                self.locale,
-                "Not sent: Solmu is not connected to WhatsApp.",
-            ),
+            Refusal::Offline => {
+                crate::i18n::gettext(self.locale, "Not sent: Solmu is not connected to WhatsApp.")
+            }
             Refusal::QuoteUnavailable => crate::i18n::gettext(
                 self.locale,
                 "Not sent: the message you’re replying to isn’t available on this computer. Cancel the reply to send without a quote.",

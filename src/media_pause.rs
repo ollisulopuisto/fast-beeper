@@ -406,9 +406,7 @@ mod tests {
         assert!(pausable_player("org.mpris.MediaPlayer2.playerctldish"));
         assert!(!pausable_player("org.mpris.MediaPlayer2.playerctld"));
         assert!(!pausable_player("org.mpris.MediaPlayer2.solmu"));
-        assert!(!pausable_player(
-            "org.mpris.MediaPlayer2.solmu.instance42"
-        ));
+        assert!(!pausable_player("org.mpris.MediaPlayer2.solmu.instance42"));
         assert!(!pausable_player("org.mpris.MediaPlayer2."));
         assert!(!pausable_player("org.freedesktop.Notifications"));
         assert!(!pausable_player(":1.42"));

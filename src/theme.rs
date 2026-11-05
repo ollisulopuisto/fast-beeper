@@ -19,9 +19,7 @@ pub const DESKTOP_THEMES: fastframe_theme::DesktopThemes = fastframe_theme::Desk
     omarchy_template: include_str!("../contrib/omarchy/solmu.json.tpl"),
     // Every template Solmu shipped before, so an untouched copy installed
     // by an older release is replaced with the current one.
-    omarchy_previous_templates: &[include_str!(
-        "../contrib/omarchy/previous/solmu-1.json.tpl"
-    )],
+    omarchy_previous_templates: &[include_str!("../contrib/omarchy/previous/solmu-1.json.tpl")],
     presets: true,
 };
 

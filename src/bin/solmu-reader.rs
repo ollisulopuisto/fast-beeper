@@ -231,8 +231,7 @@ fn main() {
                 .filter(|t| !t.is_empty())
         })
         .unwrap_or_default();
-    let listen =
-        std::env::var("SOLMU_READER_LISTEN").unwrap_or_else(|_| "127.0.0.1:23377".into());
+    let listen = std::env::var("SOLMU_READER_LISTEN").unwrap_or_else(|_| "127.0.0.1:23377".into());
     let addr: SocketAddr = match listen.parse() {
         Ok(addr) => addr,
         Err(_) => {
@@ -282,9 +281,7 @@ fn main() {
     let shared = Arc::new(Shared {
         source: Box::new(sender),
         limiter: Mutex::new(RateLimiter::default()),
-        settings: std::env::var("SOLMU_SETTINGS_FILE")
-            .ok()
-            .map(PathBuf::from),
+        settings: std::env::var("SOLMU_SETTINGS_FILE").ok().map(PathBuf::from),
         origins,
     });
     run(listener, path, shared, MAX_CONNECTIONS);

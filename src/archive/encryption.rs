@@ -176,9 +176,7 @@ fn key_from_entry(path: &Path, entry: &keyring_core::Entry) -> Result<Zeroizing<
             );
             create_key(entry)
         }
-        Err(error) => {
-            Err(keyring_error(error)).context("Unlock your OS keyring and restart Solmu")
-        }
+        Err(error) => Err(keyring_error(error)).context("Unlock your OS keyring and restart Solmu"),
     }
 }
 

@@ -428,8 +428,7 @@ mod tests {
     use super::*;
 
     fn root(name: &str) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("solmu-paths-{name}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("solmu-paths-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root

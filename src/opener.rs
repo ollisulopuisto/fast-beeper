@@ -316,10 +316,7 @@ mod tests {
         let failed = launch(Command::new("sh").args(["-c", "exit 4"])).unwrap_err();
         assert!(failed.starts_with("sh failed"), "{failed}");
         let missing = launch(&mut Command::new("solmu-no-such-launcher")).unwrap_err();
-        assert!(
-            missing.starts_with("solmu-no-such-launcher: "),
-            "{missing}"
-        );
+        assert!(missing.starts_with("solmu-no-such-launcher: "), "{missing}");
         let started = Instant::now();
         assert_eq!(launch(Command::new("sh").args(["-c", "sleep 30"])), Ok(()));
         assert!(started.elapsed() < LAUNCH_GRACE + Duration::from_secs(2));

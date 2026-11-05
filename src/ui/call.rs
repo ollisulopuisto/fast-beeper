@@ -178,12 +178,7 @@ fn live(
         .flatten();
     if let Some(image) = &remote {
         let at = fit_inside(screen, image_size(image));
-        let texture = call_texture(
-            ui,
-            &mut app.call_remote_texture,
-            "solmu-call-remote",
-            image,
-        );
+        let texture = call_texture(ui, &mut app.call_remote_texture, "solmu-call-remote", image);
         egui::Image::new((texture, at.size())).paint_at(ui, at);
     }
     // Our own camera sits in the top corner at its own shape.
@@ -338,12 +333,7 @@ fn own_preview(ui: &mut egui::Ui, app: &mut App, call: &CallUpdate, palette: &Pa
         let bounds = vec2(area.width(), area.height()) * PREVIEW_SHARE;
         let size = fit_inside(Rect::from_min_size(area.min, bounds), image_size(&image)).size();
         let at = Rect::from_min_size(egui::pos2(area.right() - size.x, area.top() + 48.0), size);
-        let texture = call_texture(
-            ui,
-            &mut app.call_local_texture,
-            "solmu-call-local",
-            &image,
-        );
+        let texture = call_texture(ui, &mut app.call_local_texture, "solmu-call-local", &image);
         egui::Image::new((texture, size))
             .corner_radius(CornerRadius::same(12))
             .paint_at(ui, at);
@@ -1038,12 +1028,8 @@ fn group_live(
             // Our own camera takes a tile of its own beside the others rather
             // than floating over one of them.
             Tile::Me(image) => {
-                let texture = call_texture(
-                    ui,
-                    &mut app.call_local_texture,
-                    "solmu-call-local",
-                    &image,
-                );
+                let texture =
+                    call_texture(ui, &mut app.call_local_texture, "solmu-call-local", &image);
                 video_tile(ui, &you, texture, image_size(&image), rect);
                 if call.muted {
                     muted_badge(ui, palette, rect);
