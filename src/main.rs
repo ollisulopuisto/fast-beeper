@@ -167,7 +167,7 @@ fn control(command: &Control, sent: single_instance::Sent) -> (i32, Option<Strin
 /// hiding real clipboard failures (`arboard=error`) or any other warning.
 fn default_log_filter(verbose: bool) -> &'static str {
     if verbose {
-        "info,solmu=debug,whatsapp_rust=debug,wacore=debug"
+        "info,solmu=debug"
     } else {
         // env_logger treats '/' as a message-regex separator, so it cannot
         // select the literal target Client/AppState here. Enable Client INFO;
@@ -302,10 +302,6 @@ fn run() -> eframe::Result<()> {
     };
     // A demo's folders are throwaway; remove them when the run returns.
     let _demo_root = demo_root.map(RemoveOnDrop);
-    let beeper_mode = ["SOLMU_BACKEND", "ZAPFAST_BACKEND"]
-        .iter()
-        .filter_map(|var| std::env::var(var).ok())
-        .any(|v| v.eq_ignore_ascii_case("beeper"));
     let profile_root_set = [
         "SOLMU_PROFILE_ROOT",
         "ZAPFAST_PROFILE_ROOT",
@@ -313,7 +309,7 @@ fn run() -> eframe::Result<()> {
     ]
     .iter()
     .any(|var| std::env::var_os(var).is_some());
-    if !demo && !beeper_mode && !profile_root_set {
+    if !demo && !profile_root_set {
         dirs.adopt_previous_names()
             .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     }
@@ -338,7 +334,6 @@ fn run() -> eframe::Result<()> {
     // Moving a single-account setup into its account folder needs the
     // keyring; when it cannot finish, the log says why.
     if !demo
-        && !beeper_mode
         && let Err(error) = dirs.adopt_single_account()
     {
         log::error!("could not move the linked account into its folder: {error}");

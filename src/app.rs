@@ -12546,7 +12546,6 @@ fn notification_eligible(chat: &Chat, now: i64, message_at: i64) -> bool {
     now - message_at <= 60
 }
 
-mod calls;
 pub use calls::CallPerson;
 
 #[cfg(test)]

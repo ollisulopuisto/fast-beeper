@@ -291,11 +291,12 @@ impl Account {
             AccountSettings::default()
         };
         resolve_wallpaper_path(&dirs, &mut settings);
-        let backend = if let Some(cfg) = crate::backend::beeper::BeeperConfig::from_env() {
-            Backend::spawn_beeper(dirs.clone(), waker.clone(), cfg)
-        } else {
-            Backend::spawn(dirs.clone(), waker.clone())
-        };
+        let backend = Backend::spawn_beeper(
+            dirs.clone(),
+            waker.clone(),
+            crate::backend::beeper::BeeperConfig::from_env()
+                .expect("Beeper session or environment config"),
+        );
         Ok(Self::new(id, dirs, settings, backend))
     }
 

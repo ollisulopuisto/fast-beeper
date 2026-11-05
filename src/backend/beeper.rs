@@ -49,16 +49,10 @@ static SESSION: std::sync::Mutex<Option<BeeperConfig>> = std::sync::Mutex::new(N
 static BEEPER_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 impl BeeperConfig {
-    /// Returns whether Solmu was launched with `SOLMU_BACKEND=beeper`
-    /// (or the pre-rename `ZAPFAST_BACKEND=beeper`). Cached so it can be called on UI frames without environment lookup overhead.
+    /// Solmu is a Beeper client; kept as a function so call sites read
+    /// the same as before the native WhatsApp backend was removed.
     pub fn is_beeper_mode() -> bool {
-        SESSION.lock().unwrap_or_else(|p| p.into_inner()).is_some()
-            || *BEEPER_MODE.get_or_init(|| {
-                ["SOLMU_BACKEND", "ZAPFAST_BACKEND"]
-                    .iter()
-                    .filter_map(|var| std::env::var(var).ok())
-                    .any(|v| v.eq_ignore_ascii_case("beeper"))
-            })
+        true
     }
 
     /// Retain the explicitly selected, ready Server connection for this process.
@@ -70,9 +64,6 @@ impl BeeperConfig {
     pub fn from_env() -> Option<Self> {
         if let Some(cfg) = SESSION.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
             return Some(cfg.clone());
-        }
-        if !Self::is_beeper_mode() {
-            return None;
         }
         let base_url = std::env::var("BEEPER_DESKTOP_BASE_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:23373".to_string());
@@ -3409,9 +3400,7 @@ pub fn run(
                         });
                     }
                 }
-                Command::StartCall { .. }
-                | Command::JoinCallLink { .. }
-                | Command::SendSticker { .. }
+                Command::SendSticker { .. }
                 | Command::PickFiles { .. }
                 | Command::CreateGroup { .. }
                 | Command::SetProfile { .. }

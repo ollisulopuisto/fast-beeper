@@ -23,8 +23,10 @@ mod read_sync;
 pub(crate) mod sticker_import;
 mod sticker_maker;
 pub(crate) mod sticker_store;
-mod worker;
-pub use worker::{PINNED_CHATS, PLUS_PINNED_CHATS, host_owned_presence};
+/// Chats a free account pins; the worker enforces the cap.
+pub const PINNED_CHATS: usize = 3;
+/// Chats a WhatsApp Premium ("Plus") account pins.
+pub const PLUS_PINNED_CHATS: usize = 20;
 
 /// Result of a deletion request, without protocol errors crossing the bridge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -495,45 +497,6 @@ pub enum Command {
         samples: Vec<f32>,
         quoting: Option<crate::model::ReplyTarget>,
     },
-    /// Places a 1:1 call, or starts a call in a group for a group chat, offering video from the
-    /// first frame when asked.
-    ///
-    /// `generation` is the one the window already drew the call under, and `cancel` is set when
-    /// the reader hangs up before the offer has gone out, so the peer is never rung for it.
-    StartCall {
-        chat: ChatId,
-        video: bool,
-        generation: u64,
-        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    },
-    /// Joins a call link by its token, with video for a video call's link. `generation` and
-    /// `cancel` are what [`Command::StartCall`] carries.
-    JoinCallLink {
-        token: String,
-        video: bool,
-        generation: u64,
-        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    },
-    /// Answers the ringing incoming call with the real `<accept>`.
-    AnswerCall,
-    /// Declines the ringing incoming call with the real `<reject>`.
-    DeclineCall,
-    /// Ends the current call.
-    HangupCall,
-    /// Mutes or unmutes the current call's microphone through the engine.
-    SetCallMuted(bool),
-    /// Turns the current call's camera on or off.
-    SetCallCamera(bool),
-    /// Rebinds the current call's microphone; `None` is the system default.
-    SetCallMicrophone(Option<String>),
-    /// Rebinds the current call's speaker; `None` is the system default.
-    SetCallSpeaker(Option<String>),
-    /// Switches the current call's camera node.
-    SetCallCameraDevice(Option<String>),
-    /// Lists the microphones, speakers and cameras the call screen offers.
-    RefreshCallDevices,
-    /// Reads the account's call entries for the Calls page.
-    LoadCallLog,
     /// Sends a played receipt for a voice message.
     MarkPlayed {
         chat: ChatId,
@@ -1463,24 +1426,6 @@ pub enum Event {
         id: String,
         name: Option<String>,
     },
-    /// The current call changed state. The UI renders this and nothing else.
-    Call(Box<crate::calls::CallUpdate>),
-    /// A group call Solmu cannot join while [`crate::calls::GROUP_CALLS_ENABLED`] is off:
-    /// ringing (`phase` is `Incoming`), so the window says who is calling and to answer on the
-    /// phone, or over, so that word is taken back. It never takes the call screen.
-    PhoneOnlyCall(Box<crate::calls::CallUpdate>),
-    /// The devices the call screen can offer.
-    CallDevices(Box<crate::calls::DeviceList>),
-    /// The account's call entries, newest first, for the Calls page.
-    CallLog(Vec<Message>),
-    /// One video frame for the call screen: our own preview, the peer's picture, or both.
-    CallVideo {
-        local: Option<Arc<egui::ColorImage>>,
-        remote: Option<Arc<egui::ColorImage>>,
-        /// Whose picture `remote` is on a group call, by chat id; `None` for the peer of a
-        /// one-to-one call.
-        from: Option<String>,
-    },
     /// Informational toast message.
     Info(String),
     /// A quoted message fetched by id because it was outside the loaded
@@ -1710,40 +1655,6 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn spawn(dirs: AccountDirs, waker: Waker) -> Self {
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("solmu-runtime")
-            .enable_all()
-            .build()
-            .expect("unable to start the async runtime");
-        let worker_commands = command_tx.clone();
-        let (startup, started) = tokio::sync::oneshot::channel();
-        let thread = std::thread::Builder::new()
-            .name("solmu-backend".to_string())
-            .spawn(move || {
-                runtime.block_on(async move {
-                    if started.await.is_ok() {
-                        worker::run(dirs, event_tx, worker_commands, command_rx, waker).await;
-                    }
-                });
-                runtime.shutdown_timeout(Duration::from_secs(3));
-            })
-            .expect("unable to start the backend thread");
-
-        Self {
-            startup: Some(startup),
-            commands: command_tx,
-            events: event_rx,
-            thread: Some(thread),
-            offline: false,
-            #[cfg(any(test, feature = "demo"))]
-            demo_commands: None,
-        }
-    }
-
     /// Spawns the Beeper demo backend instead of the WhatsApp worker.
     /// Selected via [`beeper::BeeperConfig::from_env`].
     pub fn spawn_beeper(dirs: AccountDirs, waker: Waker, cfg: beeper::BeeperConfig) -> Self {
