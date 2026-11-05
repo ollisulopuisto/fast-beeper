@@ -1433,12 +1433,12 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     }
     // A pin is a shortcut, not a removal: pinned chats keep their rail
     // chips AND their ordinary rows here, linked ones included.
-    let chats: Vec<Chat> = app
+    let chat_ids: Vec<ChatId> = app
         .visible_chats()
         .into_iter()
-        .map(|c| app.beeper_person_preview(c))
+        .map(|c| c.id.clone())
         .collect();
-    if chats.is_empty() {
+    if chat_ids.is_empty() {
         // The favorites title is translated, so it is bound here: the tuple
         // below borrows it for this frame, and every other arm stays a literal.
         let favorites_title;
@@ -1478,7 +1478,7 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     } else {
         theme::ROW_HEIGHT
     };
-    let total = chats.len();
+    let total = chat_ids.len();
     let mut scroll_area = egui::ScrollArea::vertical()
         .id_salt("chat-list")
         .auto_shrink([false, false]);
@@ -1488,7 +1488,7 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     let target_row = app
         .scroll_chat_into_view
         .as_ref()
-        .and_then(|target| chats.iter().position(|chat| chat.id == *target));
+        .and_then(|target| chat_ids.iter().position(|id| id == target));
     // The copies a narrow window's slide draws have widget ids of their own:
     // they show the real list's offset instead of keeping one.
     let copy = ui
@@ -1533,21 +1533,27 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
                 egui::style::ScrollAnimation::none(),
             );
         }
-        for index in range {
-            let chat = &chats[index];
+        let rows_to_display: Vec<Chat> = range
+            .clone()
+            .filter_map(|index| {
+                let id = &chat_ids[index];
+                app.chat(id).map(|chat| app.beeper_person_preview(chat))
+            })
+            .collect();
+        for display in rows_to_display {
             // Key by chat so an open menu survives list reordering.
             let response = ui
-                .push_id(("chat", &chat.id), |ui| row(app, ui, chat))
+                .push_id(("chat", &display.id), |ui| row(app, ui, &display))
                 .inner;
             // Store the row rect for interaction tests.
             ui.ctx()
-                .data_mut(|data| data.insert_temp(chat_row_id(&chat.id), response.rect));
+                .data_mut(|data| data.insert_temp(chat_row_id(&display.id), response.rect));
             #[cfg(test)]
             ui.ctx().data_mut(|data| {
-                data.insert_temp(chat_row_id(&chat.id).with("widget"), response.id);
+                data.insert_temp(chat_row_id(&display.id).with("widget"), response.id);
             });
             if response.clicked() && !app.show_archived {
-                app.actions.push(Action::KeepUnread(chat.id.clone()));
+                app.actions.push(Action::KeepUnread(display.id.clone()));
             }
         }
     });
