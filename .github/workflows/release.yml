@@ -305,6 +305,11 @@ jobs:
     environment: release-signing
     permissions:
       contents: write
+    env:
+      # Forks without the upstream updater's private key skip manifest
+      # signing instead of failing the release; the in-app updater only
+      # trusts releases signed by a key whose public half ships in the app.
+      HAS_UPDATE_SIGNING_KEY: ${{ secrets.ZAPFAST_UPDATE_SIGNING_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -317,6 +322,7 @@ jobs:
         with:
           ruby-version: '4.0'
       - name: Sign update manifest
+        if: env.HAS_UPDATE_SIGNING_KEY == 'true'
         uses: crmne/native-packages/.github/actions/sign-release@25a4214d2f203357c84b069f39de7c17c0be6253 # v0.11.0
         with:
           directory: dist
