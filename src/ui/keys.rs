@@ -1743,6 +1743,9 @@ mod tests {
     fn shifted_digits_lead_to_the_chats() {
         let (_root, mut app, ids) = app_with_chats(2);
         app.link = crate::backend::LinkStatus::Connected;
+        // Chats is not a toggle: from a Chats page the digit changes
+        // nothing, so the check begins away from it.
+        app.page = Page::Settings;
         let ctx = egui::Context::default();
         let shifted = |app: &mut App, key: Key, physical: Key| {
             app.actions.clear();

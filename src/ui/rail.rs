@@ -624,6 +624,8 @@ mod tests {
     #[test]
     fn starred_is_left_through_chats_not_toggled() {
         let (_root, mut app) = app();
+        // Away from Chats first: Starred from a Chats page only toggles.
+        app.page = Page::Settings;
         assert!(matches!(
             Destination::Starred.actions(&app).as_slice(),
             [Action::Open(Page::Chats), Action::ToggleStarred]
