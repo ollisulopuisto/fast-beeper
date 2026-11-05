@@ -2,21 +2,46 @@
 
 use std::path::Path;
 
-/// Reject percent-encoded ASCII control characters (`%00`..=`%1F`, `%7F`), e.g.
-/// null bytes (`%00`) or CRLF (`%0D%0A`) that could inject arguments or terminate strings.
+/// Reject single or nested percent-encoded ASCII control characters (`%00`..=`%1F`, `%7F`),
+/// e.g. `%2500` (double-encoded null) that could inject arguments into desktop handlers.
 fn has_encoded_control(value: &str) -> bool {
-    value.as_bytes().windows(3).any(|w| {
-        if w[0] != b'%' {
-            return false;
+    let mut current = value.as_bytes().to_vec();
+    for _ in 0..3 {
+        if current.windows(3).any(|w| {
+            w[0] == b'%'
+                && (w[1] as char).to_digit(16).and_then(|h1| {
+                    (w[2] as char)
+                        .to_digit(16)
+                        .map(|h2| matches!((h1 << 4) | h2, 0..=0x1f | 0x7f))
+                }) == Some(true)
+        }) {
+            return true;
         }
-        let Some(h1) = (w[1] as char).to_digit(16) else {
-            return false;
-        };
-        let Some(h2) = (w[2] as char).to_digit(16) else {
-            return false;
-        };
-        matches!((h1 << 4) | h2, 0..=0x1f | 0x7f)
-    })
+        let mut next = Vec::with_capacity(current.len());
+        let mut i = 0;
+        let mut changed = false;
+        while i < current.len() {
+            if current[i] == b'%' {
+                if let Some(b) = current.get(i + 1..i + 3).and_then(|h| {
+                    std::str::from_utf8(h)
+                        .ok()
+                        .and_then(|s| u8::from_str_radix(s, 16).ok())
+                }) {
+                    next.push(b);
+                    i += 3;
+                    changed = true;
+                    continue;
+                }
+            }
+            next.push(current[i]);
+            i += 1;
+        }
+        if !changed {
+            break;
+        }
+        current = next;
+    }
+    false
 }
 
 /// Preview metadata may supply a bare host, but never a desktop URI scheme.
@@ -319,6 +344,13 @@ mod tests {
             "https://example.com/%7f",
             "mailto:user@example.com%00payload",
             "mailto:user@example.com%0D%0Acc:admin@example.com",
+            // Nested / double percent-encoded control characters
+            "https://example.com/%2500evil",
+            "https://example.com/%250d%250ainjection",
+            "https://example.com/%252500nested",
+            "https://example.com/%257f",
+            "mailto:user@example.com%2500payload",
+            "mailto:user@example.com%250D%250Acc:admin@example.com",
         ] {
             assert_eq!(preview_url(bad), None, "{bad}");
             assert_eq!(external_url(bad), None, "{bad}");
@@ -326,6 +358,10 @@ mod tests {
         assert_eq!(
             external_url("https://example.com/hello%20world"),
             Some("https://example.com/hello%20world".into())
+        );
+        assert_eq!(
+            external_url("https://example.com/hello%2520world"),
+            Some("https://example.com/hello%2520world".into())
         );
     }
 
