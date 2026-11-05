@@ -14239,7 +14239,9 @@ mod tests {
         app.apply(Action::AddAccount, &ctx);
         let (backend, mut commands) = Backend::recording();
         app.backend = backend;
-        app.link = LinkStatus::Connecting;
+        // Connecting still counts as linked; a brand-new account that has
+        // no session yet is logged out.
+        app.link = LinkStatus::LoggedOut;
         app.apply(Action::CancelAddAccount, &ctx);
         assert_eq!(app.account().id, AccountId::first());
         assert!(!app.adding_account);
