@@ -1,32 +1,22 @@
-//! Phone linking with a QR code or pairing code.
+//! Sign-in to the local Beeper endpoint.
 
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Stroke, Vec2};
 
 use crate::app::App;
 use crate::backend::LinkStatus;
-use crate::model::{Action, Dialog};
-use crate::qr::Qr;
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
-    let beeper = crate::backend::beeper::BeeperConfig::is_beeper_mode();
     card(
         app,
         ui,
         "login",
-        &crate::i18n::gettext(
-            app.locale,
-            if beeper {
-                "One client for your Beeper accounts."
-            } else {
-                "A native WhatsApp client."
-            },
-        ),
+        "One client for your Beeper accounts.",
         body,
     );
 }
 
-/// The centred card of the linking and lock screens: the logo, the name,
+/// The centred card of the sign-in and lock screens: the logo, the name,
 /// a line under it, and `body`.
 pub(super) fn card(
     app: &mut App,
@@ -91,35 +81,17 @@ pub(super) fn card(
 
 fn body(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let locale = app.locale;
-    let beeper = crate::backend::beeper::BeeperConfig::is_beeper_mode();
-    if beeper && ui.button("Sign in to local Beeper Server").clicked() {
+    if ui.button("Sign in to local Beeper Server").clicked() {
         app.beeper_signin.open = true;
     }
     match app.link.clone() {
         LinkStatus::Starting | LinkStatus::Connecting => {
-            busy(
-                ui,
-                palette.accent,
-                &if beeper {
-                    app.link.connection_copy(true)
-                } else {
-                    crate::i18n::gettext(locale, "Connecting to WhatsApp…").into_owned()
-                },
-            );
+            busy(ui, palette.accent, &app.link.connection_copy(true));
         }
         LinkStatus::Connected => {
-            busy(
-                ui,
-                palette.accent,
-                &if beeper {
-                    app.link.connection_copy(true)
-                } else {
-                    crate::i18n::gettext(locale, "Linked. Waiting for your chats…").into_owned()
-                },
-            );
+            busy(ui, palette.accent, &app.link.connection_copy(true));
         }
-        LinkStatus::Disconnected { .. } if beeper => {
+        LinkStatus::Disconnected { .. } => {
             theme::icon(ui, Icon::WifiOff, 28.0, palette.warning);
             theme::paragraph(
                 ui,
@@ -135,29 +107,18 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
                 palette.secondary,
             );
         }
-        LinkStatus::Disconnected { .. } => {
-            busy(ui, palette.accent, &app.link.connection_copy(false));
-        }
         LinkStatus::LoggedOut => {
-            theme::icon(ui, Icon::Smartphone, 28.0, palette.warning);
+            theme::icon(ui, Icon::WifiOff, 28.0, palette.warning);
             theme::paragraph(
                 ui,
-                crate::i18n::gettext(
-                    locale,
-                    "This computer was unlinked from your phone. Requesting a new code.",
-                ),
+                "The endpoint signed this client out. Reconnecting.",
                 theme::regular(14.0),
                 palette.text,
             );
             ui.add_space(8.0);
-            busy(
-                ui,
-                palette.accent,
-                &crate::i18n::gettext(locale, "Requesting a new code…"),
-            );
+            busy(ui, palette.accent, &app.link.connection_copy(true));
         }
         LinkStatus::Failed(message) => {
-            let key_lost = archive_key_lost(&message);
             theme::icon(ui, Icon::CircleAlert, 28.0, palette.danger);
             ui.add(
                 egui::Label::new(
@@ -168,76 +129,14 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
                 .wrap(),
             );
             ui.add_space(12.0);
-            if beeper {
-                theme::paragraph(
-                    ui,
-                    "Check the existing API endpoint and local token, then relaunch Solmu. No accounts were linked or migrated.",
-                    theme::regular(13.0),
-                    palette.secondary,
-                );
-                return;
-            }
-            ui.horizontal(|ui| {
-                if theme::pill_button(
-                    ui,
-                    &palette,
-                    &crate::i18n::gettext(locale, "Try again"),
-                    true,
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::Reconnect);
-                }
-                if key_lost
-                    && theme::pill_button(
-                        ui,
-                        &palette,
-                        &crate::i18n::gettext(locale, "Start over…"),
-                        false,
-                    )
-                    .clicked()
-                {
-                    app.actions
-                        .push(Action::ShowDialog(crate::model::Dialog::ConfirmStartOver));
-                }
-            });
-        }
-        LinkStatus::Unlinked {
-            qr,
-            pair_code,
-            pairing_phone,
-        } => {
-            if let Some(code) = pair_code {
-                pair_code_view(app, ui, &code, pairing_phone.as_deref());
-            } else if let Some(phone) = pairing_phone {
-                let requesting = crate::i18n::gettext(locale, "Requesting a code for +{phone}…")
-                    .replace("{phone}", &phone);
-                busy(ui, palette.accent, &requesting);
-            } else if let Some(qr) = qr {
-                qr_view(app, ui, &qr);
-            } else {
-                busy(
-                    ui,
-                    palette.accent,
-                    &crate::i18n::gettext(locale, "Waiting for a code from WhatsApp…"),
-                );
-            }
+            theme::paragraph(
+                ui,
+                "Check the existing API endpoint and local token, then relaunch Solmu. No accounts were linked or migrated.",
+                theme::regular(13.0),
+                palette.secondary,
+            );
         }
     }
-    if beeper {
-        return;
-    }
-    super::accounts::login_choices(app, ui);
-    ui.add_space(18.0);
-    theme::paragraph(
-        ui,
-        crate::i18n::gettext(
-            locale,
-            "Unofficial client. Using it may be against WhatsApp's terms of service.",
-        ),
-        theme::regular(11.5),
-        palette.dim,
-    );
 }
 
 pub(super) fn busy(ui: &mut egui::Ui, color: egui::Color32, label: &str) {
@@ -250,145 +149,6 @@ pub(super) fn busy(ui: &mut egui::Ui, color: egui::Color32, label: &str) {
                 .x;
         ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
         theme::spinner(ui, 18.0, color);
-        theme::text(ui, label, theme::medium(14.0), ui.visuals().text_color());
+        theme::text(ui, label, theme::medium(14.0), color);
     });
-}
-
-fn qr_view(app: &mut App, ui: &mut egui::Ui, code: &str) {
-    let palette = app.palette;
-    let locale = app.locale;
-    theme::text(
-        ui,
-        crate::i18n::gettext(locale, "Link this computer"),
-        theme::semibold(16.0),
-        palette.text,
-    );
-    let side = 260.0;
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(side), egui::Sense::hover());
-    match Qr::encode(code) {
-        Some(qr) => qr.paint(ui, rect, egui::Color32::BLACK, egui::Color32::WHITE),
-        None => {
-            ui.painter().rect_filled(rect, 8.0, palette.surface);
-            theme::paint_icon(ui, Icon::CircleAlert, rect, 32.0, palette.danger);
-        }
-    }
-    ui.add_space(4.0);
-    let step1 = crate::i18n::gettext(locale, "Open WhatsApp on your phone");
-    let step2 = crate::i18n::gettext(locale, "Tap Menu or Settings, then Linked devices");
-    let step3 = crate::i18n::gettext(locale, "Tap Link a device and point the phone at this code");
-    let steps = [&step1, &step2, &step3];
-    for (index, step) in steps.iter().enumerate() {
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            theme::text(
-                ui,
-                format!("{}.", index + 1),
-                theme::semibold(13.0),
-                palette.accent,
-            );
-            theme::text(ui, step.as_ref(), theme::regular(13.0), palette.secondary);
-        });
-    }
-    ui.add_space(10.0);
-    if theme::link(
-        ui,
-        crate::i18n::gettext(locale, "Link with phone number instead"),
-        theme::medium(13.0),
-        palette.link,
-    )
-    .clicked()
-    {
-        app.actions.push(Action::ShowDialog(Dialog::PairWithPhone));
-    }
-}
-
-fn pair_code_view(app: &mut App, ui: &mut egui::Ui, code: &str, phone: Option<&str>) {
-    let palette = app.palette;
-    let locale = app.locale;
-    theme::text(
-        ui,
-        crate::i18n::gettext(locale, "Enter this code on your phone"),
-        theme::semibold(16.0),
-        palette.text,
-    );
-    if let Some(phone) = phone {
-        let for_phone = crate::i18n::gettext(locale, "for +{phone}").replace("{phone}", phone);
-        theme::text(ui, for_phone, theme::regular(13.0), palette.secondary);
-    }
-    ui.add_space(8.0);
-    let shown = if code.len() == 8 && !code.contains('-') {
-        format!("{}-{}", &code[..4], &code[4..])
-    } else {
-        code.to_owned()
-    };
-    Frame::new()
-        .fill(palette.surface)
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(Margin::symmetric(22, 12))
-        .show(ui, |ui| {
-            theme::text(ui, &shown, theme::bold(30.0), palette.text);
-        });
-    ui.add_space(8.0);
-    let step1 = crate::i18n::gettext(locale, "Open WhatsApp on your phone");
-    let step2 = crate::i18n::gettext(locale, "Tap Menu or Settings, then Linked devices");
-    let step3 = crate::i18n::gettext(
-        locale,
-        "Tap Link a device, then Link with phone number instead",
-    );
-    let steps = [&step1, &step2, &step3];
-    for (index, step) in steps.iter().enumerate() {
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            theme::text(
-                ui,
-                format!("{}.", index + 1),
-                theme::semibold(13.0),
-                palette.accent,
-            );
-            theme::text(ui, step.as_ref(), theme::regular(13.0), palette.secondary);
-        });
-    }
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        ui.add_space((ui.available_width() - 200.0).max(0.0) / 2.0);
-        if theme::soft_button(
-            ui,
-            &palette,
-            Some(Icon::Copy),
-            &crate::i18n::gettext(locale, "Copy code"),
-            false,
-        )
-        .clicked()
-        {
-            app.actions.push(Action::CopyText(code.to_owned()));
-        }
-    });
-}
-
-/// Whether the archive's key is gone for good, rather than the keyring being
-/// locked or unavailable, which "Try again" can fix.
-fn archive_key_lost(message: &str) -> bool {
-    message.contains("OS keyring key is missing")
-        || message.contains("archive key in the OS keyring is invalid")
-        || message.contains("could not be unlocked with its OS keyring key")
-}
-
-#[cfg(test)]
-mod start_over_tests {
-    #[test]
-    fn only_a_lost_key_offers_to_start_over() {
-        for lost in [
-            "The archive is encrypted but its OS keyring key is missing. Restore the original keyring; the archive has not been changed",
-            "The archive key in the OS keyring is invalid",
-            "The archive could not be unlocked with its OS keyring key: file is not a database",
-        ] {
-            assert!(super::archive_key_lost(lost), "{lost}");
-        }
-        for recoverable in [
-            "Unlock your OS keyring and restart Solmu",
-            "The OS keyring could not open Solmu's archive key",
-        ] {
-            assert!(!super::archive_key_lost(recoverable), "{recoverable}");
-        }
-    }
 }

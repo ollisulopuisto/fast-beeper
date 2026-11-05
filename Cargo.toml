@@ -7,7 +7,7 @@ license = "MIT"
 description = "Solmu: a fast, native multi-network chat client (a ZapFast fork)"
 homepage = "https://github.com/ollisulopuisto/solmu"
 repository = "https://github.com/ollisulopuisto/solmu"
-keywords = ["whatsapp", "chat", "egui", "messaging"]
+keywords = ["chat", "egui", "messaging", "matrix", "beeper"]
 categories = ["gui"]
 
 [lib]
@@ -54,43 +54,9 @@ egui_extras = { version = "0.36.2", features = ["file", "image", "svg", "webp", 
 skrifa = "0.44"
 # Decodes JPEG, PNG, WebP, and GIF images.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-# WhatsApp Web protocol: pairing, encryption, history sync, and media. Version
-# 0.7.0 on crates.io enables `simd`, which needs nightly Rust. This commit builds
-# on stable and includes snapshot recovery and no-progress conflict handling
-# (upstream #1365, #1374 and #1375). Selected features provide Tokio transport,
-# ureq media downloads, and the SQLite device store. The window handles shutdown
-# instead of `signal`. Includes upstream Business pairing (#1440), LockChatUpdate
-# and snapshot replay (#1507), the viewer's channel mute state (#1537), favorite
-# and recent sticker sync events (#1538), boolean AB props (#1539), favorite
-# chats sync (#1544), media re-upload that works and expired downloads that no
-# longer force a media_conn refresh each (#1648, #1653, #1659; the 429s of
-# ZapFast #405), and the typed send, edit, picture and poll APIs (#1614, #1626,
-# #1630, #1640). Protobuf structs are non-exhaustive since #1676, so they are
-# built from `Default` and assigned field by field. Device-store
-# compatibility retains the legacy created_at column. All carried fixes have
-# merged upstream, including video pacing, retransmission and loss recovery
-# (#1726, #1727, #1728), the 1:1 report extension's bytes and rate received
-# (#1761), without which an iPhone peer lowered its video to 600 kbit/s
-# mid-call, and counters of why the peer's video packets never became pictures
-# (#1763), which the call log prints. The sqlite-wasm-rs 0.6 edge that clashed
-# with rusqlite 0.40 (#1764) is behind a `js` feature since #1765. This is
-# upstream main with XOR FEC for 1:1 video, which an iPhone relies on since it
-# never NACKs (#1783), and dropping video queued before the relay allocates
-# (#1782). The crmne/whatsapp-rust fork (branch `voip-video-timing`) is
-# upstream main ac9d0df3 plus two open changes: interleaved video FEC against
-# burst loss (https://github.com/oxidezap/whatsapp-rust/pull/1789) and video
-# timed from capture, so a peer can lip-sync it
-# (https://github.com/oxidezap/whatsapp-rust/pull/1790). Back to upstream once
-# both merge, and to crates.io once released. `voip` is the call stack: signaling,
-# the sans-IO media engine with MLOW and libopus codecs, and the native UDP
-# relay transport.
-whatsapp-rust = { git = "https://github.com/crmne/whatsapp-rust", rev = "94f7c1376f8f6a77c55d85570a260600ad27de0b", default-features = false, features = ["sqlite-storage", "tokio-transport", "tokio-runtime", "ureq-client", "tokio-native", "voip"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs", "net", "io-util", "process"] }
 # Queue between the call's audio streams and the engine.
 async-channel = "2.5"
-# Opens the WhatsApp WebSocket through a proxy. Both crates are already
-# included through the Tokio transport at these versions.
-tokio-websockets = { version = "0.13.3", default-features = false, features = ["client"] }
 http = "1"
 # Encodes HTTP proxy credentials. Already included through several crates.
 base64 = "0.23"
@@ -103,7 +69,6 @@ zeroize = "1"
 rand = "0.10"
 # The updater's HTTP client, with the proxy setting.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "socks", "json"] }
-qrcode = { version = "0.14", default-features = false }
 # Downloads profile pictures. The protocol library already includes this crate
 # and TLS stack.
 ureq = { version = "3", default-features = false, features = ["rustls", "socks-proxy"] }

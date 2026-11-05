@@ -3473,28 +3473,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "login" => {
                 unlink(app);
-                app.link = LinkStatus::Unlinked {
-                    qr: Some(sample_qr()),
-                    pair_code: None,
-                    pairing_phone: None,
+                app.link = LinkStatus::Disconnected {
+                    reason: "endpoint unreachable".into(),
                 };
-            }
-            "pair" => {
-                unlink(app);
-                app.link = LinkStatus::Unlinked {
-                    qr: None,
-                    pair_code: Some("FWAP1234".into()),
-                    pairing_phone: Some("15550001111".into()),
-                };
-            }
-            "phone" => {
-                unlink(app);
-                app.link = LinkStatus::Unlinked {
-                    qr: Some(sample_qr()),
-                    pair_code: None,
-                    pairing_phone: None,
-                };
-                app.dialog = Some(Dialog::PairWithPhone);
             }
             "offline" => {
                 app.link = LinkStatus::Disconnected {
@@ -4287,12 +4268,7 @@ fn history_date_sample(app: &mut App) {
     app.scroll_anchor = Some("history-date-45".into());
 }
 
-fn sample_qr() -> String {
-    "2@P0wCq0m3R7bC5w8kJgyEUvE8g4mR6qJ1u5o0dQ+K0nH1Lf6xw1GZrJH9fdQmKX3xJfN0oT2XQ5YV8W2v4u7aV1I=,\
-     Q9Y8x7W6v5U4t3S2r1Q0p9O8n7M6l5K4j3I2h1G0f9E8d7C6b5A4z3Y2x1W0=,K8j7H6g5F4d3S2a1Q0w9E8r7T6y5U4i3O2p1L0k9J8h7G6f5D4s3A2z1X0c9V8=,\
-     v7B6n5M4k3J2h1G0f9D8s7A6z5X4c3V2b1N0m9L8k7J6h5G4f3D2s1A0q9W8e7R6="
-        .to_owned()
-}
+
 
 /// Names of all sample chats.
 pub fn sample_ids() -> Vec<&'static str> {
@@ -8379,7 +8355,7 @@ mod tests {
             apply_flags(&mut app, Some(page));
             render(&mut app, &ctx);
         }
-        for page in ["login", "pair", "phone"] {
+        for page in ["login"] {
             let mut app = self::app();
             apply_flags(&mut app, Some(page));
             render(&mut app, &ctx);
@@ -17849,15 +17825,6 @@ mod tests {
     fn number_dialogs_disable_their_actions_until_the_number_is_complete() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-
-        let mut app = app();
-        apply_flags(&mut app, Some("phone"));
-        app.attach(&ctx);
-        render(&mut app, &ctx);
-        assert!(button_disabled(&mut app, &ctx, "Get a code"));
-        app.pair_phone = "15551234567".into();
-        render(&mut app, &ctx);
-        assert!(!button_disabled(&mut app, &ctx, "Get a code"));
 
         let mut app = self::app();
         apply_flags(&mut app, Some("new-contact"));

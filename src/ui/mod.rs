@@ -603,7 +603,7 @@ fn banner(app: &mut App, ui: &mut egui::Ui) {
             !beeper,
             None,
         ),
-        LinkStatus::Unlinked { .. } | LinkStatus::LoggedOut => (
+        LinkStatus::LoggedOut => (
             Icon::Smartphone,
             crate::i18n::gettext(app.locale, "Not linked to a phone").into_owned(),
             palette.warning,

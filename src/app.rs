@@ -5541,7 +5541,6 @@ impl App {
                     self.announced_offline = false;
                     self.announced_connecting = false;
                     self.dialog = match self.dialog.take() {
-                        Some(Dialog::PairWithPhone) => None,
                         other => other,
                     };
                 }
@@ -9678,9 +9677,6 @@ impl App {
                         messages: messages.clone(),
                     });
                 }
-                if dialog == Dialog::PairWithPhone {
-                    self.pair_phone.clear();
-                }
                 if dialog == Dialog::ScheduledList {
                     self.scheduled_messages = None;
                     self.backend.send(Command::ListScheduled {
@@ -10471,16 +10467,6 @@ impl App {
                 self.settings.zoom = 1.0;
                 self.zoom_applied = false;
                 self.mark_settings_dirty();
-            }
-            Action::PairWithPhone(phone) => {
-                let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
-                if digits.len() < 7 {
-                    self.toast_error(
-                        "Enter the phone number with its country code, using digits only",
-                    );
-                } else {
-                    self.backend.send(Command::PairWithPhone(digits));
-                }
             }
             Action::Unlink => {
                 self.dialog = None;
@@ -14516,11 +14502,7 @@ mod tests {
         app.apply(Action::AddAccount, &ctx);
         let (backend, mut commands) = Backend::recording();
         app.backend = backend;
-        app.link = LinkStatus::Unlinked {
-            qr: None,
-            pair_code: None,
-            pairing_phone: None,
-        };
+        app.link = LinkStatus::Connecting;
         app.apply(Action::CancelAddAccount, &ctx);
         assert_eq!(app.account().id, AccountId::first());
         assert!(!app.adding_account);

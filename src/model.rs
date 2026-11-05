@@ -1151,7 +1151,8 @@ impl PollDraft {
 }
 
 /// The longest group name WhatsApp accepts, in characters.
-pub const GROUP_NAME_LIMIT: usize = whatsapp_rust::wacore::iq::groups::GROUP_SUBJECT_MAX_LENGTH;
+/// WhatsApp limits group subjects to 100 characters (wacore GROUP_SUBJECT_MAX_LENGTH).
+pub const GROUP_NAME_LIMIT: usize = 100;
 
 /// WhatsApp's longest live location share, in seconds.
 pub const LIVE_LOCATION_LIMIT: i64 = 8 * 60 * 60;
@@ -2347,7 +2348,6 @@ pub enum Dialog {
     /// Confirms emptying one account's media cache.
     ConfirmClearMediaCache(AccountId),
     /// Phone number used for pairing-code linking.
-    PairWithPhone,
     /// Contacts and the self-chat shortcut.
     NewChat,
     /// Manually entered number for messaging or saving a contact.
@@ -3254,7 +3254,6 @@ pub enum Action {
     ZoomBy(f32),
     ResetZoom,
     /// Requests a pairing code for a phone number.
-    PairWithPhone(String),
     /// Unlinks the device remotely and locally.
     Unlink,
     /// Hides everything behind the app lock, when a password is set.
