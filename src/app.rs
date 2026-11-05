@@ -6703,7 +6703,9 @@ impl App {
         }
         self.emoji_start = None;
         self.mention_start = None;
-        if crate::backend::beeper::BeeperConfig::from_env().is_some() {
+        if !self.backend.is_offline() {
+            // Offline demos have no remote history to refetch: their seeded
+            // conversations are the source of truth and must not be evicted.
             // Every reopened cached chat must reselect the backend's polling
             // target, even when its first page is already in memory.
             if let Some(conversation) = self.conversations.get_mut(&id) {
@@ -12821,6 +12823,33 @@ mod tests {
     fn app() -> App {
         let root = std::env::temp_dir().join(format!("solmu-app-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    #[test]
+    fn opening_an_offline_chat_preserves_seeded_history() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        app.link = LinkStatus::Connected;
+        for index in 0..10 {
+            let id = format!("offline-{index}");
+            app.chats
+                .push(Chat::new(id.clone(), format!("Chat {index}")));
+            app.conversations.insert(
+                id,
+                Conversation {
+                    requested: true,
+                    complete: true,
+                    ..Default::default()
+                },
+            );
+        }
+        assert!(app.backend.is_offline());
+        app.open_chat("offline-0".into());
+        assert_eq!(app.conversations.len(), 10, "no backend can refetch these");
+        assert!(app.conversations["offline-0"].requested);
+        app.open_chat("offline-9".into());
+        assert_eq!(app.conversations.len(), 10);
+        assert!(app.conversations["offline-9"].requested);
     }
 
     /// While recording, the light, the timer and the waveform ask for a
