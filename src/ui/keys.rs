@@ -75,6 +75,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                         if let Some(mode) = mode
                             && let Some(index) = keys.iter().position(|candidate| candidate == key)
                         {
+                            // Ctrl+Shift+1 is the documented Chats destination
+                            // off macOS, not the hidden visible-row shortcut.
+                            if !cfg!(target_os = "macos") && mode == 2 && index == 0 {
+                                return true;
+                            }
                             found = Some((mode, index));
                             return false;
                         }
@@ -213,7 +218,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         // The message list keeps Control+2 on macOS, where Command+1 to 9
         // open favorites and Option with a digit types characters some
         // keyboard layouts need, such as # and €. Elsewhere Alt+2 now
-        // picks the second sidebar filter, so the list is reached by Tab.
+        // picks the second network, so the list is reached by Tab.
         #[cfg(target_os = "macos")]
         if app.dialog.is_none()
             && !app.show_update
@@ -1058,7 +1063,7 @@ fn messages_modifier_alone(modifiers: Modifiers) -> bool {
 }
 
 /// The message list's shortcut on macOS: Control+2, where Command with a
-/// digit opens a favorite. Elsewhere Alt+2 picks the second sidebar filter.
+/// digit opens a favorite. Elsewhere Alt+2 picks the second network.
 #[cfg(target_os = "macos")]
 const MESSAGES_KEYS: &str = "Control+2";
 
@@ -1386,8 +1391,12 @@ pub static REGISTRY: &[Row] = &[
         "Filter to a network by its place in the sidebar (outside text fields)",
     ),
     Row::Help(
-        "Ctrl+Alt+1..0",
-        "Pick a chat filter by its place in the sidebar (9 toggles Unreplied)",
+        "Ctrl+Alt+1..9",
+        "All, Unread, Reply later, Read later, Favorites, Private, Groups, Channels; 9 toggles Unreplied",
+    ),
+    Row::Help(
+        "Ctrl+Alt+Shift+R",
+        "Reply to the latest matching message in linked-person search",
     ),
     Row::Binding(&RAIL_CHATS),
     Row::Help(
@@ -1624,6 +1633,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn registry_bindings_have_no_same_platform_collision() {
+        for macos in [false, true] {
+            let mut seen = Vec::new();
+            for row in REGISTRY {
+                let Row::Binding(binding) = row else { continue };
+                if !macos && binding.id == "close-chat" {
+                    continue;
+                }
+                for (modifiers, key) in binding.keys {
+                    let physical = (
+                        if macos {
+                            modifiers.ctrl
+                        } else {
+                            modifiers.ctrl || modifiers.command
+                        },
+                        macos && (modifiers.command || modifiers.mac_cmd),
+                        modifiers.alt,
+                        modifiers.shift,
+                        *key,
+                    );
+                    assert!(
+                        !seen.iter().any(|(found, _)| *found == physical),
+                        "duplicate binding {} on macOS={macos}",
+                        binding.id
+                    );
+                    seen.push((physical, binding.id));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn linked_reply_help_uses_the_actual_shortcut() {
+        let shortcut = super::super::merged::latest_reply_shortcut();
+        assert_eq!(
+            shortcut,
+            egui::KeyboardShortcut::new(
+                Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT,
+                Key::R
+            )
+        );
+        assert!(help_rows().any(|(keys, _)| keys == "Ctrl+Alt+Shift+R"));
+    }
+
+    #[test]
     fn the_help_rows_stay_exactly_as_written() {
         let expected: Vec<(&str, &str)> = vec![
             ("Ctrl+K", "Jump between recent chats"),
@@ -1652,8 +1706,12 @@ mod tests {
                 "Filter to a network by its place in the sidebar (outside text fields)",
             ),
             (
-                "Ctrl+Alt+1..0",
-                "Pick a chat filter by its place in the sidebar (9 toggles Unreplied)",
+                "Ctrl+Alt+1..9",
+                "All, Unread, Reply later, Read later, Favorites, Private, Groups, Channels; 9 toggles Unreplied",
+            ),
+            (
+                "Ctrl+Alt+Shift+R",
+                "Reply to the latest matching message in linked-person search",
             ),
             ("Ctrl+Shift+1", "Chats"),
             (
@@ -2373,6 +2431,42 @@ mod tests {
     /// Command+Option+1..8 picks the sidebar's nth filter in the chips'
     /// order, 9 toggles Unreplied over the list, and 0 stays free.
     #[test]
+    fn filter_digits_follow_the_visible_queue_before_facets() {
+        assert_eq!(
+            crate::model::ChatFilter::EVERY,
+            [
+                crate::model::ChatFilter::All,
+                crate::model::ChatFilter::Unread,
+                crate::model::ChatFilter::ReplyLater,
+                crate::model::ChatFilter::ReadLater,
+                crate::model::ChatFilter::Favorites,
+                crate::model::ChatFilter::Private,
+                crate::model::ChatFilter::Groups,
+                crate::model::ChatFilter::Channels,
+            ]
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn chats_destination_is_not_shadowed_by_numbered_network_navigation() {
+        let (_root, mut app, _ids) = app_with_chats(2);
+        app.link = crate::backend::LinkStatus::Connected;
+        app.show_archived = true;
+        for chat in &mut app.chats {
+            chat.backend_network = Some("whatsapp".into());
+        }
+        let ctx = egui::Context::default();
+        assert!(!press(&mut app, &ctx, Key::Num1, COMMAND_SHIFT));
+        assert!(app.actions.contains(&Action::ShowArchived(false)));
+        assert!(
+            !app.actions
+                .iter()
+                .any(|action| matches!(action, Action::OpenChat(_)))
+        );
+    }
+
+    #[test]
     fn command_option_numbered_shortcuts_pick_sidebar_filters() {
         let (_root, mut app, _ids) = app_with_chats(2);
         let ctx = egui::Context::default();
@@ -2387,7 +2481,13 @@ mod tests {
         assert!(!press(&mut app, &ctx, Key::Num3, modifiers));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::Favorites))
+                .contains(&Action::SetChatFilter(ChatFilter::ReplyLater))
+        );
+        app.actions.clear();
+        assert!(!press(&mut app, &ctx, Key::Num5, modifiers));
+        assert_eq!(
+            app.actions,
+            vec![Action::SetChatFilter(ChatFilter::Favorites)]
         );
         app.actions.clear();
         // 9 is the layered Unreplied toggle, as the rail's icon does it.

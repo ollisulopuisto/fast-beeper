@@ -17,7 +17,7 @@ See BACKEND.md for the complete backend/deployment status and remaining gates.
 - Independent member history paging, partial-history warning and retry.
 - Loaded-history search and exact-source filter. This is not remote full-history search.
 - Near-viewport row layout and borrowed timeline sorting.
-- Mouse reply menu/double-click and Cmd+Shift+R on Mac (Ctrl+Shift+R elsewhere) to reply to the latest matching
+- Mouse reply menu/double-click and Cmd+Option+Shift+R on Mac (Ctrl+Alt+Shift+R elsewhere) to reply to the latest matching
   non-deleted loaded message. Narrow search/source first. This does not provide
   full keyboard transcript navigation or verified screen-reader support.
 
