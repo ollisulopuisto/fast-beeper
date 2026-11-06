@@ -225,3 +225,7 @@ validation installs the package and records anything else it needs. Later
 releases can reuse the same command or `wingetcreate update crmne.ZapFast`;
 change the templates here when the description or installers change, so the
 next submission keeps them.
+
+Manual macOS downloads keep their `-manual.N` filename. The package builder
+receives `-alpha.N` instead, one of its supported prerelease suffixes; the
+app bundle retains the numeric Cargo version. Tag release versions are unchanged.
