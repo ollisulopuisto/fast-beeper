@@ -212,6 +212,7 @@ struct Shown {
     muted_until: Option<i64>,
     muted: bool,
     pinned: bool,
+    favorite: bool,
     archived: bool,
     /// A group's description, when it has one.
     description: Option<String>,
@@ -249,6 +250,7 @@ impl Shown {
             muted_until: chat.muted_until,
             muted: chat.muted(crate::util::now()),
             pinned: chat.pinned,
+            favorite: chat.favorite,
             archived: chat.archived,
             description: chat
                 .group_description

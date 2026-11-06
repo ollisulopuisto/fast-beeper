@@ -671,7 +671,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                         &[
                             info_label.as_ref(),
                             select_messages_label.as_ref(),
-                            pin_label.as_ref(),
+                            favorite_label.as_ref(),
                             archive_label.as_ref(),
                             clear_label.as_ref(),
                             leave_label.as_ref(),
