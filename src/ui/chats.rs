@@ -1533,21 +1533,13 @@ fn favorite_chip(
             &chat.id,
             picture.as_deref(),
         );
+        if selected {
+            paint_active_avatar_ring(ui, &palette, avatar_rect);
+        }
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
         network_badges(app, ui, &palette, avatar_rect, chat);
-        if selected {
-            // A short accent bar stands in for the selected row's background.
-            ui.painter().rect_filled(
-                Rect::from_min_size(
-                    pos2(rect.left() + 1.0, rect.center().y - 11.0),
-                    vec2(3.0, 22.0),
-                ),
-                1.5,
-                palette.accent,
-            );
-        }
         if chat.looks_unread() {
             // The badge respects the same settings as the chat list: a dot
             // only when counts are off, dimmed in a muted chat.
@@ -2849,21 +2841,13 @@ fn compact_row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response 
             &chat.id,
             picture.as_deref(),
         );
+        if selected {
+            paint_active_avatar_ring(ui, &palette, avatar_rect);
+        }
         if chat.disappearing_timer().is_some() {
             widgets::paint_disappearing_badge(ui, &palette, avatar_rect);
         }
         network_badges(app, ui, &palette, avatar_rect, chat);
-        if selected {
-            // A short accent bar stands in for the selected row's background.
-            ui.painter().rect_filled(
-                Rect::from_min_size(
-                    pos2(rect.left() + 1.0, rect.center().y - 11.0),
-                    vec2(3.0, 22.0),
-                ),
-                1.5,
-                palette.accent,
-            );
-        }
         if chat.looks_unread() {
             // Top right, clear of the disappearing-messages timer in the
             // bottom right corner. A muted chat's badge is dimmed, as in the
@@ -2887,6 +2871,22 @@ fn compact_row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response 
         app.actions.push(Action::OpenChat(chat.id.clone()));
     }
     response
+}
+
+/// Separated ring, drawn before the badges so their backing masks its arc.
+/// Its 47-point outside diameter fits both 52-point avatar cells.
+fn paint_active_avatar_ring(ui: &egui::Ui, palette: &Palette, avatar: Rect) {
+    let radius = avatar.width() / 2.0 + 3.0;
+    ui.painter().circle_stroke(
+        avatar.center(),
+        radius,
+        egui::Stroke::new(5.0, palette.rail()),
+    );
+    ui.painter().circle_stroke(
+        avatar.center(),
+        radius,
+        egui::Stroke::new(2.5, palette.accent),
+    );
 }
 
 /// Centre of the unread badge on a collapsed avatar. A "99+" badge, the
@@ -3939,6 +3939,48 @@ mod tests {
             },
         );
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn active_avatar_ring_fits_cell_and_leaves_badges_on_top() {
+        let (_directory, _app, _ids, ctx) = rail_app(0);
+        let palette = Palette::dark();
+        let avatar = Rect::from_center_size(pos2(26.0, 26.0), Vec2::splat(COMPACT_AVATAR));
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            paint_active_avatar_ring(ui, &palette, avatar);
+            widgets::unread_indicator(ui, &palette, compact_badge_center(avatar), 99, false, false);
+        });
+        output.textures_delta.clear();
+        let circles: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| {
+                if let egui::Shape::Circle(circle) = &shape.shape {
+                    Some(circle)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let accent = circles
+            .iter()
+            .find(|circle| circle.stroke.color == palette.accent)
+            .expect("active ring");
+        assert_eq!(accent.radius, COMPACT_AVATAR / 2.0 + 3.0);
+        assert_eq!(accent.stroke.width, 2.5);
+        assert!(accent.radius + 2.5 < COMPACT_CELL / 2.0);
+        let ring_index = output
+            .shapes
+            .iter()
+            .position(|shape| {
+                matches!(&shape.shape,
+            egui::Shape::Circle(circle) if circle.stroke.color == palette.accent)
+            })
+            .unwrap();
+        assert!(
+            ring_index + 1 < output.shapes.len(),
+            "badge paints over the ring"
+        );
     }
 
     #[test]

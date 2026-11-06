@@ -172,3 +172,5 @@ two days ago, three days ago and the previous year, for checking localized date 
 Use `linked-day-separators` for the same dates in a linked-person timeline.
 
 `--demo-page queue-counts` shows 12 available chats, 3 unread, 5 Reply later and 2 Read later. Add `,queue-counts-off` for the original icon-only control, `,light` for light theme, or `,settings-search=queue` for the preference. Counts are local queue items, not message totals.
+
+`--demo-page active-avatar` opens the unread group in the collapsed rail to check its selected ring and unread badge. Add `,light` for the light theme; `--demo-hover 26,195` checks hover without moving the real pointer.

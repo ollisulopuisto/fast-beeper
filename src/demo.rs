@@ -3580,6 +3580,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.settings.beeper.show_queue_counts = true;
             }
             "queue-counts-off" => app.settings.beeper.show_queue_counts = false,
+            "active-avatar" => {
+                app.sidebar_visible = false;
+                app.open_chat = Some(SAMPLES[1].id.to_owned());
+            }
             // A list wide enough for the whole chip row, which scrolls out of
             // sight at the default width.
             "wide" => app.settings.sidebar_width = 560.0,
