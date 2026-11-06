@@ -238,33 +238,21 @@ impl Engine for Wyoming {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
-    /// A fake whisper.cpp: copies a fixture file to stdout so the adapter
-    /// is tested for process plumbing, timeouts, and error mapping
-    /// without a model.
-    fn fake_whisper(body: &str) -> PathBuf {
-        // One path per fake: the lib tests run in one process, and sharing
-        // a path raced concurrent writes, executions and removals (a script
-        // read mid-write exits 2; another test's script exits 3).
-        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "fake-whisper-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        std::fs::write(&path, body).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        path
+    /// Immutable checkout fixtures avoid executing a file just written on
+    /// an overlay filesystem, which can transiently return ETXTBSY in CI.
+    fn fake_whisper(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/whisper")
+            .join(name)
     }
 
     #[test]
     fn whisper_cpp_returns_stdout_text() {
-        let bin = fake_whisper("#!/bin/sh\nprintf 'hei maailma\\n'\n");
+        let bin = fake_whisper("stdout.sh");
         let mut engine = WhisperCpp::new(bin.clone(), PathBuf::from("/tmp/model.bin"));
         let text = engine.transcribe(Path::new("/tmp/note.ogg"), "fi").unwrap();
         assert_eq!(text, "hei maailma");
-        std::fs::remove_file(bin).ok();
     }
 
     #[test]
@@ -276,32 +264,29 @@ mod tests {
 
     #[test]
     fn whisper_cpp_maps_failure_exit() {
-        let bin = fake_whisper("#!/bin/sh\nexit 3\n");
+        let bin = fake_whisper("failure.sh");
         let mut engine = WhisperCpp::new(bin.clone(), PathBuf::from("/m"));
         let err = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap_err();
         assert!(err.contains("exited"), "got: {err}");
-        std::fs::remove_file(bin).ok();
     }
 
     #[test]
     fn whisper_cpp_maps_empty_output() {
-        let bin = fake_whisper("#!/bin/sh\ntrue\n");
+        let bin = fake_whisper("empty.sh");
         let mut engine = WhisperCpp::new(bin.clone(), PathBuf::from("/m"));
         let err = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap_err();
         assert!(err.contains("no transcript"), "got: {err}");
-        std::fs::remove_file(bin).ok();
     }
 
     #[test]
     fn whisper_cpp_timeout_kills() {
-        let bin = fake_whisper("#!/bin/sh\nsleep 60\n");
+        let bin = fake_whisper("timeout.sh");
         let mut engine = WhisperCpp::new(bin.clone(), PathBuf::from("/m"));
         engine.timeout = Duration::from_millis(300);
         let started = Instant::now();
         let err = engine.transcribe(Path::new("/a.ogg"), "fi").unwrap_err();
         assert!(err.contains("timed out"), "got: {err}");
         assert!(started.elapsed() < Duration::from_secs(5));
-        std::fs::remove_file(bin).ok();
     }
 
     use std::io::{BufRead, Read, Write};
