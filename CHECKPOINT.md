@@ -14,8 +14,10 @@ Wireframe: selected `[| (avatar)]` becomes `[((avatar))]`, unselected stays
 capture inspected with offline synthetic chats. Active avatar remains legible,
 14 unread badge clear, no clipping. `active-avatar` demo page reproduces it.
 `cargo check --all-targets --all-features`, format and diff checks pass. An
-isolated actual helper shape test executes and passes; full app regression
-compiles, runtime execution awaits CI. Native Mac appearance unverified.
+isolated actual helper shape test executes and passes. Full app ring/badge
+regression now executes and passes alongside 43 shortcut tests in a focused
+source copy. Strict all-target/all-feature clippy passes. Native Mac appearance
+unverified.
 No real messages, account changes, settings or new dependencies. Revert PR
 to roll back. Optional queue-count preference follows separately.
 

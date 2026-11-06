@@ -3891,7 +3891,7 @@ mod tests {
 
     #[test]
     fn active_avatar_ring_fits_cell_and_leaves_badges_on_top() {
-        let ctx = egui::Context::default();
+        let (_directory, _app, _ids, ctx) = rail_app(0);
         let palette = Palette::dark();
         let avatar = Rect::from_center_size(pos2(26.0, 26.0), Vec2::splat(COMPACT_AVATAR));
         let mut output = ctx.run_ui(Default::default(), |ui| {
