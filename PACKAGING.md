@@ -229,3 +229,16 @@ next submission keeps them.
 Manual macOS downloads keep their `-manual.N` filename. The package builder
 receives `-alpha.N` instead, one of its supported prerelease suffixes; the
 app bundle retains the numeric Cargo version. Tag release versions are unchanged.
+
+## macOS launcher and app switcher
+
+Finder starts the Swift tunnel launcher as an `LSUIElement` agent. It stays
+accessory when launch completes; only the Rust GUI client promotes itself
+to a regular Dock/Cmd-Tab application. The launcher still owns its SSH tunnel
+and forwards activation to the client. This does not change profile paths,
+credentials, account links or stored data.
+
+After changing this policy, test a freshly installed bundle on macOS: quit
+the old copy, open the app, confirm one Cmd-Tab entry, then test Dock reopen,
+minimize/restore and closing/reopening the chat window. Source checks and
+signed-DMG metadata verification cannot prove the live switcher behavior.

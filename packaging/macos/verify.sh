@@ -32,6 +32,8 @@ with open(sys.argv[1], "rb") as source:
     info = plistlib.load(source)
 with open(sys.argv[2], "rb") as source:
     entitlements = plistlib.load(source)
+if info.get("LSUIElement") is not True:
+    sys.exit("The tunnel launcher must start as an agent, not a second Cmd-Tab app")
 if not info.get("NSMicrophoneUsageDescription", "").strip():
     sys.exit("The release app is missing its microphone permission description")
 if entitlements.get("com.apple.security.device.audio-input") is not True:
