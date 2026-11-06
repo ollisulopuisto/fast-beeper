@@ -107,6 +107,27 @@ impl Archive {
         Ok(changed)
     }
 
+    /// Moves a favorite to `target`, its new zero-based place, and renumbers
+    /// the list densely so the bar and Command+1..9 never see a gap. Returns
+    /// the list after the move, or `None` when the chat is not a favorite.
+    pub fn reorder_favorite(&self, chat: &str, target: usize) -> Result<Option<Vec<Favorite>>> {
+        let mut list = self.favorites()?;
+        let Some(from) = list.iter().position(|favorite| favorite.chat == chat) else {
+            return Ok(None);
+        };
+        let entry = list.remove(from);
+        list.insert(target.min(list.len()), entry);
+        let transaction = self.connection.unchecked_transaction()?;
+        for (position, favorite) in list.iter().enumerate() {
+            self.connection.execute(
+                "UPDATE favorites SET position = ?2 WHERE chat = ?1",
+                params![favorite.chat, position as i64],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(Some(list))
+    }
+
     /// The newest queued change, when any wait for the phone.
     pub fn pending_favorites(&self) -> Result<Option<i64>> {
         self.connection
@@ -302,5 +323,67 @@ mod tests {
             .apply_phone_favorites(&[favorite("p@s.whatsapp.net")], 1)
             .unwrap();
         assert_eq!(chats(&archive), ["p@s.whatsapp.net", "x@s.whatsapp.net"]);
+    }
+
+    #[test]
+    fn a_reorder_moves_and_renumbers_densely() {
+        let archive = Archive::in_memory().unwrap();
+        for chat in ["a", "b", "c", "d"] {
+            archive.set_favorite(chat, true).unwrap();
+        }
+        let list = archive.reorder_favorite("d", 1).unwrap().expect("favorite");
+        assert_eq!(
+            list.iter()
+                .map(|favorite| favorite.chat.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "d", "b", "c"]
+        );
+        assert_eq!(chats(&archive), ["a", "d", "b", "c"]);
+        // The stored numbering is dense after the move.
+        let positions: Vec<i64> = archive
+            .connection
+            .prepare("SELECT position FROM favorites ORDER BY position")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(positions, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_reorder_past_the_end_lands_last_and_a_stranger_is_ignored() {
+        let archive = Archive::in_memory().unwrap();
+        for chat in ["a", "b", "c"] {
+            archive.set_favorite(chat, true).unwrap();
+        }
+        let list = archive
+            .reorder_favorite("a", 99)
+            .unwrap()
+            .expect("favorite");
+        assert_eq!(
+            list.iter()
+                .map(|favorite| favorite.chat.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "c", "a"]
+        );
+        assert!(archive.reorder_favorite("stranger", 0).unwrap().is_none());
+        assert_eq!(chats(&archive), ["b", "c", "a"]);
+    }
+
+    #[test]
+    fn a_reorder_survives_a_gapped_numbering() {
+        let archive = Archive::in_memory().unwrap();
+        for chat in ["a", "b", "c"] {
+            archive.set_favorite(chat, true).unwrap();
+        }
+        archive.set_favorite("b", false).unwrap();
+        let list = archive.reorder_favorite("c", 0).unwrap().expect("favorite");
+        assert_eq!(
+            list.iter()
+                .map(|favorite| favorite.chat.as_str())
+                .collect::<Vec<_>>(),
+            ["c", "a"]
+        );
     }
 }

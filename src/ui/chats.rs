@@ -1,6 +1,6 @@
 //! The left panel: the chat list.
 
-use egui::{Align, Frame, Key, Layout, Margin, Rect, Sense, Vec2, pos2, vec2};
+use egui::{Align, Frame, Key, Layout, Margin, Rect, Sense, Stroke, Vec2, pos2, vec2};
 
 use crate::app::App;
 use crate::model::{Action, Chat, ChatFilter, ChatId, Contact, Dialog, Message, Page};
@@ -1141,6 +1141,13 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     ui.spacing_mut().item_spacing.y = 0.0;
+    // Reorder drag state: the dragged chip and the gap the pointer is over,
+    // both kept across frames until the drop clears them.
+    let drag_id = ui.id().with("favorite-reorder-drag");
+    let gap_id = ui.id().with("favorite-reorder-gap");
+    let mut dragged: Option<ChatId> = ui.ctx().data(|data| data.get_temp(drag_id));
+    let mut drop: Option<(ChatId, usize)> = None;
+    let mut rects: Vec<Rect> = Vec::with_capacity(favorites.len());
     // One avatar per row down the rail's column: a per-chip scope stopped
     // the wrap and the last chips overflowed the rail; a capping ScrollArea
     // clipped the second row mid-avatar. The rail's own scroll keeps every
@@ -1151,10 +1158,64 @@ pub(super) fn favorites_row(app: &mut App, ui: &mut egui::Ui) {
             for (index, chat) in favorites.iter().enumerate() {
                 let shortcut =
                     (index < 9).then(|| super::keys::label(&format!("Ctrl+{}", index + 1)));
-                favorite_chip(app, ui, chat, shortcut);
+                let response = favorite_chip(app, ui, chat, shortcut);
+                rects.push(response.rect);
+                if response.drag_started() {
+                    ui.ctx()
+                        .data_mut(|data| data.insert_temp(drag_id, chat.id.clone()));
+                    dragged = Some(chat.id.clone());
+                }
+                if response.drag_stopped() && dragged.as_ref() == Some(&chat.id) {
+                    let gap = ui
+                        .ctx()
+                        .data(|data| data.get_temp::<usize>(gap_id))
+                        .unwrap_or(index);
+                    drop = Some((chat.id.clone(), gap));
+                }
+            }
+            // While a chip is dragged the gap follows the pointer across the
+            // column, and an accent line marks the place a drop inserts at;
+            // the line stands in for a dragged ghost of the chip.
+            if dragged.is_some() {
+                if let Some(pointer) = ui.ctx().pointer_latest_pos() {
+                    let gap = rects
+                        .iter()
+                        .position(|rect| pointer.y < rect.center().y)
+                        .unwrap_or(rects.len());
+                    ui.ctx().data_mut(|data| data.insert_temp(gap_id, gap));
+                    let y = if gap == 0 {
+                        rects.first().map(|rect| rect.top() - 2.0)
+                    } else if gap >= rects.len() {
+                        rects.last().map(|rect| rect.bottom() + 2.0)
+                    } else {
+                        Some((rects[gap - 1].bottom() + rects[gap].top()) / 2.0)
+                    };
+                    if let (Some(y), Some(first)) = (y, rects.first()) {
+                        ui.painter().hline(
+                            first.left() + 4.0..=first.right() - 4.0,
+                            y,
+                            Stroke::new(2.0, app.palette.accent),
+                        );
+                    }
+                }
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             }
         });
     });
+    if let Some((chat, gap)) = drop {
+        ui.ctx().data_mut(|data| {
+            data.remove::<ChatId>(drag_id);
+            data.remove::<usize>(gap_id);
+        });
+        // The gap counts the chip in its old place: a drop past it moves the
+        // chip one place less far.
+        if let Some(from) = favorites.iter().position(|known| known.id == chat) {
+            let target = if gap > from { gap - 1 } else { gap };
+            if target != from {
+                app.actions.push(Action::MoveFavorite(chat, target));
+            }
+        }
+    }
     ui.add_space(4.0);
 }
 
@@ -1174,10 +1235,11 @@ fn favorite_chip(
     // allocate_space joins the row's wrapping layout; the interact id (not
     // a scope) keeps the chip's widget state and context menu stable.
     let (_auto, rect) = ui.allocate_space(Vec2::splat(FAVORITE_CELL));
+    // click_and_drag: a press still opens the chat, a drag reorders the bar.
     let response = ui.interact(
         rect,
         ui.id().with(("favorite-chip", &chat.id)),
-        Sense::click(),
+        Sense::click_and_drag(),
     );
     theme::reveal_focus(&response);
     response.widget_info(|| {

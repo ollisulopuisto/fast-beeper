@@ -846,8 +846,14 @@ pub enum Command {
         expires_at: i64,
         result: Result<(), String>,
     },
-    /// Marks a chat as a favorite, or removes the mark, here and on the phone.
+    /// Marks a chat as a favorite, or removes the mark. Persisted locally;
+    /// Beeper has no favorites of its own to sync with.
     SetFavorite(ChatId, bool),
+    /// Moves a favorite to a new zero-based place in the favorites order.
+    MoveFavorite {
+        chat: ChatId,
+        position: usize,
+    },
     /// The phone answered a favorites list sent at `at` holding the queued
     /// changes up to `through`.
     FavoritesSent {
@@ -1097,6 +1103,8 @@ pub enum Event {
     Labels(Vec<crate::model::Label>),
     /// Unsent text stored for each chat, sent once at startup.
     Drafts(Vec<(ChatId, String)>),
+    /// The favorites in bar order, sent at startup and after each change.
+    Favorites(Vec<ChatId>),
     /// The starred messages of one chat, for the mark in the conversation.
     Stars {
         chat: ChatId,

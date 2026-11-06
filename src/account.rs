@@ -31,6 +31,9 @@ pub struct Account {
     pub me_name: Option<String>,
     pub me_about: Option<String>,
     pub chats: Vec<Chat>,
+    /// The favorites in bar order as the backend last numbered them. `None`
+    /// until it answers: the chat flags stand alone, as in demo mode.
+    pub favorites: Option<Vec<ChatId>>,
     pub contacts: HashMap<String, Contact>,
     pub conversations: HashMap<ChatId, Conversation>,
     pub open_chat: Option<ChatId>,
@@ -174,6 +177,7 @@ impl Account {
             me_name: None,
             me_about: None,
             chats: Vec::new(),
+            favorites: None,
             contacts: HashMap::new(),
             conversations: HashMap::new(),
             open_chat,
