@@ -85,7 +85,7 @@ pub fn layout(
     let mut placements = Vec::new();
     let mut links = Vec::new();
     let mut characters = 0;
-    for span in parse(text, mentions) {
+    for span in display_spans(parse(text, mentions)) {
         let font_id = if span.mono {
             FontId::monospace(size * 0.95)
         } else if span.bold || span.mention {
@@ -294,6 +294,59 @@ fn parse(text: &str, mentions: &[Mention]) -> Vec<Span> {
     spans
 }
 
+/// Collapse a trailing `Title (url)` only for painting. The source, plain
+/// text and copy/export paths retain the complete address. Each line is
+/// independent, so an unrelated preceding message line cannot become a title.
+fn display_spans(spans: Vec<Span>) -> Vec<Span> {
+    let mut out = Vec::new();
+    let mut line = Vec::new();
+    for span in spans {
+        if span.text == "\n" {
+            out.extend(named_link_line(std::mem::take(&mut line)));
+            out.push(span);
+        } else {
+            line.push(span);
+        }
+    }
+    out.extend(named_link_line(line));
+    out
+}
+
+fn named_link_line(mut line: Vec<Span>) -> Vec<Span> {
+    let n = line.len();
+    if n < 3 || line[n - 1].text != ")" {
+        return line;
+    }
+    let Some(url) = line[n - 2]
+        .link
+        .clone()
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+    else {
+        return line;
+    };
+    if !line[n - 3].text.ends_with(" (")
+        || line[..n - 2]
+            .iter()
+            .any(|span| span.link.is_some() || span.mono)
+    {
+        return line;
+    }
+    let title: String = line[..n - 2]
+        .iter()
+        .map(|span| span.text.as_str())
+        .collect();
+    if title.trim_end_matches(" (").trim().is_empty() {
+        return line;
+    }
+    line.truncate(n - 2);
+    let last = line.last_mut().expect("title span");
+    last.text.truncate(last.text.len() - 2);
+    for span in &mut line {
+        span.link = Some(url.clone());
+    }
+    line
+}
+
 /// Inline markers within one line.
 fn inline(line: &str) -> Vec<Span> {
     let chars: Vec<char> = line.chars().collect();
@@ -318,6 +371,18 @@ fn inline(line: &str) -> Vec<Span> {
     };
     while i < chars.len() {
         let c = chars[i];
+        // URL syntax wins over WhatsApp emphasis markers. Query strings and
+        // paths commonly contain paired underscores which must remain bytes
+        // of the click target, not italic delimiters.
+        if c.is_ascii_alphanumeric() && (i == 0 || !chars[i - 1].is_alphanumeric()) {
+            let rest: String = chars[i..].iter().collect();
+            if let Some((end, _)) = link_at(&rest, 0) {
+                let token = &rest[..end];
+                run.push_str(token);
+                i += token.chars().count();
+                continue;
+            }
+        }
         // WhatsApp inline monospace: ```text```.
         if triple(i)
             && let Some(close) = (i + 3..chars.len()).find(|&at| triple(at))
@@ -795,6 +860,85 @@ const KNOWN_TLDS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn wrapped_named_links_keep_the_target_on_each_title_character() {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let text = layout(
+                ui,
+                "A long title across rows (https://example.com/path?q=a_b_c)",
+                &[],
+                &Style {
+                    size: 16.0,
+                    color: Color32::WHITE,
+                    secondary: Color32::GRAY,
+                    link: Color32::LIGHT_BLUE,
+                    mention: Color32::WHITE,
+                },
+                90.0,
+            );
+            assert!(text.galley.rows.len() > 1);
+            assert_eq!(text.galley.text(), "A long title across rows");
+            for character in 0..text.galley.text().chars().count() {
+                assert_eq!(
+                    text.link_at(character),
+                    Some("https://example.com/path?q=a_b_c")
+                );
+            }
+            assert_eq!(
+                text.accessible_text,
+                "A long title across rows (https://example.com/path?q=a_b_c)"
+            );
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn named_bridge_links_hide_only_the_display_address() {
+        let cases = [
+            (
+                "Epic Games (Game, PC) - Idle Champions of the Forgotten Realms",
+                "https://store.epicgames.com/en-US/p/idle-champions-of-the-forgotten-realms",
+            ),
+            (
+                "Amazon Prime (Game, PC) - Squirrel with a Gun",
+                "https://luna.amazon.com/claims/squirrel-with-a-gun-aga/dp/amzn1.pg.item.70eff815-88f4-47f9-83e0-8a8d2837c7ad?g=s&ingress=amzn&ref_=SM_SquirrelwithaGun_S01_FGWP_CRWN",
+            ),
+            (
+                "Amazon Prime (Game, PC) - WRC Generations",
+                "https://luna.amazon.com/claims/wrc-generations-epic/dp/amzn1.pg.item.59a0703f-be28-476e-9160-8e56e257dee5?g=s&ingress=amzn&ref_=SM_WRCGenerations_S01_FGWP_CRWN",
+            ),
+            (
+                "Sponsored message - VIEW BOT",
+                "https://t.me/kindra_neon_city_bot?start=ad_5FAzm4YUZWZk",
+            ),
+        ];
+        for (title, url) in cases {
+            let source = format!("{title} ({url})");
+            let spans = display_spans(parse(&source, &[]));
+            assert_eq!(
+                spans.iter().map(|s| s.text.as_str()).collect::<String>(),
+                title
+            );
+            assert!(spans.iter().all(|s| s.link.as_deref() == Some(url)));
+            assert_eq!(plain(&source, &[]), source, "copy/export keeps the URL");
+            assert_eq!(links(&source), vec![url], "query bytes stay intact");
+        }
+        for source in [
+            "https://example.com/a_b_c",
+            "(https://example.com)",
+            "https://example.com (https://other.com)",
+            "Title\n(https://example.com)",
+        ] {
+            let before = plain(source, &[]);
+            let displayed: String = display_spans(parse(source, &[]))
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect();
+            assert_eq!(displayed, before, "no invented title: {source}");
+        }
+    }
+
     #[test]
     fn bridge_name_mentions_chip_verbatim() {
         let mentions = [Mention {
