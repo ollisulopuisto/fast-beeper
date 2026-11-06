@@ -1,5 +1,21 @@
 # Fast-beeper coordination and development checkpoint
 
+## Local attachment actions - November 6, 2026
+
+Branch: fix/image-viewer-actions, owned by Instinct. Copy image and Save as
+were dispatched to the Beeper worker but fell through its ignored-command
+arm, including in v0.24.0. Route decoded clipboard images and attachment
+save dialogs through a local desktop worker before the network/offline gate.
+Clipboard writes remain on the UI thread through the existing result event;
+saves return success/error events, cancellation stays quiet. No new protocol,
+permissions, entitlements, persisted state or real messages.
+
+Tests cover real extensionless PNG decode, pixels, missing/corrupt files,
+exact save bytes, cancellation, same-file saves, failures, batch names and
+local command routing with a disconnected/offline backend. Native macOS
+pasteboard and save-dialog interaction still need acceptance on a Mac.
+Rollback: revert this focused PR. The running manual DMG build predates it.
+
 ## Active unread badge/filter lane - November 6, 2026
 
 Claim: Dock/taskbar badge vs Unread filter agreement. Reported symptom: the
