@@ -10,6 +10,7 @@ version in Cargo.toml is bumped.
 ## Unreleased
 
 - Conversation day separators now show Today, Yesterday and Day before yesterday, then short numeric dates in the system locale's order. Dates from another year include the full year. Finnish regions show Tänään, Eilen and Toissapäivänä. Bubble clocks and chat-row timestamps are unchanged.
+- The four-way queue toggle can show chat counts for All, Unread, Reply later and Read later. Settings > Chats > Show queue counts is on by default; turn it off for icons only. Counts follow the current search and filters, count linked people once, and are separate from unread-message counts.
 
 - Chat-list redesign: Search first, then Chats beside an aligned four-way icon queue (All, Unread, Reply later, Read later). Filters combines chat type, favorites, labels, Unreplied and network/account scope; the bottom New message button stays fixed even with no results. Search keeps the selected scope and offers a count of available matches outside it, without listing them until the scope is cleared. Keyboard filter/network/favorite digits keep their assignments.
 - Incoming group messages use a fixed avatar gutter and a straight bubble-body column, including follow-up messages from the same sender.
