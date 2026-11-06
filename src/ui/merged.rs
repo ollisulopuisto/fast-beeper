@@ -543,17 +543,77 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     // runs while this view is up.
     let pending_scroll = app.scroll_page.take();
     let forced_bottom = std::mem::take(&mut app.scroll_to_bottom_forced);
-    let messages = crate::merged::ordered_refs(
-        valid
-            .iter()
-            .flat_map(|m| {
-                app.conversations
-                    .get(&m.chat)
-                    .into_iter()
-                    .flat_map(|c| c.messages.iter())
-            })
-            .collect(),
+
+    // Caching the merged timeline order avoids collecting and sorting O(N log N)
+    // messages across member chats on every frame while scrolling. We track the
+    // member conversation lengths, first message timestamps, and last message
+    // timestamps as a composite fingerprint. Storing (chat_id, index) pairs allows
+    // O(1) index lookup into member conversations without linear search or string churn.
+    let timeline_fingerprint: Vec<(String, usize, Option<i64>, Option<i64>)> = valid
+        .iter()
+        .map(|m| {
+            let conv = app.conversations.get(&m.chat);
+            let len = conv.map_or(0, |c| c.messages.len());
+            let first = conv
+                .and_then(|c| c.messages.first())
+                .map(|msg| msg.timestamp);
+            let last = conv
+                .and_then(|c| c.messages.last())
+                .map(|msg| msg.timestamp);
+            (m.chat.clone(), len, first, last)
+        })
+        .collect();
+
+    let cached_order_key = key.with("timeline-order");
+    type CachedTimeline = (
+        Vec<(String, usize, Option<i64>, Option<i64>)>,
+        Vec<(String, usize)>,
     );
+
+    let cached_order = ui
+        .ctx()
+        .data(|d| d.get_temp::<CachedTimeline>(cached_order_key));
+    let ordered_indices: Vec<(String, usize)> = match cached_order {
+        Some((fp, indices)) if fp == timeline_fingerprint => indices,
+        _ => {
+            let mut flat_indexed: Vec<(String, usize, &crate::model::Message)> = valid
+                .iter()
+                .flat_map(|m| {
+                    app.conversations.get(&m.chat).into_iter().flat_map(|c| {
+                        c.messages
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, msg)| (m.chat.clone(), idx, msg))
+                    })
+                })
+                .collect();
+            flat_indexed.sort_unstable_by(|a, b| {
+                a.2.timestamp
+                    .cmp(&b.2.timestamp)
+                    .then(a.2.chat.cmp(&b.2.chat))
+                    .then(a.2.history_order.cmp(&b.2.history_order))
+                    .then(a.2.id.cmp(&b.2.id))
+            });
+            flat_indexed.dedup_by(|a, b| a.2.chat == b.2.chat && a.2.id == b.2.id);
+            let indices: Vec<(String, usize)> = flat_indexed
+                .into_iter()
+                .map(|(chat, idx, _)| (chat, idx))
+                .collect();
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(cached_order_key, (timeline_fingerprint, indices.clone()))
+            });
+            indices
+        }
+    };
+
+    let messages: Vec<&crate::model::Message> = ordered_indices
+        .iter()
+        .filter_map(|(chat_id, idx)| {
+            app.conversations
+                .get(chat_id)
+                .and_then(|conv| conv.messages.get(*idx))
+        })
+        .collect();
     let filtered = !state.search.trim().is_empty() || state.source_filter.is_some();
     let visible: Vec<_> = messages
         .into_iter()
@@ -614,6 +674,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
     }
     let mut actions = Vec::new();
     let mut refused_action = false;
+    let redo = ui.ctx().current_pass_index() > 0;
     let rows_key = key.with("row-heights");
     let mut cache = ui
         .ctx()
@@ -915,6 +976,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
         ui.ctx()
             .request_discard("linked view jumps to the newest message");
     } else if grew_above.abs() > 0.5
+        && !redo
         && output.state.offset.y > 1.0
         && output.state.offset.y < bottom - 2.0
     {
@@ -1718,6 +1780,99 @@ mod tests {
         assert!(
             handled(&mut app, &ctx, &wa),
             "the link still owns the row and explains itself instead of splitting"
+        );
+    }
+
+    fn sample_message(chat: &str, id: &str, timestamp: i64) -> crate::model::Message {
+        crate::model::Message {
+            id: id.into(),
+            chat: chat.into(),
+            sender: chat.into(),
+            sender_name: None,
+            from_me: false,
+            timestamp,
+            content: crate::model::Content::text(id),
+            status: crate::model::Delivery::None,
+            delivered_at: None,
+            read_at: None,
+            quoted: None,
+            reactions: Vec::new(),
+            history_order: None,
+            edited: false,
+            mentions: Vec::new(),
+            forwarded: false,
+            thumbnail: None,
+        }
+    }
+
+    #[test]
+    fn cached_timeline_order_persists_across_passes_and_invalidates_on_new_messages() {
+        let (wa, tg, person) = ada_pair();
+        let (_dir, mut app, ctx) = linked_app(vec![wa.clone(), tg.clone()], vec![person.clone()]);
+        app.conversations.insert(
+            wa.id.clone(),
+            crate::app::Conversation {
+                messages: vec![
+                    sample_message(&wa.id, "m1", 10),
+                    sample_message(&wa.id, "m3", 30),
+                ],
+                ..Default::default()
+            },
+        );
+        app.conversations.insert(
+            tg.id.clone(),
+            crate::app::Conversation {
+                messages: vec![
+                    sample_message(&tg.id, "m2", 20),
+                    sample_message(&tg.id, "m4", 40),
+                ],
+                ..Default::default()
+            },
+        );
+
+        // First pass populates the cached order
+        assert!(handled(&mut app, &ctx, &wa));
+
+        let key = egui::Id::new(("linked-person-state", &person.members)).with("timeline-order");
+        type CachedTimeline = (
+            Vec<(String, usize, Option<i64>, Option<i64>)>,
+            Vec<(String, usize)>,
+        );
+        let cached = ctx.data(|d| d.get_temp::<CachedTimeline>(key));
+        assert!(cached.is_some(), "timeline order should be cached");
+        let (_, indices) = cached.unwrap();
+        assert_eq!(
+            indices,
+            vec![
+                (wa.id.clone(), 0),
+                (tg.id.clone(), 0),
+                (wa.id.clone(), 1),
+                (tg.id.clone(), 1)
+            ]
+        );
+
+        // Second pass reuses the cached order
+        assert!(handled(&mut app, &ctx, &wa));
+        let cached2 = ctx.data(|d| d.get_temp::<CachedTimeline>(key)).unwrap();
+        assert_eq!(cached2.1, indices);
+
+        // Adding an older message (as when loading history backwards) invalidates and reorders
+        app.conversations
+            .get_mut(&wa.id)
+            .unwrap()
+            .messages
+            .insert(0, sample_message(&wa.id, "m0", 5));
+        assert!(handled(&mut app, &ctx, &wa));
+        let cached3 = ctx.data(|d| d.get_temp::<CachedTimeline>(key)).unwrap();
+        assert_eq!(
+            cached3.1,
+            vec![
+                (wa.id.clone(), 0),
+                (wa.id.clone(), 1),
+                (tg.id.clone(), 0),
+                (wa.id.clone(), 2),
+                (tg.id.clone(), 1)
+            ]
         );
     }
 }
