@@ -181,9 +181,9 @@ fn show_photos(app: &mut App, photo: super::stock::Photo, caption: &str) {
 enum Target {
     Label(&'static str),
     Widget(&'static str),
-    /// A label chip in the rail: a colored dot without text, by label id.
-    LabelChip(&'static str),
     Bubble(&'static str),
+    /// The photo itself, excluding its caption and bubble margins.
+    Picture(&'static str),
     /// Inside a bubble's lower corner, in its margin, clear of the text and
     /// media that take clicks for themselves.
     BubbleCorner(&'static str),
@@ -533,9 +533,14 @@ impl Tour {
             Target::Widget(id) => ctx
                 .read_response(egui::Id::new(id))
                 .map(|r| r.rect.center()),
-            Target::LabelChip(id) => ctx
-                .data(|d| d.get_temp::<Rect>(crate::ui::labels::chip_id(id)))
-                .map(|rect| rect.center()),
+            Target::Picture(message) => {
+                let id = crate::ui::conversation::bubble_id(app.open_chat.as_deref()?, message)
+                    .with("picture");
+                let rect = ctx.data(|data| data.get_temp::<Rect>(id))?;
+                let view = (*app.selection_view.lock().unwrap_or_else(|p| p.into_inner()))?;
+                let visible = rect.intersect(view);
+                visible.is_positive().then_some(visible.center())
+            }
             Target::Bubble(message) => Self::bubble(app, ctx, message).map(|rect| rect.center()),
             Target::BubbleCorner(message) => {
                 let rect = Self::bubble(app, ctx, message)?;
@@ -1983,7 +1988,7 @@ mod tests {
                     app.sticker_search == "bom dia",
                     matches!(app.dialog, Some(Dialog::MessageInfo { .. }))
                         && app.message_receipts.is_some(),
-                    app.chat_filter == crate::model::ChatFilter::Favorites,
+                    app.favorites_only,
                     app.label_filter.as_deref() == Some("label-work"),
                     tour.labels.contains_key("Mark as unread")
                         && tour.labels.contains_key("Follow up")

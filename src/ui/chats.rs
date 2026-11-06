@@ -120,7 +120,7 @@ pub fn full_show(app: &mut App, ui: &mut egui::Ui) {
 
 /// What the list pane holds under its header: the chats.
 fn body(app: &mut App, ui: &mut egui::Ui) {
-    let height = (ui.available_height() - 60.0).max(0.0);
+    let height = (ui.available_height() - 56.0 - ui.spacing().item_spacing.y).max(0.0);
     ui.allocate_ui_with_layout(
         vec2(ui.available_width(), height),
         Layout::top_down(Align::Min),

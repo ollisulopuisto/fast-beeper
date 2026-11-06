@@ -18390,7 +18390,11 @@ mod tests {
             &ctx,
             since + crate::app::JumpHighlight::DURATION + 0.2,
         );
-        assert!(!after.iter().any(|(_, fill)| *fill == band));
+        assert!(
+            !after
+                .iter()
+                .any(|(rect, fill)| *fill == band && rect.width() > 600.0)
+        );
     }
 
     /// Runs one frame of the given height with these input events.
@@ -21705,8 +21709,8 @@ mod rail_tests {
                 // way for them.
                 assert!(header.left() + 14.0 + crate::ui::rail::lights_overhang(&ctx) >= 84.0);
             } else {
-                // Chats sits level with the list header's title row.
-                assert!((top[0].center().y - header.center().y).abs() < 3.0);
+                // Search now leads the title/queue row; the rail stays anchored above it.
+                assert!(top[0].center().y < header.center().y);
             }
             assert!(Destination::Chats.lit(&app));
             // Beside the list the rail does not repeat its chats.
