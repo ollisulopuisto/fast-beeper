@@ -6154,6 +6154,7 @@ fn message_menu_labels(locale: crate::i18n::Locale) -> Vec<String> {
         gettext(locale, "Playback speed 2x"),
         gettext(locale, "Select"),
         gettext(locale, "Copy text"),
+        gettext(locale, "Copy URL to clipboard"),
         gettext(locale, "Edit"),
         gettext(locale, "Delete for everyone"),
         gettext(locale, "Delete for me"),
@@ -6447,6 +6448,15 @@ fn selection_delete_items(
 }
 
 /// Offers actions supported by the selected message, including private replies for eligible group senders.
+/// Copy targets come from source text, never the compact title or a preview's
+/// normalized address. The same path covers standalone and named web links.
+fn copyable_urls(text: &str) -> Vec<String> {
+    markup::links(text)
+        .into_iter()
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .collect()
+}
+
 fn context_menu(
     ui: &mut egui::Ui,
     view: &View<'_>,
@@ -6678,6 +6688,25 @@ fn context_menu(
         Content::Contact { vcard, .. } => Some(vcard.clone()),
         _ => None,
     };
+    let urls = text.as_deref().map(copyable_urls).unwrap_or_default();
+    let copy_url = crate::i18n::gettext(view.locale, "Copy URL to clipboard");
+    if urls.len() == 1 {
+        if widgets::menu_item(ui, &palette, Some(Icon::Copy), &copy_url) {
+            actions.push(Action::CopyText(urls[0].clone()));
+        }
+    } else if !urls.is_empty() {
+        ui.menu_button(copy_url.as_ref(), |ui| {
+            for (index, url) in urls.iter().enumerate() {
+                let label = crate::i18n::gettext(view.locale, "Link {number}")
+                    .replace("{number}", &(index + 1).to_string());
+                let response = ui.button(label).on_hover_text(url);
+                if response.clicked() {
+                    actions.push(Action::CopyText(url.clone()));
+                    ui.close();
+                }
+            }
+        });
+    }
     if let Some(text) = text
         && widgets::menu_item(
             ui,
@@ -12545,4 +12574,19 @@ fn view_once_button(app: &App, ui: &mut egui::Ui) -> egui::Response {
             app.locale,
             "The recipient can open this photo only once, on their phone.",
         ))
+}
+
+#[cfg(test)]
+mod copy_url_tests {
+    #[test]
+    fn copies_source_targets_for_named_standalone_and_multiple_links() {
+        let url = "https://example.com/a_b_c?one=1&two=2#anchor";
+        assert_eq!(super::copyable_urls(url), vec![url]);
+        assert_eq!(super::copyable_urls(&format!("Title ({url})")), vec![url]);
+        assert_eq!(
+            super::copyable_urls(&format!("Title ({url}) and https://other.com")),
+            vec![url, "https://other.com"]
+        );
+        assert!(super::copyable_urls("No web link; email person@example.com").is_empty());
+    }
 }
