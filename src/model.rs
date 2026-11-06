@@ -120,7 +120,7 @@ pub struct Label {
 }
 
 /// Chat-list filter chosen from the chips under the search field.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatFilter {
     #[default]
     All,

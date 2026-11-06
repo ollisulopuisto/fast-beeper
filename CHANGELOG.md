@@ -9,6 +9,9 @@ version in Cargo.toml is bumped.
 
 ## Unreleased
 
+- Chat-list redesign: Search first, then Chats beside an aligned four-way icon queue (All, Unread, Reply later, Read later). Filters combines chat type, favorites, labels, Unreplied and network/account scope; the bottom New message button stays fixed even with no results. Search keeps the selected scope and offers a count of available matches outside it, without listing them until the scope is cleared. Keyboard filter/network/favorite digits keep their assignments.
+- Incoming group messages use a fixed avatar gutter and a straight bubble-body column, including follow-up messages from the same sender.
+
 - Clean URL labels on shared links (including Instagram reels) now hide the duplicate parenthesized destination, like named links. Clicking or Copy URL keeps the complete destination and its query parameters; message copy/export keeps the original text.
 
 - Copy image and Save as now work on downloaded attachments in Beeper mode, even while disconnected. Failed decode, clipboard writes and file saves show an error instead of silently doing nothing.

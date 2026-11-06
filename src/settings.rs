@@ -928,6 +928,10 @@ pub struct AccountSettings {
     /// The chip or label the chat list last showed, as
     /// [`crate::model::ListFilter::key`] writes it; `None` shows every chat.
     pub list_filter: Option<String>,
+    /// Additional scope composed with the queue above the chat list.
+    pub chat_category: Option<crate::model::ChatFilter>,
+    pub favorites_only: bool,
+    pub chat_queue: Option<crate::model::ChatFilter>,
     /// The chip the Calls page last showed, kept only so older settings
     /// files still load; the native Calls page is gone.
     pub call_filter: Option<String>,
@@ -947,6 +951,9 @@ impl Default for AccountSettings {
             wallpaper_image: None,
             history_prefetch: false,
             list_filter: None,
+            chat_category: None,
+            favorites_only: false,
+            chat_queue: None,
             call_filter: None,
         }
     }
@@ -966,6 +973,9 @@ impl AccountSettings {
             wallpaper_image: settings.wallpaper_image.clone(),
             history_prefetch: false,
             list_filter: None,
+            chat_category: None,
+            favorites_only: false,
+            chat_queue: None,
             call_filter: None,
         }
     }

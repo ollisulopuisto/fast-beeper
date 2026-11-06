@@ -3544,6 +3544,51 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // A list wide enough for the whole chip row, which scrolls out of
             // sight at the default width.
             "wide" => app.settings.sidebar_width = 560.0,
+            "scope-search" => {
+                app.search = "do".into();
+                app.chat_filter = crate::model::ChatFilter::Unread;
+            }
+            "scope-group" => {
+                app.category_filter = Some(crate::model::ChatFilter::Groups);
+                app.chat_filter = crate::model::ChatFilter::Unread;
+            }
+            "grid" => {
+                let id = app
+                    .chats
+                    .iter()
+                    .find(|chat| chat.is_group())
+                    .unwrap()
+                    .id
+                    .clone();
+                app.open_chat = Some(id.clone());
+                let sender = "14155550199@s.whatsapp.net";
+                let source = app.conversations[&id]
+                    .messages
+                    .iter()
+                    .find(|m| !m.from_me)
+                    .cloned()
+                    .unwrap();
+                let mut messages = Vec::new();
+                for (i, text) in [
+                    "First message from this sender",
+                    "A follow-up from the same sender",
+                    "A third message",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    let mut m = source.clone();
+                    m.id = format!("grid-{i}");
+                    m.sender = sender.into();
+                    m.sender_name = Some("Ada Example".into());
+                    m.content = Content::text(*text);
+                    m.timestamp += i as i64;
+                    m.quoted = None;
+                    m.reactions.clear();
+                    messages.push(m);
+                }
+                app.conversations.get_mut(&id).unwrap().messages = messages;
+            }
             "search" => {
                 app.search = "do".into();
                 let mut hits = Vec::new();
@@ -14798,6 +14843,38 @@ mod tests {
     }
 
     #[test]
+    fn group_message_grid_keeps_followup_bubbles_on_the_same_column() {
+        for macos in [false, true] {
+            let mut app = app();
+            apply_flags(&mut app, Some("grid"));
+            app.typing.clear();
+            let ctx = egui::Context::default();
+            app.attach(&ctx);
+            if macos {
+                crate::theme::preview_macos(&ctx);
+            }
+            for _ in 0..4 {
+                frame_sized(&mut app, &ctx, 780.0, Vec::new());
+            }
+            let chat = app.open_chat.as_deref().unwrap();
+            let rects = (0..3)
+                .map(|i| {
+                    ctx.data(|data| {
+                        data.get_temp::<egui::Rect>(
+                            crate::ui::conversation::bubble_id(chat, &format!("grid-{i}"))
+                                .with("rect"),
+                        )
+                    })
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+            for pair in rects.windows(2) {
+                assert!((pair[0].left() - pair[1].left()).abs() < 0.5, "{pair:?}");
+            }
+        }
+    }
+
+    #[test]
     fn the_favorites_chip_lists_favorites() {
         use crate::model::ChatFilter;
         let mut app = app();
@@ -14808,24 +14885,11 @@ mod tests {
         app.attach(&ctx);
         render(&mut app, &ctx);
         render(&mut app, &ctx);
-        // Clicking the chip's own rect, so a translated label does not matter.
-        let click = |app: &mut App, filter: ChatFilter| {
-            let rect = ctx
-                .data(|data| data.get_temp::<egui::Rect>(crate::ui::chats::filter_chip_id(filter)))
-                .expect("the chip is on screen");
-            let pos = rect.center();
-            let press = |pressed| egui::Event::PointerButton {
-                pos,
-                button: egui::PointerButton::Primary,
-                pressed,
-                modifiers: egui::Modifiers::NONE,
-            };
-            frame_with(app, &ctx, vec![egui::Event::PointerMoved(pos), press(true)]);
-            frame_with(app, &ctx, vec![press(false)]);
-            render(app, &ctx);
-        };
-        click(&mut app, ChatFilter::Favorites);
-        assert_eq!(app.chat_filter, ChatFilter::Favorites);
+        // Favorites is now an additional scope in Filters; the shortcut uses the same action.
+        app.actions
+            .push(crate::model::Action::SetChatFilter(ChatFilter::Favorites));
+        render(&mut app, &ctx);
+        assert!(app.favorites_only);
         let favorites = app.visible_chats();
         assert!(!favorites.is_empty(), "the sample has a favorite");
         assert!(favorites.iter().all(|chat| chat.favorite));
@@ -14871,13 +14935,18 @@ mod tests {
             frame_with(app, &ctx, vec![press(false)]);
             render(app, &ctx);
         };
-        click(&mut app, ChatFilter::Groups);
-        assert_eq!(app.chat_filter, ChatFilter::Groups);
+        click(&mut app, ChatFilter::Unread);
+        assert_eq!(app.chat_filter, ChatFilter::Unread);
         let groups = app.visible_chats();
         assert!(!groups.is_empty() && groups.len() < everything);
-        assert!(groups.iter().all(|chat| chat.is_group()));
-        click(&mut app, ChatFilter::Groups);
-        assert_eq!(app.chat_filter, ChatFilter::All);
+        assert!(groups.iter().all(|chat| chat.counts_unread()));
+        click(&mut app, ChatFilter::Unread);
+        assert_eq!(
+            app.chat_filter,
+            ChatFilter::Unread,
+            "queue segments are radio buttons"
+        );
+        click(&mut app, ChatFilter::All);
         assert_eq!(app.visible_chats().len(), everything);
     }
 
@@ -18506,15 +18575,8 @@ mod tests {
             ChatFilter::ReadLater,
         ]
         .map(&chip);
-        let rail_filters = [
-            ChatFilter::Private,
-            ChatFilter::Favorites,
-            ChatFilter::Groups,
-            ChatFilter::Channels,
-        ]
-        .map(&chip);
-        for rect in facets.into_iter().chain(rail_filters) {
-            assert!(rect.is_positive(), "filter must remain visible: {rect:?}");
+        for rect in facets {
+            assert!(rect.is_positive());
         }
         // The primary facets are the labeled row above the chat list: in the
         // list column under the header, above the first chat row, wrapping
@@ -18530,7 +18592,8 @@ mod tests {
             assert!(
                 rect.left() >= rail_width - 0.1
                     && rect.right() <= rail_width + sidebar + 0.1
-                    && rect.top() >= header.bottom() - 0.1,
+                    && rect.top() >= header.top() - 0.1
+                    && rect.bottom() <= header.bottom() + 0.1,
                 "facet stays inside the list column under the header: {rect:?}"
             );
         }
@@ -18555,15 +18618,6 @@ mod tests {
                 .all(|rect| rect.bottom() <= first_row.top() + 0.1),
             "facets stay above the chat list: {first_row:?}"
         );
-        // Compact icon column: one filter per row down the rail's single
-        // centered column, matching filter_chips' stacked contract.
-        for pair in rail_filters.windows(2) {
-            assert!(
-                (pair[0].center().x - pair[1].center().x).abs() < 0.5
-                    && pair[1].top() >= pair[0].bottom(),
-                "rail filters form one centered column, one per row: {pair:?}"
-            );
-        }
     }
 
     #[test]
@@ -19122,7 +19176,7 @@ mod tests {
     /// at the same height and make it as tall, so the titles line up, in the
     /// macOS layout (no title bar, traffic lights on the row) as elsewhere.
     #[test]
-    fn both_headers_share_their_first_row() {
+    fn search_precedes_the_queue_row_without_changing_conversation_header() {
         for macos in [false, true] {
             let mut app = app();
             let ctx = egui::Context::default();
@@ -19144,9 +19198,8 @@ mod tests {
                 chat.expect("the conversation"),
             );
             assert!(
-                (list.top() - chat.top()).abs() < 0.5
-                    && (list.height() - chat.height()).abs() < 0.5,
-                "macOS {macos}: chat list row {list:?}, conversation row {chat:?}"
+                list.top() > chat.top() && list.height() >= 36.0,
+                "macOS {macos}: queue row follows search: {list:?}, conversation row {chat:?}"
             );
         }
     }
@@ -19636,17 +19689,13 @@ mod tests {
                 Stop::Locked,
                 Stop::Settings,
                 Stop::Profile,
-                Stop::NewChat,
-                Stop::Sidebar,
                 Stop::Search,
                 Stop::All,
                 Stop::Unread,
                 Stop::ReplyLater,
                 Stop::ReadLater,
-                Stop::Private,
-                Stop::Favorites,
-                Stop::Groups,
-                Stop::Channels,
+                Stop::Filters,
+                Stop::NewChat,
             ];
             assert_eq!(
                 crate::ui::focus::stops(&ctx)
@@ -19698,7 +19747,7 @@ mod tests {
             assert!(ctx.read_response(row).unwrap().sense.is_focusable());
             for (modifiers, expected_stop) in [
                 (egui::Modifiers::NONE, Stop::Composer),
-                (egui::Modifiers::SHIFT, Stop::Channels),
+                (egui::Modifiers::SHIFT, Stop::NewChat),
             ] {
                 ctx.memory_mut(|memory| memory.request_focus(row));
                 frame_sized(&mut app, &ctx, 780.0, vec![key(egui::Key::Tab, modifiers)]);
@@ -19735,8 +19784,8 @@ mod tests {
                     .iter()
                     .filter(|(stop, _)| *stop == Stop::Sidebar)
                     .count(),
-                1,
-                "{page}: one button hides or shows the list"
+                usize::from(matches!(page, "nosidebar" | "rail")),
+                "{page}: expanded list hides via Filters; collapsed list has Show"
             );
             if page == "nosidebar" {
                 assert_eq!(
@@ -21897,7 +21946,11 @@ mod rail_tests {
         };
         for macos in [false, true] {
             let (_app, ctx) = open("chat", macos);
-            assert_eq!(in_header(&ctx), [Stop::NewChat, Stop::Sidebar], "{macos}");
+            assert_eq!(
+                in_header(&ctx),
+                [Stop::All, Stop::Unread, Stop::ReplyLater, Stop::ReadLater],
+                "{macos}"
+            );
             let (_app, ctx) = open("starred", macos);
             assert_eq!(in_header(&ctx), [Stop::Back], "{macos}");
         }
