@@ -3210,6 +3210,8 @@ pub enum Action {
     Quit,
     /// Shows the window, creating it when running headless.
     ShowWindow,
+    /// App-switcher activation: restore only a closed or minimized window.
+    ActivateWindow,
     /// Closes the window while keeping the app in the tray.
     HideWindow,
     /// Applies the configured close-button behavior.

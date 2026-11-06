@@ -10557,6 +10557,15 @@ impl App {
                 self.quit_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+            Action::ActivateWindow => {
+                // The status item and native panels are also NSWindows. Use
+                // the shell's state and our own viewport, never the global
+                // AppKit window list. Normal activation must not steal focus
+                // from a file dialog or move a visible window forward again.
+                if self.window_hidden || ctx.input(|i| i.viewport().minimized) == Some(true) {
+                    self.apply(Action::ShowWindow, ctx);
+                }
+            }
             Action::ShowWindow => {
                 if self.window_hidden {
                     // The headless loop in `main` will create the window.
@@ -12470,6 +12479,7 @@ fn allowed_while_locked(action: &Action) -> bool {
             | Action::ForgotAppPassword(_)
             | Action::UnlinkLockedApp
             | Action::ShowWindow
+            | Action::ActivateWindow
             | Action::HideWindow
             | Action::CloseWindow
             | Action::Quit
@@ -17398,6 +17408,68 @@ mod tests {
         app.quit_requested = true;
         close_minimized(&mut app);
         assert_eq!(app.closed(), Closed::Quit);
+    }
+
+    /// Cmd-Tab must use the shell's state, not visibility of unrelated
+    /// native windows such as the menu-bar status item's window.
+    #[test]
+    fn activation_reopens_a_closed_window_through_the_resident_shell() {
+        use fastframe_shell::{Headless, Resident};
+        let ctx = egui::Context::default();
+        let mut app = app();
+        Resident::window_gone(&mut app);
+        assert_eq!(app.headless_frame(&ctx), Headless::Wait);
+        app.apply(Action::ActivateWindow, &ctx);
+        assert_eq!(app.headless_frame(&ctx), Headless::Show);
+    }
+
+    #[test]
+    fn activation_does_not_raise_an_existing_window_or_steal_a_native_dialog() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.window_hidden = false;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+            app.apply(Action::ActivateWindow, &ctx);
+        });
+        output.textures_delta.clear();
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(
+            !commands.iter().any(|c| matches!(
+                c,
+                egui::ViewportCommand::Focus | egui::ViewportCommand::Minimized(_)
+            )),
+            "normal activation must not force focus"
+        );
+        assert!(!app.wants_show);
+    }
+
+    #[test]
+    fn activation_restores_our_minimized_viewport() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.window_hidden = false;
+        app.wayland = false;
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .minimized = Some(true);
+        let mut output = ctx.run_ui(input, |_| {
+            app.apply(Action::ActivateWindow, &ctx);
+        });
+        output.textures_delta.clear();
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, egui::ViewportCommand::Minimized(false)))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, egui::ViewportCommand::Focus))
+        );
     }
 
     /// A Wayland compositor ignores an app's focus and unminimize requests, so
