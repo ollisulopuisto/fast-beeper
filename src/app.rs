@@ -1670,7 +1670,7 @@ impl App {
         self.accounts
             .iter()
             .filter(|account| account.settings.notifications)
-            .map(|account| account.unread_chat_count(&self.settings))
+            .map(|account| Self::badge_unread_count(&self.settings, account))
             .fold(0, u32::saturating_add)
     }
 
@@ -1681,7 +1681,7 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(index, account)| *index != self.active && account.settings.notifications)
-            .map(|(_, account)| account.unread_chat_count(&self.settings))
+            .map(|(_, account)| Self::badge_unread_count(&self.settings, account))
             .fold(0, u32::saturating_add)
     }
 
@@ -3788,10 +3788,35 @@ impl App {
             .count()
     }
 
-    /// The taskbar count: unarchived, unmuted, unlocked chats that look
-    /// unread. WhatsApp counts chats here, not the messages inside them.
+    /// The badge count for one account: chats the Unread filter can list
+    /// (unarchived, unlocked, channels excluded), minus the muted, which
+    /// stay listed without raising the badge, and the inbox-hidden, which
+    /// the reader chose not to see. WhatsApp counts chats here, not the
+    /// messages inside them. An associated function because the account
+    /// switcher calls it with an account it already borrows.
+    pub(crate) fn badge_unread_count(settings: &crate::settings::Settings, account: &Account) -> u32 {
+        let now = crate::util::now();
+        let chats = account
+            .chats
+            .iter()
+            .filter(|chat| {
+                chat.counts_unread()
+                    && !chat.archived
+                    && !chat.locked
+                    && !chat.muted(now)
+                    && settings
+                        .beeper
+                        .account(chat.backend_settings_key().as_deref())
+                        .inbox
+                        != crate::settings::BeeperInbox::None
+            })
+            .count();
+        u32::try_from(chats).unwrap_or(u32::MAX)
+    }
+
+    /// The taskbar count for the account on screen.
     pub fn unread_chat_count(&self) -> u32 {
-        self.account().unread_chat_count(&self.settings)
+        Self::badge_unread_count(&self.settings, self.account())
     }
 
     /// Returns or requests a cached profile picture.
