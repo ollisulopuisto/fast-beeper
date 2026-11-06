@@ -592,20 +592,36 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
     let width = queue_width(ui.available_width());
     let cell = width / 4.0;
     ui.spacing_mut().item_spacing.x = 0.0;
+    // Off avoids even the count passes; no sorting/history work for badges.
+    let counts = app
+        .settings
+        .beeper
+        .show_queue_counts
+        .then(|| app.queue_chat_counts());
     ui.horizontal(|ui| {
-        for (filter, icon, stop) in [
+        for (index, (filter, icon, stop)) in [
             (ChatFilter::All, Icon::QueueAll, Stop::All),
             (ChatFilter::Unread, Icon::QueueUnread, Stop::Unread),
             (ChatFilter::ReplyLater, Icon::QueueReply, Stop::ReplyLater),
             (ChatFilter::ReadLater, Icon::QueueRead, Stop::ReadLater),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let selected = app.chat_filter == filter;
             let shortcut = ChatFilter::EVERY.iter().position(|f| *f == filter).unwrap() + 1;
-            let tooltip = format!(
+            let mut tooltip = format!(
                 "{} · {}",
                 filter.label(app.locale),
                 super::keys::label(&format!("Ctrl+Alt+{shortcut}"))
             );
+            if let Some(counts) = counts {
+                tooltip.push_str(&format!(
+                    " · {} {}",
+                    counts[index],
+                    crate::i18n::gettext(app.locale, "chats")
+                ));
+            }
             let (rect, response) = ui.allocate_exact_size(vec2(cell, 36.0), Sense::click());
             let response = response.tab_stop(stop).on_hover_text(&tooltip);
             response.widget_info(|| {
@@ -635,14 +651,27 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
             theme::paint_icon(
                 ui,
                 icon,
-                rect,
-                22.0,
+                if counts.is_some_and(|counts| counts[index] > 0) {
+                    rect.translate(vec2(-3.0, 2.0))
+                } else {
+                    rect
+                },
+                if counts.is_some_and(|counts| counts[index] > 0) {
+                    19.0
+                } else {
+                    22.0
+                },
                 if selected {
                     palette.accent
                 } else {
                     palette.secondary
                 },
             );
+            if let Some(counts) = counts
+                && counts[index] > 0
+            {
+                paint_queue_count(ui, &palette, rect, counts[index]);
+            }
             ui.ctx()
                 .data_mut(|data| data.insert_temp(filter_chip_id(filter), rect));
             if response.clicked() {
@@ -650,6 +679,29 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     });
+}
+
+/// Small count badge contained by its segment, with the full count in its tooltip.
+fn paint_queue_count(ui: &egui::Ui, palette: &Palette, cell: Rect, count: usize) {
+    let label = if count > 99 {
+        "99+".to_owned()
+    } else {
+        count.to_string()
+    };
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label, theme::semibold(8.5), palette.on_accent);
+    let width = (galley.size().x + 6.0).max(12.0);
+    let badge = Rect::from_min_size(
+        pos2(cell.right() - width - 2.0, cell.top() + 2.0),
+        vec2(width, 12.0),
+    );
+    ui.painter().rect_filled(badge, 6.0, palette.accent);
+    ui.painter().galley(
+        badge.center() - galley.size() / 2.0,
+        galley,
+        palette.on_accent,
+    );
 }
 
 /// A button on the right of the chat list header's first row.
@@ -3929,6 +3981,62 @@ mod tests {
             ring_index + 1 < output.shapes.len(),
             "badge paints over the ring"
         );
+    }
+
+    #[test]
+    fn queue_count_badge_caps_large_numbers_inside_narrow_segments() {
+        let (_directory, _app, _ids, ctx) = rail_app(0);
+        let palette = Palette::dark();
+        let cell = Rect::from_min_size(pos2(10.0, 10.0), vec2(32.0, 36.0));
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            paint_queue_count(ui, &palette, cell, 1000)
+        });
+        output.textures_delta.clear();
+        let label = output
+            .shapes
+            .iter()
+            .find_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    Some(text)
+                } else {
+                    None
+                }
+            })
+            .expect("count label");
+        assert_eq!(label.galley.text(), "99+");
+        for shape in &output.shapes {
+            if let egui::Shape::Rect(badge) = &shape.shape {
+                assert!(cell.contains_rect(badge.rect));
+            }
+        }
+    }
+
+    #[test]
+    fn queue_count_preference_off_restores_icon_only_segments() {
+        let (root, mut app, _, ctx) = rail_app(2);
+        let _ = root;
+        app.chats[0].unread = 4;
+        let mut draw = |enabled| {
+            app.settings.beeper.show_queue_counts = enabled;
+            let mut output = ctx.run_ui(Default::default(), |ui| facet_row(&mut app, ui));
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        Some(text.galley.text().to_owned())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(draw(false).is_empty());
+        let counts = draw(true);
+        assert!(counts.contains(&"2".to_owned()));
+        assert!(counts.contains(&"1".to_owned()));
+        assert!(!counts.contains(&"0".to_owned()));
     }
 
     #[test]

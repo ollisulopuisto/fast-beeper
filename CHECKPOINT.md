@@ -1,5 +1,32 @@
 # Fast-beeper coordination and development checkpoint
 
+## Optional queue counts - November 6, 2026
+
+Branch: feat/queue-count-preference, owned by Instinct. Wireframe shared before
+implementation and approved: existing four icons with small upper-right badges,
+example `[All 12][Unread 3][Reply later 5][Read later 2]`. Maintainer confirmed
+these are chats for now, not individual messages. Settings > Chats > Show queue
+counts defaults On, independently of unread-message count badges. Off restores
+the icon-only segments and skips the count passes. Zero has no visible badge;
+99+ caps large badges while tooltip/accessibility includes the exact count.
+
+Counts reuse the list's filtering for each queue, including query, facets,
+network/account, hidden-inbox later exceptions, archive and lock boundaries;
+linked people count once. No sorting, preview clones or message-history scans
+are added for counting. Counts cover available local items, not a server total.
+No list selection or scope is mutated. The setting is in always-reachable Chats
+rather than the conditional Beeper card, verified by offline settings search.
+
+Seven actual app/settings/GUI tests pass in a focused source copy with unrelated
+test bodies omitted. Covers item vs message semantics, queue/list agreement,
+linked deduplication, inbox-hidden later items, search/facets/archive/lock,
+preference persistence, offline setting access, 99+ bounds and Off icon-only.
+Full all-target/all-feature strict clippy, check, format and diff checks pass.
+Actual synthetic app screenshots inspected On/Off dark, On light and settings;
+normal labels show 12/3/5/2 without layout growth. Native Mac runtime unverified.
+No real messages, account/data changes, new dependencies or remote calls.
+Revert this PR to roll back. Other shortcut/ring/reopen work stays separate.
+
 ## Active avatar ring - November 6, 2026
 
 Branch: fix/active-avatar-ring, owned by Instinct. Replaces the hard-to-see
