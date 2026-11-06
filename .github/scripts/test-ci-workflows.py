@@ -46,6 +46,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('fromJSON(needs.select.outputs.matrix)', text)
         self.assertIn('FAST_BEEPER_UPLOAD_ARTIFACTS', text)
 
+    def test_manual_mac_version_is_accepted_by_native_packaging(self):
+        text = workflow('release.yml')
+        block = run_block(text.split('name: Resolve version and DMG name', 1)[1], '        run: |\n')
+        for event, tag in [('workflow_dispatch', 'main'), ('push', 'v0.24.0'), ('push', 'v0.25.0-rc.2')]:
+            script = block.replace('${{ github.event_name }}', event).replace('${{ github.run_number }}', '7')
+            with tempfile.NamedTemporaryFile() as out:
+                env = dict(os.environ, GITHUB_REF_NAME=tag, GITHUB_ENV=out.name)
+                result = subprocess.run(['bash', '-eu', '-c', script], cwd=ROOT, env=env, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split('=', 1) for line in Path(out.name).read_text().splitlines())
+                self.assertRegex(values['PACKAGE_VERSION'], r'^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$')
+                if event == 'workflow_dispatch':
+                    self.assertTrue(values['PACKAGE_VERSION'].endswith('-alpha.7'))
+                    self.assertTrue(values['DMG_NAME'].endswith('-manual.7-macos-universal.dmg'))
+                else:
+                    self.assertEqual(values['PACKAGE_VERSION'], tag[1:])
+                    self.assertEqual(values['DMG_NAME'], f'solmu-{tag}-macos-universal.dmg')
+        self.assertIn('--version "$PACKAGE_VERSION" --target macos-universal', text)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", text)
+
     def test_ci_selection_modes(self):
         text = workflow('ci.yml')
         block = run_block(text.split('id: scope', 1)[1], '        run: |\n')

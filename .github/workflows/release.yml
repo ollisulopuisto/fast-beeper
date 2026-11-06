@@ -218,10 +218,15 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+            # native-packages only accepts alpha/beta/rc prereleases.
+            # Keep the descriptive manual suffix for the download filename.
+            package_version="$version-alpha.${{ github.run_number }}"
             version="$version-manual.${{ github.run_number }}"
           else
             version="${GITHUB_REF_NAME#v}"
+            package_version="$version"
           fi
+          echo "PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
           echo "APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "DMG_NAME=solmu-v$version-macos-universal.dmg" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
@@ -261,7 +266,7 @@ jobs:
       - name: Package, sign and notarize macOS app
         run: |
           native-packages build \
-            --version "$APP_VERSION" --target macos-universal --defer-recipes \
+            --version "$PACKAGE_VERSION" --target macos-universal --defer-recipes \
             --output "$RUNNER_TEMP/macos-packages"
           mv "$RUNNER_TEMP/macos-packages/packages/macos-universal/dmg/"*.dmg "dist/$DMG_NAME"
 
