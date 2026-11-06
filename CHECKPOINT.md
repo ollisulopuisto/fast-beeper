@@ -25,6 +25,29 @@ selection narrows the list only, by design. Regression test:
 Human-led merge; no settings, release, or workflow changes. No concurrent
 claim on these files was present in the open PR list at branch time.
 
+## Active regional-locale lane - November 6, 2026
+
+Claim: timestamps follow the OS regional locale (fi-FI report from the
+maintainer: the bubble read "The day before yesterday 20:13" in English on a
+Finnish system). Owned by Instinct on branch
+feat/regional-locale-timestamps. No concurrent claim on src/util.rs was
+present in the checkpoint or the open PR list (#193 release workflow,
+#194 macOS activation).
+
+Scope: src/util.rs bubble/chat/day/moment/full/copy stamps and
+short/long dates take the OS region (new util::region, cached):
+macOS NSLocale localeIdentifier, Windows GetUserDefaultLocaleName, Linux
+LC_ALL/LC_TIME/LANG. Finnish and US English formats; other regions keep
+today's UI-language behavior. The UI language stays the user's separate
+choice. Finnish words (tänään/eilen/toissa päivänä, lowercase weekdays and
+months, partitive months in long dates, essive weekdays with "klo") live in
+util.rs, not the gettext catalogs. The day filter's month and weekday
+headings and the last-seen sentence stay UI-language; its date follows the
+region through regional_short_date. Tests cover fi-FI and en-US against a
+fixed clock.
+
+Rollback: revert the branch; no migrations or persisted state.
+
 ## Active CI/CD efficiency lane - October 29, 2026
 
 Claim: CI trigger/path selection and explicit manual single-target trial/hotfix
