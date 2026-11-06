@@ -33,4 +33,6 @@ impl Archive {
     pub fn favorites(&self) -> Result<Vec<Favorite>, String> { Err("archive stub".into()) }
     pub fn set_favorite(&self, _: &str, _: bool) -> Result<bool, String> { Err("archive stub".into()) }
     pub fn reorder_favorite(&self, _: &str, _: usize) -> Result<Option<Vec<Favorite>>, String> { Err("archive stub".into()) }
+    pub fn mirror_pin(&self, _: &str, _: bool) -> Result<bool, String> { Err("archive stub".into()) }
+    pub fn is_pin_derived(&self, _: &str) -> Result<bool, String> { Err("archive stub".into()) }
 }

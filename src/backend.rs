@@ -769,6 +769,9 @@ pub enum Command {
     SetArchived(ChatId, bool),
     /// Beeper server reminder; None clears it. ISO8601 UTC timestamp.
     WatchBeeperChats(Vec<ChatId>),
+    /// Mirror Beeper pins into favorites: each chat's current pin flag, from
+    /// the latest list the bridge sent.
+    MirrorPins(Vec<(ChatId, bool)>),
     /// Resolve the authors and previews of quoted messages that were not
     /// in the loaded page: (message holding the quote, quoted message id).
     ResolveQuotes {

@@ -4092,6 +4092,14 @@ impl App {
                         self.roster_names.insert(id.clone(), name.clone());
                     }
                 }
+                // Beeper pins are favorites here: the archive mirrors them
+                // and answers with the resulting favorites list.
+                self.backend.send(Command::MirrorPins(
+                    chats
+                        .iter()
+                        .map(|chat| (chat.id.clone(), chat.pinned))
+                        .collect(),
+                ));
                 self.chats = chats;
                 // A fresh list carries no favorite marks; the backend's
                 // numbering decides them.

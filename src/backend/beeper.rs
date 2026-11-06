@@ -2699,6 +2699,42 @@ pub fn run(
                 Command::WatchBeeperChats(chats) => {
                     watched_chats = chats.into_iter().take(8).collect();
                 }
+                Command::MirrorPins(pins) => {
+                    if draft_store.is_none() {
+                        match crate::archive::Archive::open(&draft_path) {
+                            Ok(store) => draft_store = Some(store),
+                            Err(_) => {
+                                emit(Event::Info("Pins not mirrored into favorites: OS keyring unavailable. Unlock it and restart to keep favorites across restarts.".into()));
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some(store) = &draft_store {
+                        let mut changed = false;
+                        for (chat, pinned) in &pins {
+                            match store.mirror_pin(chat, *pinned) {
+                                Ok(did) => changed |= did,
+                                Err(e) => {
+                                    emit(Event::Info(format!("Pin mirror not saved: {e}")));
+                                    break;
+                                }
+                            }
+                        }
+                        if changed {
+                            match store.favorites() {
+                                Ok(favorites) => emit(Event::Favorites(
+                                    favorites
+                                        .into_iter()
+                                        .map(|favorite| favorite.chat)
+                                        .collect(),
+                                )),
+                                Err(e) => emit(Event::Info(format!(
+                                    "Favorites could not be read back: {e}"
+                                ))),
+                            }
+                        }
+                    }
+                }
                 Command::LoadChat { chat, before } => {
                     open_chat = Some(chat.clone());
                     let older = before.is_some();

@@ -20,7 +20,8 @@ pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS favorites (
     chat TEXT PRIMARY KEY,
     jid TEXT NOT NULL,
-    position INTEGER NOT NULL
+    position INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE TABLE IF NOT EXISTS favorite_changes (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +89,12 @@ impl Archive {
     pub fn set_favorite(&self, chat: &str, favorite: bool) -> Result<bool> {
         let transaction = self.connection.unchecked_transaction()?;
         let changed = if favorite {
+            // A manual mark on a pin-derived row makes it stick: a later
+            // unpin in Beeper no longer removes it.
+            self.connection.execute(
+                "UPDATE favorites SET source = 'manual' WHERE chat = ?1 AND source = 'pin'",
+                params![chat],
+            )?;
             self.connection.execute(
                 "INSERT OR IGNORE INTO favorites (chat, jid, position)
                  VALUES (?1, ?1, (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites))",
@@ -126,6 +133,36 @@ impl Archive {
         }
         transaction.commit()?;
         Ok(Some(list))
+    }
+
+    /// Mirrors a Beeper pin into a favorite, or removes the mirror when the
+    /// pin is gone. Only pin-derived rows are touched: a favorite the user
+    /// marked here survives an unpin, and the phone's queue never hears
+    /// about mirrors. Returns whether the list changed.
+    pub fn mirror_pin(&self, chat: &str, pinned: bool) -> Result<bool> {
+        let changed = if pinned {
+            self.connection.execute(
+                "INSERT OR IGNORE INTO favorites (chat, jid, position, source)
+                 VALUES (?1, ?1, (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites), 'pin')",
+                params![chat],
+            )?
+        } else {
+            self.connection.execute(
+                "DELETE FROM favorites WHERE chat = ?1 AND source = 'pin'",
+                params![chat],
+            )?
+        } > 0;
+        Ok(changed)
+    }
+
+    /// Whether the chat is a pin-derived favorite, so the interface can
+    /// unpin instead of unfavoriting.
+    pub fn is_pin_derived(&self, chat: &str) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM favorites WHERE chat = ?1 AND source = 'pin'",
+            params![chat],
+            |row| row.get::<_, i64>(0),
+        )? > 0)
     }
 
     /// The newest queued change, when any wait for the phone.
@@ -369,6 +406,39 @@ mod tests {
         );
         assert!(archive.reorder_favorite("stranger", 0).unwrap().is_none());
         assert_eq!(chats(&archive), ["b", "c", "a"]);
+    }
+
+    #[test]
+    fn a_pinned_chat_mirrors_into_a_favorite_and_back() {
+        let archive = Archive::in_memory().unwrap();
+        archive.mirror_pin("a", true).unwrap();
+        assert!(archive.is_pin_derived("a").unwrap());
+        assert_eq!(chats(&archive), ["a"]);
+        // Mirroring the same pin again changes nothing.
+        assert!(!archive.mirror_pin("a", true).unwrap());
+        // The mirror never reaches the phone's queue.
+        assert!(archive.pending_favorites().unwrap().is_none());
+        archive.mirror_pin("a", false).unwrap();
+        assert!(chats(&archive).is_empty());
+        assert!(!archive.is_pin_derived("a").unwrap());
+    }
+
+    #[test]
+    fn a_manual_mark_on_a_mirror_survives_the_unpin() {
+        let archive = Archive::in_memory().unwrap();
+        archive.mirror_pin("a", true).unwrap();
+        archive.set_favorite("a", true).unwrap();
+        assert!(!archive.is_pin_derived("a").unwrap());
+        archive.mirror_pin("a", false).unwrap();
+        assert_eq!(chats(&archive), ["a"], "the manual mark sticks");
+    }
+
+    #[test]
+    fn a_mirror_joins_after_the_manual_favorites() {
+        let archive = Archive::in_memory().unwrap();
+        archive.set_favorite("manual", true).unwrap();
+        archive.mirror_pin("pinned", true).unwrap();
+        assert_eq!(chats(&archive), ["manual", "pinned"]);
     }
 
     #[test]
