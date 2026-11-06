@@ -190,6 +190,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         }
         let (modifiers, key_code) = SIDEBAR.keys[0];
         key(modifiers, key_code, Action::ToggleSidebar);
+        let (modifiers, key_code) = INFO_SIDEBAR.keys[0];
+        key(modifiers, key_code, Action::ToggleInfoSidebar);
         let (modifiers, key_code) = SETTINGS.keys[0];
         key(modifiers, key_code, Action::ToggleSettings);
         let (modifiers, key_code) = QUIT.keys[0];
@@ -1192,6 +1194,17 @@ const SIDEBAR: Shortcut = Shortcut {
         accelerator: "Super+KeyB",
     }),
 };
+const INFO_SIDEBAR: Shortcut = Shortcut {
+    id: "info-sidebar",
+    keys: &[(Modifiers::COMMAND, Key::D)],
+    label: Some("Ctrl+D"),
+    description: Some("Show or hide the info sidebar"),
+    menu: Some(MenuItem {
+        id: "info-sidebar",
+        text: "Toggle Info Sidebar",
+        accelerator: "Super+KeyD",
+    }),
+};
 const SETTINGS: Shortcut = Shortcut {
     id: "settings",
     keys: &[(Modifiers::COMMAND, Key::Comma)],
@@ -1398,6 +1411,7 @@ pub static REGISTRY: &[Row] = &[
     ),
     Row::Help("Ctrl+C", "Copy the selected messages"),
     Row::Binding(&SIDEBAR),
+    Row::Binding(&INFO_SIDEBAR),
     Row::Help(
         "Ctrl+End",
         "Jump to the newest message (when the input is empty)",
@@ -1470,6 +1484,7 @@ pub fn menu_accelerator(modifiers: Modifiers, key: Key) -> Option<String> {
         Key::A => "KeyA",
         Key::B => "KeyB",
         Key::C => "KeyC",
+        Key::D => "KeyD",
         Key::F => "KeyF",
         Key::N => "KeyN",
         Key::Q => "KeyQ",
@@ -1665,6 +1680,7 @@ mod tests {
             ),
             ("Ctrl+C", "Copy the selected messages"),
             ("Ctrl+B", "Collapse or expand the chat list"),
+            ("Ctrl+D", "Show or hide the info sidebar"),
             (
                 "Ctrl+End",
                 "Jump to the newest message (when the input is empty)",
@@ -2183,6 +2199,25 @@ mod tests {
                 ..Modifiers::NONE
             },
         ]
+    }
+
+    #[test]
+    fn command_d_opens_info_not_the_chat_list_or_reply_later() {
+        let (_root, mut app, ids) = app_with_chats(1);
+        app.open_chat = Some(ids[0].clone());
+        let ctx = egui::Context::default();
+        assert!(!press(&mut app, &ctx, Key::D, Modifiers::COMMAND));
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::ToggleInfoSidebar]
+        ));
+        assert!(app.sidebar_visible, "Cmd+D does not toggle the left list");
+        assert_eq!(REPLY_LATER.keys, &[(Modifiers::COMMAND, Key::I)]);
+        assert_eq!(SIDEBAR.keys, &[(Modifiers::COMMAND, Key::B)]);
+        assert_eq!(
+            menu_accelerator(Modifiers::COMMAND, Key::D).as_deref(),
+            Some("Super+KeyD")
+        );
     }
 
     #[test]
