@@ -51,6 +51,27 @@ No new dependencies, messages, account changes, main pushes or merge.
 Rollback: revert this PR. Separate active-avatar ring and optional queue-count
 badges are queued next; neither is included here.
 
+## Active avatar ring - November 6, 2026
+
+Branch: fix/active-avatar-ring, owned by Instinct. Replaces the hard-to-see
+left-edge selected marker with a 2.5-point accent ring around the circle in
+the collapsed rail and favorite-avatar bar. A 5-point backing stroke separates
+the ring from photos and hover backgrounds. Badges paint after the ring so
+unread counts, network marks and timer marks stay on top. The ring fits the
+existing cells; no width or hit-target changes.
+
+Wireframe: selected `[| (avatar)]` becomes `[((avatar))]`, unselected stays
+`[(avatar)]`. Dark and light actual app captures and selected-unread hover
+capture inspected with offline synthetic chats. Active avatar remains legible,
+14 unread badge clear, no clipping. `active-avatar` demo page reproduces it.
+`cargo check --all-targets --all-features`, format and diff checks pass. An
+isolated actual helper shape test executes and passes. Full app ring/badge
+regression now executes and passes alongside 43 shortcut tests in a focused
+source copy. Strict all-target/all-feature clippy passes. Native Mac appearance
+unverified.
+No real messages, account changes, settings or new dependencies. Revert PR
+to roll back. Optional queue-count preference follows separately.
+
 ## Local attachment actions - November 6, 2026
 
 Branch: fix/image-viewer-actions, owned by Instinct. Copy image and Save as
