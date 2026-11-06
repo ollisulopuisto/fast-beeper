@@ -1690,7 +1690,7 @@ mod tests {
         assert!(!press(&mut app, &ctx, Key::Tab, Modifiers::CTRL));
         assert!(matches!(
             app.actions.as_slice(),
-            [.., Action::OpenChat(ref chat)] if *chat == ids[1]
+            [.., Action::OpenChat(chat)] if *chat == ids[1]
         ));
         app.actions.clear();
         assert!(!press(
@@ -1701,7 +1701,7 @@ mod tests {
         ));
         assert!(matches!(
             app.actions.as_slice(),
-            [.., Action::OpenChat(ref chat)] if *chat == ids[0]
+            [.., Action::OpenChat(chat)] if *chat == ids[0]
         ));
         // Command+Tab is the platform's own switcher, never this binding,
         // and plain Tab stays with focus traversal.
