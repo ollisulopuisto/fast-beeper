@@ -2584,6 +2584,20 @@ pub fn run(
         emit(Event::Drafts(Vec::new()));
     }
 
+    // The favorites bar's order persists beside the drafts: Beeper has no
+    // favorites of its own, so the archive is the only copy.
+    let favorites = draft_store
+        .as_ref()
+        .and_then(|store| store.favorites().ok())
+        .map(|favorites| {
+            favorites
+                .into_iter()
+                .map(|favorite| favorite.chat)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    emit(Event::Favorites(favorites));
+
     emit(Event::Contacts(Vec::new()));
 
     let mut chat_cursors: HashMap<ChatId, ChatCursors> = HashMap::new();
@@ -2634,6 +2648,50 @@ pub fn run(
                             .is_err()
                     {
                         emit(Event::Error("Draft not saved: encrypted local write failed. Keep the draft before closing.".into()));
+                    }
+                }
+                Command::SetFavorite(chat, favorite) => {
+                    if draft_store.is_none() {
+                        match crate::archive::Archive::open(&draft_path) {
+                            Ok(store) => draft_store = Some(store),
+                            Err(_) => {
+                                emit(Event::Error("Favorite not saved: OS keyring unavailable. The mark lasts until restart; unlock the OS keyring to keep it.".into()));
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some(store) = &draft_store {
+                        match store
+                            .set_favorite(&chat, favorite)
+                            .map(|_| store.favorites())
+                        {
+                            Ok(Ok(favorites)) => emit(Event::Favorites(
+                                favorites
+                                    .into_iter()
+                                    .map(|favorite| favorite.chat)
+                                    .collect(),
+                            )),
+                            Ok(Err(e)) => emit(Event::Info(format!(
+                                "Favorites could not be read back: {e}"
+                            ))),
+                            Err(e) => emit(Event::Info(format!("Favorite not saved: {e}"))),
+                        }
+                    }
+                }
+                Command::MoveFavorite { chat, position } => {
+                    // No archive yet means no stored favorites, so a move
+                    // is a no-op; the interface already shows its own.
+                    if let Some(store) = &draft_store {
+                        match store.reorder_favorite(&chat, position) {
+                            Ok(Some(favorites)) => emit(Event::Favorites(
+                                favorites
+                                    .into_iter()
+                                    .map(|favorite| favorite.chat)
+                                    .collect(),
+                            )),
+                            Ok(None) => {}
+                            Err(e) => emit(Event::Info(format!("Favorite reorder not saved: {e}"))),
+                        }
                     }
                 }
                 Command::LoadStorageStats { token } => pending_storage = Some((token, false)),

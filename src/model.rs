@@ -2989,6 +2989,8 @@ pub enum Action {
     },
     /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),
+    /// Moves a favorite to a new zero-based place in the favorites bar.
+    MoveFavorite(ChatId, usize),
     /// Flags a chat to reply to later, or clears the flag. Local only:
     /// person-level, persisted in settings, never sent anywhere.
     ToggleReplyLater(ChatId),

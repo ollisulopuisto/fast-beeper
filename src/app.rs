@@ -2486,6 +2486,37 @@ impl App {
         self.chats.iter_mut().find(|chat| chat.id == id)
     }
 
+    /// The favorites in bar order: the backend's numbering once it has
+    /// answered, else the order the chat flags imply (demo mode and tests).
+    fn favorite_order(&self) -> Vec<ChatId> {
+        if let Some(favorites) = &self.favorites {
+            return favorites.clone();
+        }
+        let mut favorites: Vec<&Chat> = self.chats.iter().filter(|chat| chat.favorite).collect();
+        favorites.sort_by(|a, b| {
+            a.favorite_position
+                .cmp(&b.favorite_position)
+                .then_with(|| b.last_activity.cmp(&a.last_activity))
+                .then(a.id.cmp(&b.id))
+        });
+        favorites.into_iter().map(|chat| chat.id.clone()).collect()
+    }
+
+    /// Marks exactly the chats in `order` as favorites, numbered densely so
+    /// the bar and Command+1..9 agree on every place.
+    fn apply_favorite_order(&mut self, order: &[ChatId]) {
+        for chat in &mut self.chats {
+            chat.favorite = false;
+            chat.favorite_position = 0;
+        }
+        for (position, id) in order.iter().enumerate() {
+            if let Some(chat) = self.chat_mut(id) {
+                chat.favorite = true;
+                chat.favorite_position = position as u32;
+            }
+        }
+    }
+
     /// Drops every trace of a chat that no longer exists. Unlike hiding a
     /// locked chat this discards the draft, because there is nothing left to
     /// send it to, and it clears `last_chat` so a restart does not reopen it.
@@ -3977,6 +4008,10 @@ impl App {
                     }
                 }
             }
+            Event::Favorites(favorites) => {
+                self.apply_favorite_order(&favorites);
+                self.favorites = Some(favorites);
+            }
             Event::Stars { chat, ids } => {
                 self.stars.insert(chat, ids.into_iter().collect());
             }
@@ -4058,6 +4093,11 @@ impl App {
                     }
                 }
                 self.chats = chats;
+                // A fresh list carries no favorite marks; the backend's
+                // numbering decides them.
+                if let Some(favorites) = self.favorites.clone() {
+                    self.apply_favorite_order(&favorites);
+                }
                 if live {
                     self.info_members = None;
                     self.drop_locked_panel();
@@ -9351,12 +9391,30 @@ impl App {
                 }
             }
             Action::SetFavorite(chat, favorite) => {
-                if let Some(known) = self.chat_mut(&chat) {
-                    known.favorite = favorite;
-                    // A new favorite joins the end until the archive numbers it.
-                    known.favorite_position = u32::MAX;
+                // A new favorite joins the end of the bar until the archive
+                // numbers it back.
+                let mut order = self.favorite_order();
+                order.retain(|id| id != &chat);
+                if favorite {
+                    order.push(chat.clone());
+                }
+                self.apply_favorite_order(&order);
+                if self.favorites.is_some() {
+                    self.favorites = Some(order);
                 }
                 self.backend.send(Command::SetFavorite(chat, favorite));
+            }
+            Action::MoveFavorite(chat, position) => {
+                let mut order = self.favorite_order();
+                if let Some(from) = order.iter().position(|id| id == &chat) {
+                    let entry = order.remove(from);
+                    order.insert(position.min(order.len()), entry);
+                    self.apply_favorite_order(&order);
+                    if self.favorites.is_some() {
+                        self.favorites = Some(order);
+                    }
+                }
+                self.backend.send(Command::MoveFavorite { chat, position });
             }
             Action::ToggleReplyLater(id) => {
                 let Some(chat) = self.chat(&id) else {
@@ -20346,6 +20404,138 @@ mod tests {
             &egui::Context::default(),
         );
         assert!(!app.scroll_chats_to_top);
+    }
+
+    /// A favorite toggle orders the bar at once and tells the backend, whose
+    /// answer then replaces the guess with its stored numbering.
+    #[test]
+    fn favorite_toggles_order_the_bar_until_the_backend_answers() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        for id in ["a", "b", "c"] {
+            app.chats.push(Chat {
+                backend_account: Some("work".into()),
+                ..Chat::new(id.into(), id.into())
+            });
+        }
+        let position = |app: &App, id: &str| {
+            app.chat(id)
+                .map(|chat| (chat.favorite, chat.favorite_position))
+        };
+        let ctx = egui::Context::default();
+        app.apply(Action::SetFavorite("b".into(), true), &ctx);
+        app.apply(Action::SetFavorite("a".into(), true), &ctx);
+        // New favorites join the end in click order.
+        assert_eq!(position(&app, "b"), Some((true, 0)));
+        assert_eq!(position(&app, "a"), Some((true, 1)));
+        assert_eq!(position(&app, "c"), Some((false, 0)));
+        events
+            .send(Event::Favorites(vec!["a".into(), "b".into()]))
+            .unwrap();
+        app.handle_events();
+        assert_eq!(position(&app, "a"), Some((true, 0)));
+        assert_eq!(position(&app, "b"), Some((true, 1)));
+        // A fresh chat list carries no marks; the numbering reapplies.
+        events
+            .send(Event::Chats(vec![
+                Chat {
+                    backend_account: Some("work".into()),
+                    ..Chat::new("a".into(), "a".into())
+                },
+                Chat {
+                    backend_account: Some("work".into()),
+                    ..Chat::new("b".into(), "b".into())
+                },
+            ]))
+            .unwrap();
+        app.handle_events();
+        assert_eq!(position(&app, "a"), Some((true, 0)));
+        assert_eq!(position(&app, "b"), Some((true, 1)));
+        // Removing one drops its mark and closes the numbering.
+        app.apply(Action::SetFavorite("a".into(), false), &ctx);
+        assert_eq!(position(&app, "a"), Some((false, 0)));
+        assert_eq!(position(&app, "b"), Some((true, 0)));
+        let sent: Vec<_> = std::iter::from_fn(|| commands.try_recv().ok()).collect();
+        assert!(
+            sent.iter()
+                .any(|command| matches!(command, Command::SetFavorite(chat, true) if chat == "b"))
+        );
+        assert!(
+            sent.iter()
+                .any(|command| matches!(command, Command::SetFavorite(chat, true) if chat == "a"))
+        );
+        assert!(
+            sent.iter()
+                .any(|command| matches!(command, Command::SetFavorite(chat, false) if chat == "a"))
+        );
+    }
+
+    /// Dragging a favorite renumbers the bar densely at once and sends the
+    /// move for the archive to persist.
+    #[test]
+    fn moving_a_favorite_renumbers_the_bar_densely() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        for id in ["a", "b", "c"] {
+            app.chats.push(Chat {
+                backend_account: Some("work".into()),
+                ..Chat::new(id.into(), id.into())
+            });
+        }
+        events
+            .send(Event::Favorites(vec!["a".into(), "b".into(), "c".into()]))
+            .unwrap();
+        app.handle_events();
+        let ctx = egui::Context::default();
+        app.apply(Action::MoveFavorite("c".into(), 0), &ctx);
+        assert_eq!(app.favorites.clone().unwrap(), ["c", "a", "b"]);
+        let position = |app: &App, id: &str| app.chat(id).map(|chat| chat.favorite_position);
+        assert_eq!(position(&app, "c"), Some(0));
+        assert_eq!(position(&app, "a"), Some(1));
+        assert_eq!(position(&app, "b"), Some(2));
+        // A drop past the end lands last.
+        app.apply(Action::MoveFavorite("c".into(), 99), &ctx);
+        assert_eq!(app.favorites.clone().unwrap(), ["a", "b", "c"]);
+        // A stranger's move changes nothing but still reaches the backend,
+        // which knows the real list.
+        app.apply(Action::MoveFavorite("stranger".into(), 0), &ctx);
+        assert_eq!(app.favorites.clone().unwrap(), ["a", "b", "c"]);
+        let sent: Vec<_> = std::iter::from_fn(|| commands.try_recv().ok()).collect();
+        assert!(sent.iter().any(|command| matches!(command,
+            Command::MoveFavorite { chat, position: 0 } if chat == "c")));
+        assert!(sent.iter().any(|command| matches!(command,
+            Command::MoveFavorite { chat, position: 99 } if chat == "c")));
+        assert!(sent.iter().any(|command| matches!(command,
+            Command::MoveFavorite { chat, .. } if chat == "stranger")));
+    }
+
+    /// Without a backend numbering (demo mode) a move still renumbers the
+    /// flags the bar reads, and no stored order appears.
+    #[test]
+    fn moving_a_favorite_without_a_backend_numbering_uses_the_flags() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, _commands) = Backend::recording();
+        app.backend = backend;
+        for (index, id) in ["a", "b", "c"].into_iter().enumerate() {
+            app.chats.push(Chat {
+                favorite: true,
+                favorite_position: index as u32,
+                backend_account: Some("work".into()),
+                ..Chat::new(id.into(), id.into())
+            });
+        }
+        let ctx = egui::Context::default();
+        app.apply(Action::MoveFavorite("c".into(), 0), &ctx);
+        let position = |app: &App, id: &str| app.chat(id).map(|chat| chat.favorite_position);
+        assert_eq!(position(&app, "c"), Some(0));
+        assert_eq!(position(&app, "a"), Some(1));
+        assert_eq!(position(&app, "b"), Some(2));
+        assert!(app.favorites.is_none(), "no backend numbering appeared");
     }
 
     #[test]
