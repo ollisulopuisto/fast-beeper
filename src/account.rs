@@ -300,15 +300,27 @@ impl Account {
         ) || (!self.chats.is_empty() && !matches!(self.link, LinkStatus::LoggedOut))
     }
 
-    /// The taskbar count: unarchived, unmuted, unlocked chats that look
-    /// unread. WhatsApp counts chats here, not the messages inside them.
+    /// The taskbar count: chats the Unread filter can list (unarchived,
+    /// unlocked, channels excluded), minus the muted, which stay listed
+    /// without raising the badge, and the inbox-hidden, which the reader
+    /// chose not to see. WhatsApp counts chats here, not the messages
+    /// inside them.
     pub fn unread_chat_count(&self) -> u32 {
         let now = crate::util::now();
         let chats = self
             .chats
             .iter()
             .filter(|chat| {
-                !chat.archived && !chat.locked && !chat.muted(now) && chat.looks_unread()
+                chat.counts_unread()
+                    && !chat.archived
+                    && !chat.locked
+                    && !chat.muted(now)
+                    && self
+                        .settings
+                        .beeper
+                        .account(chat.backend_settings_key().as_deref())
+                        .inbox
+                        != crate::settings::BeeperInbox::None
             })
             .count();
         u32::try_from(chats).unwrap_or(u32::MAX)

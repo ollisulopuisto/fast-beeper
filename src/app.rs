@@ -3758,6 +3758,9 @@ impl App {
     }
 
     /// Unarchived chats with unread messages that a filter would list.
+    /// Mirrors the list's inbox-visibility rule: a chat hidden from the
+    /// inbox counts only under the Reply later and Read later chips, the
+    /// two views that still list it.
     pub fn unread_chats(&self, filter: ChatFilter) -> usize {
         self.chats
             .iter()
@@ -3766,6 +3769,13 @@ impl App {
                     && !chat.locked
                     && chat.looks_unread()
                     && self.filter_matches(filter, chat)
+                    && (matches!(filter, ChatFilter::ReplyLater | ChatFilter::ReadLater)
+                        || self
+                            .settings
+                            .beeper
+                            .account(chat.backend_settings_key().as_deref())
+                            .inbox
+                            != crate::settings::BeeperInbox::None)
                     && self
                         .beeper_network_filter
                         .as_ref()
@@ -23491,6 +23501,57 @@ mod tests {
         app.scroll_anchor = None;
         app.apply(Action::OpenChat(id.into()), &ctx);
         assert_eq!(app.scroll_anchor, None);
+    }
+
+    /// The Dock badge showed 1 while the Unread filter listed "No unread
+    /// chats": the badge counted chats the filter can never list - a
+    /// channel (kept to its own chip) and a chat from a Beeper account
+    /// hidden from the inbox. Both now share the filter's definition, and
+    /// the chip count matches the rows it labels.
+    #[test]
+    fn the_badge_and_the_unread_filter_count_the_same_chats() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let mut plain = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
+        plain.unread = 2;
+        let mut channel = Chat::new("2@newsletter".into(), "News".into());
+        channel.unread = 5;
+        let mut hidden = Chat::new("3@s.whatsapp.net".into(), "Hid".into());
+        hidden.unread = 1;
+        hidden.backend_account = Some("work".into());
+        app.settings.beeper.accounts.insert(
+            "work".into(),
+            crate::settings::BeeperAccountPreferences {
+                inbox: crate::settings::BeeperInbox::None,
+                ..Default::default()
+            },
+        );
+        let mut muted = Chat::new("4@s.whatsapp.net".into(), "Loud".into());
+        muted.muted_until = Some(i64::MAX);
+        muted.unread = 9;
+        app.chats = vec![plain, channel, hidden, muted];
+        app.apply(Action::SetChatFilter(ChatFilter::Unread), &ctx);
+        let listed: Vec<&str> = app
+            .visible_chats()
+            .iter()
+            .map(|chat| chat.name.as_str())
+            .collect();
+        assert_eq!(
+            listed,
+            ["Ada", "Loud"],
+            "channels and inbox-hidden chats stay out of the filter"
+        );
+        assert_eq!(
+            app.unread_chats(ChatFilter::Unread),
+            2,
+            "the chip count agrees with the list"
+        );
+        assert_eq!(
+            app.unread_chat_count(),
+            1,
+            "the badge also leaves the muted chat silent"
+        );
+        assert_eq!(app.unread_chat_count_everywhere(), 1);
     }
 
     #[test]
