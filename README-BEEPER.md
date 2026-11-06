@@ -67,3 +67,8 @@ perform mutations. Do not point automated fixture send scripts at a real account
 
 Original ZapFast source: https://github.com/crmne/zapfast (MIT).
 See LICENSE and THIRD-PARTY-NOTICES.md for attribution.
+
+Named message links written as `Title (https://address)` show the title as a
+clickable link. Hover shows the full address. Standalone URLs remain visible;
+message copy/export retains the original text and address. Selecting only the
+visible title copies that title, like other displayed text.
