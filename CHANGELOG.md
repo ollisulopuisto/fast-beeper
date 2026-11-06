@@ -15,6 +15,7 @@ version in Cargo.toml is bumped.
 - Cmd+D toggles the right-hand info sidebar. Cmd+B still toggles the chat list; Cmd+I still marks Reply later.
 - Links whose separators arrive entity-escaped from Beeper Server (Dropbox share links among them) now render and open with a plain `&` instead of a literal `&amp;`. The repair is scoped to link addresses - one level - and text outside links keeps its entities byte-for-byte. Diagnosed from a live payload probe.
 - Named links show their title instead of a long raw URL; hover reveals the full address. The message menu now offers "Copy URL to clipboard" for named and standalone links, preserving the full target including query parameters.
+- The chat list has more breathing room: default rows are 80 points tall instead of 68, with the same avatars and two-line previews. Settings > Beeper view > Compact chat list keeps the smaller 56-point rows.
 
 ## v0.22.0
 

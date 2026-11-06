@@ -11,6 +11,17 @@ use super::focus::{Stop, TabStop};
 use super::labels;
 use super::widgets;
 
+// Roomier by default; retain the existing explicit compact-density choice.
+fn chat_row_height(compact: bool) -> f32 {
+    if compact { 56.0 } else { 80.0 }
+}
+
+// Keep the two text lines together and centred as density changes. Avatars
+// remain 48 points and network badges keep their existing geometry.
+fn chat_row_text_top(rect: Rect) -> f32 {
+    rect.center().y - 20.0
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     search_keyboard(app, ui);
     let palette = app.palette;
@@ -1404,11 +1415,7 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     }
     // Rows touch: one clickable surface from top to bottom, no gaps or rules.
     ui.spacing_mut().item_spacing.y = 0.0;
-    let row_height = if app.settings.beeper.compact_list {
-        56.0
-    } else {
-        theme::ROW_HEIGHT
-    };
+    let row_height = chat_row_height(app.settings.beeper.compact_list);
     let total = chat_ids.len();
     let mut scroll_area = egui::ScrollArea::vertical()
         .id_salt("chat-list")
@@ -1573,6 +1580,7 @@ fn locked_entry(app: &mut App, ui: &mut egui::Ui) {
 /// The authenticated folder, including archived chats and local title search.
 fn locked_list(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    let row_height = chat_row_height(app.settings.beeper.compact_list);
     let chats = app.visible_chats();
     if chats.is_empty() {
         widgets::empty_state(
@@ -1603,13 +1611,13 @@ fn locked_list(app: &mut App, ui: &mut egui::Ui) {
             current,
             ui.available_height(),
             target_row,
-            theme::ROW_HEIGHT,
+            row_height,
             ui.spacing().item_spacing.y,
         );
         scroll_area = scroll_area.vertical_scroll_offset(offset);
         app.scroll_chat_into_view = None;
     }
-    scroll_area.show_rows(ui, theme::ROW_HEIGHT, chats.len(), |ui, range| {
+    scroll_area.show_rows(ui, row_height, chats.len(), |ui, range| {
         for chat in &chats[range] {
             ui.push_id(("chat", &chat.id), |ui| row(app, ui, chat));
         }
@@ -1981,11 +1989,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
         vec2(
             ui.available_width(),
-            if app.settings.beeper.compact_list {
-                56.0
-            } else {
-                theme::ROW_HEIGHT
-            },
+            chat_row_height(app.settings.beeper.compact_list),
         ),
         Sense::click(),
     );
@@ -2038,7 +2042,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         let stamp_galley = ui
             .painter()
             .layout_no_wrap(stamp, theme::regular(11.5), stamp_color);
-        let name_top = rect.top() + 14.0;
+        let name_top = chat_row_text_top(rect);
         ui.painter().galley(
             pos2(right - stamp_galley.size().x, name_top + 1.0),
             stamp_galley.clone(),
@@ -2055,7 +2059,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
 
         // Leave room for badges beside the latest-message preview.
         let mut badge_right = right;
-        let line_y = rect.top() + 38.0;
+        let line_y = name_top + 24.0;
         if unread {
             let width = widgets::unread_indicator(
                 ui,
@@ -2967,6 +2971,21 @@ fn voice_speed_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette, chat: &
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_density_keeps_virtual_rows_and_text_geometry_in_sync() {
+        assert_eq!(chat_row_height(false), 80.0);
+        assert_eq!(chat_row_height(true), 56.0);
+        for compact in [false, true] {
+            let height = chat_row_height(compact);
+            let rect = Rect::from_min_size(pos2(10.0, 50.0), vec2(320.0, height));
+            let top = chat_row_text_top(rect);
+            assert_eq!(top - rect.top(), (height - 40.0) / 2.0);
+            assert_eq!(top + 24.0 + 16.0, rect.bottom() - (top - rect.top()));
+            assert!(rect.center().y - 24.0 >= rect.top());
+            assert_eq!(row_scroll_offset(0.0, height * 2.0, 2, height, 0.0), height);
+        }
+    }
 
     /// A header title shows only when it fits before its buttons, whatever
     /// the language makes of it.

@@ -197,3 +197,17 @@ user build; missing Signal/WhatsApp and pagination completeness remain open.
 No new branch push, hosted build, upload, merge or release was performed.
 Existing trial workflow produces ZIP only, not a fresh DMG. GitHub zero-new-cost
 restriction applies; storage liability is unverified, so builds remain held.
+
+## Chat-list breathing room - November 6, 2026
+
+Branch: ui/chat-list-breathing-room, owned by Instinct. Default chat rows
+increase 68 -> 80 points (+17.6%), retaining 48-point avatars, two lines,
+24-point line spacing, touching click surfaces and existing network badges.
+The existing Compact chat list setting stays at 56 points. Both ordinary
+and locked-folder virtual lists use the same height as their painted rows;
+text is vertically centred at either density. Shared contact/search/action
+row heights are unchanged. History review found the earlier spacing changes
+were for settings and linked message timelines, not chat-list row height.
+Changelog entry feeds What's New when promoted into the next release's
+version section; unreleased notes intentionally do not appear automatically.
+No migrations; rollback is this PR's revert.
