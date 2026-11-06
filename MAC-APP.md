@@ -57,3 +57,10 @@ Solmu holds an NSProcessInfo activity from start, so macOS does not put it
 into App Nap and messaging plus the managed connection keep working in the
 background (idle system sleep stays allowed). Settings > System > "Allow App
 Nap" trades that for battery savings.
+
+## Closing and reopening the window
+
+Cmd+W and the red close button both request the same window-close path.
+With background mode enabled the app stays running. Cmd+Tab activates the
+app and requests a window when none is visible; a Dock click uses the tray
+reopen handler. Cmd+H is AppKit hiding, not window destruction.

@@ -265,19 +265,13 @@ unsafe extern "C-unwind" fn reopen(
 /// only the menu bar. The injected method asks for a window through the
 /// same action the tray's Show uses whenever activation finds no visible
 /// window; a window left miniaturized is restored through the app's own
-/// unminimize path. The first activation after launch is skipped: winit
-/// creates the startup window itself, and a hidden start must not pop one
-/// up.
+/// unminimize path. Installation happens after the first window attaches:
+/// skipping a first notification here would swallow the first real Cmd-Tab.
 unsafe extern "C-unwind" fn did_become_active(
     _this: &objc2::runtime::AnyObject,
     _sel: objc2::runtime::Sel,
     _notification: &objc2::runtime::AnyObject,
 ) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static LAUNCH_ACTIVATION_SEEN: AtomicBool = AtomicBool::new(false);
-    if !LAUNCH_ACTIVATION_SEEN.swap(true, Ordering::Relaxed) {
-        return;
-    }
     let Some(mtm) = objc2::MainThreadMarker::new() else {
         return;
     };
@@ -302,7 +296,6 @@ unsafe extern "C-unwind" fn did_become_active(
 /// delegate, unless a handler already exists. Called from `drain`, which
 /// runs while the event loop pumps frames.
 fn install_reopen_handler() {
-    use objc2::runtime::{AnyProtocol, Bool, Imp, Sel};
     use std::sync::atomic::{AtomicBool, Ordering};
     static INSTALLED: AtomicBool = AtomicBool::new(false);
     if INSTALLED.load(Ordering::Relaxed) {
@@ -315,52 +308,60 @@ fn install_reopen_handler() {
     let Some(delegate) = app.delegate() else {
         return;
     };
+    let class = AsRef::<objc2::runtime::AnyObject>::as_ref(&*delegate).class();
+    if install_handlers_on_class(class) {
+        INSTALLED.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Independently add the two optional handlers, preserving any existing ones.
+fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
+    use objc2::runtime::{AnyProtocol, Bool, Imp, Sel};
     let Some(protocol) = AnyProtocol::get(c"NSApplicationDelegate") else {
-        return;
+        return false;
     };
     let sel = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
-    let class = AsRef::<objc2::runtime::AnyObject>::as_ref(&*delegate).class();
     // Never override a handler the delegate already implements.
-    if class.instance_method(sel).is_some() {
-        INSTALLED.store(true, Ordering::Relaxed);
-        return;
+    if class.instance_method(sel).is_none() {
+        // The protocol carries the correct encoding for the architecture.
+        let description = unsafe {
+            objc2::ffi::protocol_getMethodDescription(
+                std::ptr::from_ref(protocol),
+                sel,
+                Bool::new(false),
+                Bool::new(true),
+            )
+        };
+        if description.types.is_null() {
+            return false;
+        }
+        let added = unsafe {
+            objc2::ffi::class_addMethod(
+                std::ptr::from_ref(class).cast_mut(),
+                sel,
+                std::mem::transmute::<
+                    unsafe extern "C-unwind" fn(
+                        &objc2::runtime::AnyObject,
+                        Sel,
+                        &NSApplication,
+                        Bool,
+                    ) -> Bool,
+                    Imp,
+                >(reopen),
+                description.types,
+            )
+        };
+        if !added.as_bool() && class.instance_method(sel).is_none() {
+            return false;
+        }
     }
-    // The protocol carries the correct encoding for the architecture.
-    let description = unsafe {
-        objc2::ffi::protocol_getMethodDescription(
-            std::ptr::from_ref(protocol),
-            sel,
-            Bool::new(false),
-            Bool::new(true),
-        )
-    };
-    if description.types.is_null() {
-        return;
-    }
-    let added = unsafe {
-        objc2::ffi::class_addMethod(
-            std::ptr::from_ref(class).cast_mut(),
-            sel,
-            std::mem::transmute::<
-                unsafe extern "C-unwind" fn(
-                    &objc2::runtime::AnyObject,
-                    Sel,
-                    &NSApplication,
-                    Bool,
-                ) -> Bool,
-                Imp,
-            >(reopen),
-            description.types,
-        )
-    };
-    if !added.as_bool() {
-        return;
-    }
+    // Install independently: fastframe-tray can already own the Dock reopen
+    // selector, but that says nothing about Cmd-Tab activation. Never let its
+    // existing handler prevent this separate selector from being installed.
     // Same injection for Cmd-Tab / app-switcher activation.
     let active_sel = objc2::sel!(applicationDidBecomeActive:);
     if class.instance_method(active_sel).is_some() {
-        INSTALLED.store(true, Ordering::Relaxed);
-        return;
+        return true;
     }
     let active_description = unsafe {
         objc2::ffi::protocol_getMethodDescription(
@@ -371,8 +372,7 @@ fn install_reopen_handler() {
         )
     };
     if active_description.types.is_null() {
-        INSTALLED.store(true, Ordering::Relaxed);
-        return;
+        return false;
     }
     let active_added = unsafe {
         objc2::ffi::class_addMethod(
@@ -389,9 +389,7 @@ fn install_reopen_handler() {
             active_description.types,
         )
     };
-    if active_added.as_bool() {
-        INSTALLED.store(true, Ordering::Relaxed);
-    }
+    active_added.as_bool()
 }
 
 /// A native file dialog runs a modal loop, so its text fields must receive
@@ -505,6 +503,43 @@ pub fn drain(hidden: bool) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_existing_dock_handler_does_not_block_cmd_tab() {
+        use objc2::ClassType;
+        use objc2::runtime::{AnyObject, Bool, ClassBuilder, Sel};
+        extern "C-unwind" fn dock(
+            _delegate: &AnyObject,
+            _selector: Sel,
+            _app: *mut NSApplication,
+            _visible: Bool,
+        ) -> Bool {
+            Bool::YES
+        }
+        let reopen = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
+        let active = objc2::sel!(applicationDidBecomeActive:);
+        let mut builder = ClassBuilder::new(
+            c"SolmuExistingDockHandlerTest",
+            objc2_foundation::NSObject::class(),
+        )
+        .expect("unique test class");
+        // SAFETY: dock matches the selector's Objective-C signature.
+        unsafe {
+            builder.add_method(reopen, dock as extern "C-unwind" fn(_, _, _, _) -> _);
+        }
+        let class = builder.register();
+        assert!(class.instance_method(active).is_none());
+        assert!(install_handlers_on_class(class));
+        assert!(class.instance_method(active).is_some());
+        assert_eq!(
+            class.instance_method(reopen).unwrap().implementation() as *const (),
+            dock as *const ()
+        );
+        assert!(
+            install_handlers_on_class(class),
+            "later windows keep both handlers"
+        );
+    }
 
     #[test]
     fn menu_edits_reach_the_focused_text_field_before_the_pass() {
