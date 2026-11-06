@@ -2415,7 +2415,7 @@ impl App {
         crate::theme::set_font(ctx, self.settings.font);
         crate::theme::install(ctx);
         // Zoom stays in the settings, so egui must not change it behind the
-        // app's back: the shortcuts below go through `Action::ZoomBy`.
+        // app's back: pinch gestures go through `Action::ZoomBy`.
         ctx.options_mut(|options| options.zoom_with_keyboard = false);
         // A keystroke that wraps the draft is applied in one pass, and the
         // bottom panel holding the composer only takes the new height in
@@ -26184,7 +26184,9 @@ mod app_lock_tests {
                         physical_key: None,
                         pressed: true,
                         repeat: false,
-                        modifiers: egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                        modifiers: egui::Modifiers::COMMAND
+                            | egui::Modifiers::ALT
+                            | egui::Modifiers::SHIFT,
                     }],
                     ..Default::default()
                 },
