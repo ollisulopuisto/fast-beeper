@@ -3843,3 +3843,7 @@ msgstr "Enter ile gönder"
 
 #~ msgid "Channel"
 #~ msgstr "Kanal"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "Evvelsi gün"

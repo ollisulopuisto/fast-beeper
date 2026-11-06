@@ -3745,3 +3745,7 @@ msgstr "以 Enter 送出"
 #, fuzzy
 #~ msgid "Next pinned message"
 #~ msgstr "{} 則未讀訊息"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "前天"

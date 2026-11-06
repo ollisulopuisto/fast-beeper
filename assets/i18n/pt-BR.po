@@ -3852,3 +3852,7 @@ msgstr "Enter envia"
 
 #~ msgid "Next pinned message"
 #~ msgstr "Próxima mensagem fixada"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "Anteontem"
