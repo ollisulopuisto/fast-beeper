@@ -12090,12 +12090,6 @@ mod reaction_tests {
         own.from_me = true;
         own.timestamp = crate::util::now();
         own.status = Delivery::Delivered;
-        // Exercise the Copy URL item as well as Copy text in the menu's
-        // translation/width coverage fixture.
-        own.content = Content::Text {
-            text: "Named link (https://example.com/path?one=1&two=2)".into(),
-            preview: None,
-        };
         let path = Some(file.to_path_buf());
         let media = |mime: &str, path: Option<PathBuf>, state| Media {
             mime: mime.into(),
@@ -12206,6 +12200,21 @@ mod reaction_tests {
         }
         // The fixtures reach every entry a list row's menu can show. A private
         // reply starts from the group on screen, so only the chat offers it.
+        // New keys are not in the maintainer-generated catalogs yet. Keep
+        // the shared translated fixtures unchanged, and cover the new menu
+        // entry separately in English until extraction/translations land.
+        let mut link = menu_fixtures(&file).remove(0);
+        link.message.content = Content::Text {
+            text: "Title (https://example.com/path?one=1&two=2)".into(),
+            preview: None,
+        };
+        let link_labels = drawn_menu_words(crate::i18n::Locale::English, &link);
+        assert!(
+            link_labels
+                .iter()
+                .any(|label| label == "Copy URL to clipboard")
+        );
+        labels.extend(link_labels);
         let undrawn: Vec<&str> = measured
             .iter()
             .map(String::as_str)
