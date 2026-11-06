@@ -217,9 +217,8 @@ impl Region {
 /// The OS regional locale, read once per run.
 pub fn region() -> Option<Region> {
     static REGION: std::sync::OnceLock<Option<Region>> = std::sync::OnceLock::new();
-    *REGION.get_or_init(|| {
-        region_preference::identifier().and_then(|id| Region::from_identifier(&id))
-    })
+    *REGION
+        .get_or_init(|| region_preference::identifier().and_then(|id| Region::from_identifier(&id)))
 }
 
 #[cfg(target_os = "linux")]
@@ -330,7 +329,11 @@ fn word_locale(region: Option<Region>, locale: Locale) -> Locale {
 
 /// A weekday name in the region's own language where the region sets one,
 /// else the UI language's.
-fn regional_weekday(region: Option<Region>, locale: Locale, weekday: jiff::civil::Weekday) -> String {
+fn regional_weekday(
+    region: Option<Region>,
+    locale: Locale,
+    weekday: jiff::civil::Weekday,
+) -> String {
     match region {
         Some(Region::Finnish) => FI_WEEKDAYS[monday_index(weekday)].to_owned(),
         Some(Region::EnglishUs) => weekday_name(Locale::English, weekday),
@@ -465,7 +468,12 @@ fn full_stamp_in(region: Option<Region>, when: &Zoned) -> String {
                 when.second(),
                 twelve_hour_clock(),
             );
-            format!("{}.{}.{} {time} {zone}", when.day(), when.month(), when.year())
+            format!(
+                "{}.{}.{} {time} {zone}",
+                when.day(),
+                when.month(),
+                when.year()
+            )
         }
         Some(Region::EnglishUs) => {
             let time = time_with_seconds(
@@ -474,7 +482,12 @@ fn full_stamp_in(region: Option<Region>, when: &Zoned) -> String {
                 when.second(),
                 twelve_hour_clock(),
             );
-            format!("{}/{}/{} {time} {zone}", when.month(), when.day(), when.year())
+            format!(
+                "{}/{}/{} {time} {zone}",
+                when.month(),
+                when.day(),
+                when.year()
+            )
         }
         None => when.strftime("%d.%m.%Y %H:%M:%S %Z").to_string(),
     }
@@ -596,7 +609,10 @@ fn moment_stamp_relative_to(
         0 => time,
         1 => crate::i18n::gettext(words, "Yesterday at {time}").replace("{time}", &time),
         2..=6 => crate::i18n::gettext(words, "{weekday} at {time}")
-            .replace("{weekday}", &regional_weekday(region, locale, when.date().weekday()))
+            .replace(
+                "{weekday}",
+                &regional_weekday(region, locale, when.date().weekday()),
+            )
             .replace("{time}", &time),
         _ => crate::i18n::gettext(words, "{date} at {time}")
             .replace("{date}", &short_date_in(region, locale, when.date()))
@@ -674,7 +690,12 @@ pub fn day_label(locale: Locale, unix_seconds: i64) -> String {
     day_label_relative_to(region(), locale, when.date(), today())
 }
 
-fn day_label_relative_to(region: Option<Region>, locale: Locale, date: Date, today: Date) -> String {
+fn day_label_relative_to(
+    region: Option<Region>,
+    locale: Locale,
+    date: Date,
+    today: Date,
+) -> String {
     let days = today
         .since(date)
         .map(|span| span.get_days())
@@ -1398,7 +1419,13 @@ mod tests {
             time_of_day(22, 13, twelve_hour_clock())
         );
         assert_eq!(
-            stamp_relative_to(None, Locale::English, date, date.tomorrow().expect("date"), &when),
+            stamp_relative_to(
+                None,
+                Locale::English,
+                date,
+                date.tomorrow().expect("date"),
+                &when
+            ),
             "Yesterday"
         );
         assert_eq!(
@@ -1546,7 +1573,13 @@ mod tests {
             .to_zoned(jiff::tz::TimeZone::UTC);
         let date = when.date();
         assert_eq!(
-            stamp_relative_to(None, Locale::Turkish, date, date.tomorrow().expect("date"), &when),
+            stamp_relative_to(
+                None,
+                Locale::Turkish,
+                date,
+                date.tomorrow().expect("date"),
+                &when
+            ),
             "Dün"
         );
         assert_eq!(
@@ -1778,7 +1811,10 @@ mod tests {
             "Tuesday, November 14, 2023"
         );
         let seconds = time_with_seconds(22, 13, 20, twelve_hour_clock());
-        assert_eq!(full_stamp_in(us, &when), format!("11/14/2023 {seconds} UTC"));
+        assert_eq!(
+            full_stamp_in(us, &when),
+            format!("11/14/2023 {seconds} UTC")
+        );
         // The transcript stamp keeps WhatsApp's US shape.
         assert_eq!(copy_stamp_in(us, &when), "22:13, 11/14/2023");
     }
