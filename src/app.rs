@@ -3794,7 +3794,10 @@ impl App {
     /// the reader chose not to see. WhatsApp counts chats here, not the
     /// messages inside them. An associated function because the account
     /// switcher calls it with an account it already borrows.
-    pub(crate) fn badge_unread_count(settings: &crate::settings::Settings, account: &Account) -> u32 {
+    pub(crate) fn badge_unread_count(
+        settings: &crate::settings::Settings,
+        account: &Account,
+    ) -> u32 {
         let now = crate::util::now();
         let chats = account
             .chats
