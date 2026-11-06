@@ -9,6 +9,8 @@ version in Cargo.toml is bumped.
 
 ## Unreleased
 
+- macOS: explicitly subscribe the late-installed Cmd-Tab activation handler so it can request a new window after Close keeps Solmu running in the background. Dock reopen stays separate.
+
 - Chat-list redesign: Search first, then Chats beside an aligned four-way icon queue (All, Unread, Reply later, Read later). Filters combines chat type, favorites, labels, Unreplied and network/account scope; the bottom New message button stays fixed even with no results. Search keeps the selected scope and offers a count of available matches outside it, without listing them until the scope is cleared. Keyboard filter/network/favorite digits keep their assignments.
 - Incoming group messages use a fixed avatar gutter and a straight bubble-body column, including follow-up messages from the same sender.
 
