@@ -339,7 +339,7 @@ fn empty(app: &mut App, ui: &mut egui::Ui) {
             super::keys::label(
                 crate::i18n::gettext(
                     app.locale,
-                    "Ctrl+K for open chats · Ctrl+Shift+F to search · ? for keyboard shortcuts",
+                    "Ctrl+K for recent chats · Ctrl+Shift+F to search · ? for keyboard shortcuts",
                 )
                 .as_ref(),
             ),

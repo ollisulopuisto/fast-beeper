@@ -129,10 +129,6 @@ fn build_menu() -> tray_icon::menu::Result<Menu> {
     view.append_items(&[
         &registered("sidebar"),
         &Native::separator(),
-        &registered("zoom-in"),
-        &registered("zoom-out"),
-        &registered("zoom-reset"),
-        &Native::separator(),
         &Native::fullscreen(None),
     ])?;
     let window = Submenu::new("Window", true);
@@ -471,9 +467,6 @@ fn action(id: &str) -> Option<Action> {
         "quit" => Action::Quit,
         "search" => Action::FocusSearch,
         "sidebar" => Action::ToggleSidebar,
-        "zoom-in" => Action::ZoomBy(0.1),
-        "zoom-out" => Action::ZoomBy(-0.1),
-        "zoom-reset" => Action::ResetZoom,
         "whats-new" => Action::ShowDialog(Dialog::WhatsNew),
         "shortcuts" => Action::ShowDialog(Dialog::Shortcuts),
         "help" => Action::OpenUrl("https://zapfast.rocks/using-zapfast/".into()),

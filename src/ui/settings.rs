@@ -1180,7 +1180,7 @@ fn app_lock_rows(app: &App, privacy: &mut Section) {
             translated(locale, "Lock after"),
             keyed(translated(
                 locale,
-                "Time without using Solmu, also counted while it is in the tray. Ctrl+Shift+L locks it at once outside Beeper. In Beeper, add Alt (Option on Mac).",
+                "Time without using Solmu, also counted while it is in the tray. Ctrl+Alt+Shift+L locks it at once.",
             )),
             move |ui, app| {
                 let selected = app.settings.app_lock_after;

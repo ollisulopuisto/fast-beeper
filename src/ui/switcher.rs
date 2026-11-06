@@ -114,7 +114,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     };
 
     let width = ui.available_width();
-    let hint = crate::i18n::gettext(app.locale, "Open chats");
+    let hint = crate::i18n::gettext(app.locale, "Recent chats");
     let search = widgets::search_field(
         ui,
         &palette,
