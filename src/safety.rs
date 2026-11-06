@@ -389,7 +389,43 @@ mod tests {
 
     #[test]
     fn only_recognized_document_and_media_extensions_can_launch() {
-        for name in ["photo.JPG", "document.pdf", "voice.ogg", "sheet.xlsx"] {
+        for name in [
+            "photo.JPG",
+            "photo.jpeg",
+            "photo.png",
+            "photo.gif",
+            "photo.webp",
+            "photo.bmp",
+            "photo.tif",
+            "photo.tiff",
+            "photo.heic",
+            "photo.heif",
+            "photo.avif",
+            "movie.mp4",
+            "movie.m4v",
+            "movie.mov",
+            "movie.webm",
+            "movie.mkv",
+            "movie.3gp",
+            "track.mp3",
+            "track.m4a",
+            "track.aac",
+            "voice.ogg",
+            "voice.opus",
+            "sound.wav",
+            "audio.flac",
+            "document.pdf",
+            "notes.txt",
+            "debug.log",
+            "table.csv",
+            "document.docx",
+            "sheet.xlsx",
+            "presentation.pptx",
+            "document.odt",
+            "sheet.ods",
+            "slides.odp",
+            "document.rtf",
+        ] {
             assert!(can_open_attachment(Path::new(name)), "{name}");
         }
         for name in [
@@ -412,8 +448,100 @@ mod tests {
             "file.pdf ",
             "file.pdf:payload.exe",
             "file.unknown",
+            "payload.sh",
+            "binary.bin",
+            "library.so",
+            "library.dylib",
+            "library.dll",
         ] {
             assert!(!can_open_attachment(Path::new(name)), "{name}");
         }
+    }
+
+    #[test]
+    fn external_and_preview_url_edge_cases() {
+        // Invalid or empty URLs
+        assert_eq!(external_url(""), None);
+        assert_eq!(external_url("   "), None);
+        assert_eq!(preview_url(""), None);
+        assert_eq!(preview_url("   "), None);
+
+        // Control characters
+        assert_eq!(external_url("https://example.com/\0"), None);
+        assert_eq!(external_url("https://example.com/\tpath"), None);
+        assert_eq!(external_url("https://example.com/\r\npath"), None);
+        assert_eq!(preview_url("https://example.com/\0"), None);
+        assert_eq!(preview_url("https://example.com/\tpath"), None);
+
+        // Disallowed schemes
+        for scheme in [
+            "ftp://example.com",
+            "ssh://example.com",
+            "tel:+1234567890",
+            "smb://example.com",
+            "view-source:https://example.com",
+        ] {
+            assert_eq!(external_url(scheme), None, "{scheme}");
+            assert_eq!(preview_url(scheme), None, "{scheme}");
+        }
+
+        // Mailto without recipient or with backslash
+        assert_eq!(external_url("mailto:"), None);
+        assert_eq!(external_url("mailto:\\evil@example.com"), None);
+
+        // External url accepts valid http, https, and mailto
+        assert_eq!(
+            external_url("https://example.com:8080/path?query=val#hash"),
+            Some("https://example.com:8080/path?query=val#hash".into())
+        );
+        assert_eq!(
+            external_url("http://example.org/"),
+            Some("http://example.org/".into())
+        );
+        assert_eq!(
+            external_url("mailto:user.name+tag@example.co.uk"),
+            Some("mailto:user.name+tag@example.co.uk".into())
+        );
+
+        // Preview URL bare domain parsing vs scheme
+        assert_eq!(
+            preview_url("sub.domain.example.org/test"),
+            Some("https://sub.domain.example.org/test".into())
+        );
+    }
+
+    #[test]
+    fn group_invite_and_call_link_edge_cases() {
+        // Empty or whitespace
+        assert_eq!(group_invite_code(""), None);
+        assert_eq!(group_invite_code("   "), None);
+        assert_eq!(call_link(""), None);
+        assert_eq!(call_link("   "), None);
+
+        // Invalid host or path for invite
+        assert_eq!(
+            group_invite_code("https://other.com/AbCdEf1234567890XyZ"),
+            None
+        );
+        assert_eq!(
+            group_invite_code("whatsapp://other/?code=AbCdEf1234567890XyZ"),
+            None
+        );
+
+        // Invalid characters in call token
+        assert_eq!(
+            call_link("https://call.whatsapp.com/voice/invalid!token!123"),
+            None
+        );
+        assert_eq!(
+            call_link("https://call.whatsapp.com/video/invalid$token$123"),
+            None
+        );
+
+        // Unknown call media type
+        assert_eq!(
+            call_link("https://call.whatsapp.com/stream/AbCdEf1234567890"),
+            None
+        );
     }
 }

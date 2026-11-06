@@ -10192,6 +10192,8 @@ mod tests {
     #[test]
     fn typing_and_clearing_a_draft_do_not_reorder_the_chat_list() {
         let mut app = app();
+        let draft = SAMPLES[8].id;
+        app.chat_mut(draft).unwrap().archived = false;
         let ctx = egui::Context::default();
         app.attach(&ctx);
         let ids = |app: &App| -> Vec<String> {
@@ -10201,7 +10203,6 @@ mod tests {
                 .collect()
         };
         let original = ids(&app);
-        let draft = SAMPLES[8].id;
         let pinned = SAMPLES[0].id;
         app.actions
             .push(crate::model::Action::OpenChat(draft.into()));
