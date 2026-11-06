@@ -1472,9 +1472,10 @@ fn take_modifier(text: &str) -> Option<(Modifier, &str)> {
 /// Relabels a modifier chain at the start of `text` the Mac way: glyphs in
 /// Control, Option, Shift, Command order with no separators, so "Ctrl+Shift+F"
 /// and "Shift+Ctrl+Enter" alike come out with Shift before Command. Returns
-/// `None` when no chain starts here. A mouse gesture ("Ctrl + click") keeps
-/// a space: "⌘ click" reads as a click, not a key.
-fn relabel_chain(text: &str) -> Option<String> {
+/// the glyphs and the unconsumed tail, or `None` when no chain starts here.
+/// A mouse gesture ("Ctrl + click") keeps a space: "⌘ click" reads as a
+/// click, not a key.
+fn relabel_chain(text: &str) -> Option<(String, &str)> {
     const ORDER: [Modifier; 4] = [
         Modifier::Control,
         Modifier::Option,
@@ -1500,8 +1501,7 @@ fn relabel_chain(text: &str) -> Option<String> {
     if rest.starts_with("click") {
         out.push(' ');
     }
-    out.push_str(rest);
-    Some(out)
+    Some((out, rest))
 }
 
 /// Uses the Mac modifier convention on macOS ("⌘K", "⇧⌘F", literal Control
@@ -1519,9 +1519,10 @@ fn label_for(keys: &str, macos: bool) -> String {
     let mut out = String::with_capacity(keys.len());
     let mut rest = keys;
     while !rest.is_empty() {
-        if let Some(relabeled) = relabel_chain(rest) {
-            out.push_str(&relabeled);
-            break;
+        if let Some((glyphs, tail)) = relabel_chain(rest) {
+            out.push_str(&glyphs);
+            rest = tail;
+            continue;
         }
         // The next chain can start after any non-alphanumeric boundary.
         let next = rest
@@ -1692,6 +1693,7 @@ mod tests {
             app.actions.as_slice(),
             [.., Action::OpenChat(chat)] if *chat == ids[1]
         ));
+        app.open_chat = Some(ids[1].clone());
         app.actions.clear();
         assert!(!press(
             &mut app,
