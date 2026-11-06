@@ -9,6 +9,8 @@ version in Cargo.toml is bumped.
 
 ## Unreleased
 
+- Clean URL labels on shared links (including Instagram reels) now hide the duplicate parenthesized destination, like named links. Clicking or Copy URL keeps the complete destination and its query parameters; message copy/export keeps the original text.
+
 - Copy image and Save as now work on downloaded attachments in Beeper mode, even while disconnected. Failed decode, clipboard writes and file saves show an error instead of silently doing nothing.
 
 - Message timestamps, day separators and date labels follow the OS regional locale independently of the app language: a Finnish region reads "eilen 20:13", "toissa päivänä 20:13" and "tiistai 14. marraskuuta 2023", a US region "Yesterday 10:13 PM" and "11/14/2023". The 12/24-hour clock keeps following the OS clock setting.
