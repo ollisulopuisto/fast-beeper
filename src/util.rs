@@ -5,6 +5,8 @@ use jiff::{Timestamp, Zoned};
 
 use crate::i18n::Locale;
 
+mod day_date;
+
 /// Normalizes supported formatting without changing an international recipient.
 /// Accepts 7 to 15 ASCII digits, an optional leading plus, and balanced brackets.
 pub fn international_phone(input: &str) -> Option<String> {
@@ -680,14 +682,20 @@ fn last_seen_relative_to(locale: Locale, today: Date, when: &Zoned) -> String {
     }
 }
 
-/// Conversation day-separator label: "tänään" and "tiistai 14. marraskuuta
-/// 2023" on a Finnish system, "Today" and "Tuesday, November 14, 2023" on a
-/// US one.
+/// Conversation day separator: localized names for the last three calendar
+/// days, then a numeric date in the OS region's order, with a year only when
+/// it differs from today's. Bubble clocks and message-info moments are separate.
 pub fn day_label(locale: Locale, unix_seconds: i64) -> String {
     let Some(when) = zoned(unix_seconds) else {
         return String::new();
     };
-    day_label_relative_to(region(), locale, when.date(), today())
+    day_label_relative_to(
+        region(),
+        locale,
+        when.date(),
+        today(),
+        day_date::pattern(region(), locale),
+    )
 }
 
 fn day_label_relative_to(
@@ -695,23 +703,28 @@ fn day_label_relative_to(
     locale: Locale,
     date: Date,
     today: Date,
+    pattern: &str,
 ) -> String {
     let days = today
         .since(date)
         .map(|span| span.get_days())
         .unwrap_or(i32::MAX);
     let words = word_locale(region, locale);
-    match days {
-        0 => match region {
-            Some(Region::Finnish) => "tänään".to_owned(),
-            _ => crate::i18n::gettext(words, "Today").into_owned(),
-        },
-        1 => match region {
-            Some(Region::Finnish) => "eilen".to_owned(),
-            _ => crate::i18n::gettext(words, "Yesterday").into_owned(),
-        },
-        2..=6 => regional_weekday(region, locale, date.weekday()),
-        _ => long_date_in(region, locale, date),
+    match (region, days) {
+        (Some(Region::Finnish), 0) => "Tänään".to_owned(),
+        (Some(Region::Finnish), 1) => "Eilen".to_owned(),
+        (Some(Region::Finnish), 2) => "Toissapäivänä".to_owned(),
+        (_, 0) => crate::i18n::gettext(words, "Today").into_owned(),
+        (_, 1) => crate::i18n::gettext(words, "Yesterday").into_owned(),
+        (_, 2) => crate::i18n::gettext(words, "Day before yesterday").into_owned(),
+        _ => day_date::format(date, date.year() != today.year(), pattern).unwrap_or_else(|| {
+            day_date::format(
+                date,
+                date.year() != today.year(),
+                day_date::fallback_pattern(locale),
+            )
+            .expect("numeric fallback date pattern")
+        }),
     }
 }
 
@@ -1726,11 +1739,13 @@ mod tests {
         );
 
         // Day-separator labels.
-        let label = |today| day_label_relative_to(fi, Locale::English, date, today);
-        assert_eq!(label(date), "tänään");
-        assert_eq!(label(plus(1)), "eilen");
-        assert_eq!(label(plus(3)), "tiistai");
-        assert_eq!(label(plus(30)), "tiistai 14. marraskuuta 2023");
+        let label = |today| day_label_relative_to(fi, Locale::English, date, today, "dd.MM.yyyy");
+        assert_eq!(label(date), "Tänään");
+        assert_eq!(label(plus(1)), "Eilen");
+        assert_eq!(label(plus(2)), "Toissapäivänä");
+        assert_eq!(label(plus(3)), "14.11.");
+        assert_eq!(label(plus(30)), "14.11.");
+        assert_eq!(label(plus(400)), "14.11.2023");
 
         // Message-info moments take the essive weekday with "klo".
         let moment = |today| moment_stamp_relative_to(fi, Locale::English, &when, today);
@@ -1751,6 +1766,38 @@ mod tests {
             format!("14.11.2023 {seconds} UTC")
         );
         assert_eq!(copy_stamp_in(fi, &when), format!("{time}, 14.11.2023"));
+    }
+
+    #[test]
+    fn day_separators_use_calendar_days_across_year_and_leap_boundaries() {
+        use jiff::civil::date;
+        let label =
+            |date, today| day_label_relative_to(None, Locale::English, date, today, "dd.MM.yyyy");
+        let new_year = date(2026, 1, 1);
+        assert_eq!(label(new_year, new_year), "Today");
+        assert_eq!(label(date(2025, 12, 31), new_year), "Yesterday");
+        assert_eq!(label(date(2025, 12, 30), new_year), "Day before yesterday");
+        assert_eq!(label(date(2025, 12, 29), new_year), "29.12.2025");
+        assert_eq!(
+            label(date(2024, 2, 29), date(2024, 3, 2)),
+            "Day before yesterday"
+        );
+        assert_eq!(label(date(2024, 2, 29), date(2024, 3, 3)), "29.02.");
+        assert_eq!(label(date(2026, 1, 2), new_year), "02.01.");
+        assert_eq!(day_label(Locale::English, i64::MAX), "");
+    }
+
+    #[test]
+    fn day_before_yesterday_is_translated_in_every_catalog() {
+        let date = jiff::civil::date(2026, 3, 5);
+        let today = jiff::civil::date(2026, 3, 7);
+        for locale in Locale::ALL {
+            let label = day_label_relative_to(None, locale, date, today, "dd.MM.yyyy");
+            assert!(!label.is_empty());
+            if locale != Locale::English {
+                assert_ne!(label, "Day before yesterday", "{locale:?}");
+            }
+        }
     }
 
     #[test]
@@ -1796,9 +1843,11 @@ mod tests {
             "Nov 14, 2023"
         );
 
-        let label = |today| day_label_relative_to(us, Locale::English, date, today);
+        let label = |today| day_label_relative_to(us, Locale::English, date, today, "M/d/yyyy");
         assert_eq!(label(date), "Today");
-        assert_eq!(label(plus(30)), "Tuesday, November 14, 2023");
+        assert_eq!(label(plus(2)), "Day before yesterday");
+        assert_eq!(label(plus(30)), "11/14");
+        assert_eq!(label(plus(400)), "11/14/2023");
 
         let moment = |today| moment_stamp_relative_to(us, Locale::English, &when, today);
         assert_eq!(moment(plus(1)), format!("Yesterday at {time}"));

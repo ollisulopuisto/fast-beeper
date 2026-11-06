@@ -1,5 +1,15 @@
 # Fast-beeper coordination and development checkpoint
 
+## Bolt favorites-order repair - November 6, 2026
+
+Existing PR214 originated from a google-labs-jules[bot] commit, opened under the
+maintainer account. Instinct repaired its stale-parent PACKAGING conflict after
+PR210 merged, preserving activation notes and removing inherited launcher/demo
+changes from the PR diff. Kept the allocation-free ASCII query fast path, but
+retained normalization for Unicode: a combining-mark-only query normalizes to
+empty and must keep favorites order. Added a regression for empty, whitespace,
+ASCII text, combining marks, accented text and CJK. No native/runtime claim.
+
 ## Local attachment actions - November 6, 2026
 
 Branch: fix/image-viewer-actions, owned by Instinct. Copy image and Save as

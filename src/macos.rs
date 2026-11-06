@@ -314,7 +314,39 @@ fn install_reopen_handler() {
     };
     let class = AsRef::<objc2::runtime::AnyObject>::as_ref(&*delegate).class();
     if install_handlers_on_class(class) {
+        // winit assigned this delegate before we added the optional method.
+        // A method added later is not automatically an observer of AppKit's
+        // already-configured delegate notifications. Enroll it explicitly.
+        register_activation_handler(
+            &objc2_foundation::NSNotificationCenter::defaultCenter(),
+            AsRef::<objc2::runtime::AnyObject>::as_ref(&*delegate),
+            AsRef::<objc2::runtime::AnyObject>::as_ref(&app),
+        );
+        dock_diag("activation notification observer registered");
         INSTALLED.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Subscribe the installed delegate to real activation delivery, not merely
+/// to the presence of a selector. Re-registration is idempotent for this
+/// observer and app, without touching unrelated notifications or delegates.
+fn register_activation_handler(
+    center: &objc2_foundation::NSNotificationCenter,
+    observer: &objc2::runtime::AnyObject,
+    app: &objc2::runtime::AnyObject,
+) {
+    // SAFETY: install_handlers_on_class has installed the notification
+    // selector with its protocol's signature. winit owns the delegate for
+    // the lifetime of its event loop, including headless AppKit pumping.
+    unsafe {
+        let name = objc2_app_kit::NSApplicationDidBecomeActiveNotification;
+        center.removeObserver_name_object(observer, Some(name), Some(app));
+        center.addObserver_selector_name_object(
+            observer,
+            objc2::sel!(applicationDidBecomeActive:),
+            Some(name),
+            Some(app),
+        );
     }
 }
 
@@ -508,6 +540,54 @@ pub fn drain(hidden: bool) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activation_registration_delivers_once_after_late_method_installation() {
+        use objc2::ClassType;
+        use objc2::rc::Retained;
+        use objc2::runtime::{AnyObject, ClassBuilder, Sel};
+        use objc2_foundation::{NSNotificationCenter, NSObject};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static DELIVERED: AtomicUsize = AtomicUsize::new(0);
+        extern "C-unwind" fn active(_this: &AnyObject, _sel: Sel, _note: &AnyObject) {
+            DELIVERED.fetch_add(1, Ordering::Relaxed);
+        }
+        let selector = objc2::sel!(applicationDidBecomeActive:);
+        let mut builder =
+            ClassBuilder::new(c"SolmuActivationDeliveryTest", NSObject::class()).unwrap();
+        // SAFETY: the method accepts the one notification argument.
+        unsafe {
+            builder.add_method(selector, active as extern "C-unwind" fn(_, _, _));
+        }
+        let class = builder.register();
+        // SAFETY: NSObject's initializer on our freshly registered subclass.
+        let observer: Retained<AnyObject> = unsafe { objc2::msg_send![class, new] };
+        let app = NSObject::new();
+        let other_app = NSObject::new();
+        let center = NSNotificationCenter::new();
+        register_activation_handler(&center, &observer, &app);
+        register_activation_handler(&center, &observer, &app);
+        // SAFETY: both senders are live NSObject instances. The callback
+        // does not need NSApplication or a main-thread UI in this test.
+        unsafe {
+            center.postNotificationName_object(
+                objc2_app_kit::NSApplicationDidBecomeActiveNotification,
+                Some(&other_app),
+            );
+            assert_eq!(DELIVERED.load(Ordering::Relaxed), 0);
+            center.postNotificationName_object(
+                objc2_app_kit::NSApplicationDidBecomeActiveNotification,
+                Some(&app),
+            );
+            assert_eq!(DELIVERED.load(Ordering::Relaxed), 1);
+            center.removeObserver(&observer);
+            center.postNotificationName_object(
+                objc2_app_kit::NSApplicationDidBecomeActiveNotification,
+                Some(&app),
+            );
+            assert_eq!(DELIVERED.load(Ordering::Relaxed), 1);
+        }
+    }
 
     #[test]
     fn an_existing_dock_handler_does_not_block_cmd_tab() {
