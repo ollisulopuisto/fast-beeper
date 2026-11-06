@@ -3,6 +3,10 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Manual macOS-only builds: Actions -> Release -> Run workflow. Only the
+  # macOS job runs; the DMG lands on the rolling "macOS manual builds" draft
+  # release (see the deliver job). Tag pushes still run the full release.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,6 +36,8 @@ jobs:
   build:
     name: build (${{ matrix.target }})
     needs: release-source
+    # Linux and Windows builds belong to tag releases; manual runs are macOS only.
+    if: github.event_name == 'push'
     permissions:
       contents: read
       id-token: write
@@ -203,6 +209,20 @@ jobs:
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
+      # Tag builds version from the tag; manual builds from Cargo.toml plus a
+      # per-run suffix, so repeated builds of one version stay distinguishable
+      # and never collide with a tag artifact. bundle.sh strips the suffix for
+      # the bundle's numeric version.
+      - name: Resolve version and DMG name
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+            echo "APP_VERSION=$version-manual.${{ github.run_number }}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+          echo "DMG_NAME=solmu-v$APP_VERSION-macos-universal.dmg" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
@@ -233,20 +253,19 @@ jobs:
 
       - name: App bundle
         run: |
-          version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/macos-input
-          bash packaging/macos/bundle.sh universal/solmu dist/macos-input/Solmu.app "$version" beeper
+          bash packaging/macos/bundle.sh universal/solmu dist/macos-input/Solmu.app "$APP_VERSION" beeper
           cp README.md LICENSE THIRD-PARTY-NOTICES.md dist/macos-input/
 
       - name: Package, sign and notarize macOS app
         run: |
           native-packages build \
-            --version "${GITHUB_REF_NAME#v}" --target macos-universal --defer-recipes \
+            --version "$APP_VERSION" --target macos-universal --defer-recipes \
             --output "$RUNNER_TEMP/macos-packages"
-          cp "$RUNNER_TEMP/macos-packages/packages/macos-universal/dmg/"*.dmg dist/
+          mv "$RUNNER_TEMP/macos-packages/packages/macos-universal/dmg/"*.dmg "dist/$DMG_NAME"
 
       - name: Verify the notarized release app
-        run: bash packaging/macos/verify.sh "dist/solmu-${GITHUB_REF_NAME}-macos-universal.dmg"
+        run: bash packaging/macos/verify.sh "dist/$DMG_NAME"
 
       - name: Attest macOS package
         uses: crmne/native-packages/.github/actions/attest@25a4214d2f203357c84b069f39de7c17c0be6253 # v0.11.0
@@ -257,12 +276,15 @@ jobs:
           name: macos-universal
           path: dist/*.dmg
           if-no-files-found: error
+          retention-days: ${{ github.event_name == 'workflow_dispatch' && 1 || 90 }}
 
   # The Linux build packaged as a Flatpak bundle: the same binary, in the
   # sandbox packaging/flatpak describes, so nothing compiles twice. Flathub
   # builds from source on its own machines, from the manifest beside it.
   flatpak:
     name: Flatpak bundle
+    # Tag releases only; manual runs are macOS only.
+    if: github.event_name == 'push'
     permissions:
       contents: read
       id-token: write
@@ -301,6 +323,9 @@ jobs:
   publish:
     name: GitHub release
     needs: [build, macos, flatpak]
+    # Full releases only ever come from tags. Manual runs deliver through the
+    # deliver job below, and the skipped needs would stop this job regardless.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release-signing
     permissions:
@@ -354,3 +379,34 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
 
+  # Manual macOS-only runs (workflow_dispatch) deliver here: one rolling draft
+  # release whose assets are the notarized DMGs, newest run last. Release
+  # assets cost nothing to store; workflow artifacts are billed, which is why
+  # this does not stop at the run's artifact. The draft never publishes
+  # itself - stable releases still come from v* tags only.
+  deliver:
+    name: Deliver the DMG to the draft release
+    if: github.event_name == 'workflow_dispatch'
+    needs: macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: macos-universal
+          path: dist
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          # Not a v* tag, so it can never retrigger this workflow.
+          tag_name: manual-macos
+          target_commitish: ${{ github.sha }}
+          name: macOS manual builds
+          body: |
+            Notarized universal macOS builds from manual runs (Actions -> Release -> Run workflow).
+            Download the newest DMG; discard the draft to clear old builds. Multi-platform
+            releases still come from v* tags.
+          draft: true
+          prerelease: true
+          make_latest: false
+          files: dist/*.dmg

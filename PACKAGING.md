@@ -58,6 +58,18 @@ for commands and supported formats.
 To upgrade the tool, change `tool.version` in `native-packages.yaml`, the matching immutable workflow reference, and any release-job gem installation
 pin together. Applications need no packaging Gemfile, lockfile or Ruby wrapper.
 
+## Manual macOS builds
+
+For a notarized macOS DMG without a full release, run the Release workflow by
+hand: Actions -> Release -> Run workflow on `main`. Only the macOS job runs;
+Linux, Windows, Flatpak and the publish job stay tag-only. The DMG is named
+with the Cargo version and the run number
+(`solmu-v0.24.0-manual.7-macos-universal.dmg`) and lands on the rolling
+"macOS manual builds" draft release - release assets cost nothing to store,
+unlike workflow artifacts. Download the DMG from the draft; discard the draft
+to clear old builds. Stable multi-platform releases still come from `v*` tags
+only, and the draft never publishes itself.
+
 ## Automatic macOS notarization
 
 `packaging/macos/entitlements.plist` grants microphone access under the hardened
