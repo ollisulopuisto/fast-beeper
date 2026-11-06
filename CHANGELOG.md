@@ -10,6 +10,7 @@ version in Cargo.toml is bumped.
 ## Unreleased
 
 - Conversation day separators now show Today, Yesterday and Day before yesterday, then short numeric dates in the system locale's order. Dates from another year include the full year. Finnish regions show Tänään, Eilen and Toissapäivänä. Bubble clocks and chat-row timestamps are unchanged.
+- The four-way queue toggle can show chat counts for All, Unread, Reply later and Read later. Settings > Chats > Show queue counts is on by default; turn it off for icons only. Counts follow the current search and filters, count linked people once, and are separate from unread-message counts.
 
 - macOS: explicitly subscribe the late-installed Cmd-Tab activation handler so it can request a new window after Close keeps Solmu running in the background. Dock reopen stays separate.
 - Favorites ordering avoids normalizing ordinary ASCII search text just to test emptiness, while preserving Unicode search behavior.

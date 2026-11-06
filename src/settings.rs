@@ -1679,6 +1679,18 @@ mod giphy_tests {
     }
 
     #[test]
+    fn queue_count_preference_defaults_on_and_round_trips_off() {
+        let old: BeeperPreferences = serde_json::from_str("{}").unwrap();
+        assert!(old.show_queue_counts);
+        let mut preferences = old;
+        preferences.show_queue_counts = false;
+        let json = serde_json::to_string(&preferences).unwrap();
+        let restored: BeeperPreferences = serde_json::from_str(&json).unwrap();
+        assert!(!restored.show_queue_counts);
+        assert!(restored.show_unread_counts, "independent preferences");
+    }
+
+    #[test]
     fn a_notification_limit_names_the_chats_it_applies_to() {
         for (limit, direct, group) in [
             (NotificationLimit::Off, false, false),
@@ -1706,6 +1718,8 @@ pub struct BeeperPreferences {
     pub compact_list: bool,
     pub show_previews: bool,
     pub show_unread_counts: bool,
+    /// Four-way queue badges count chats, independently of unread message badges.
+    pub show_queue_counts: bool,
     pub show_network_labels: bool,
     pub notify_focused_chat: bool,
     pub notify_group_messages: bool,
@@ -1726,6 +1740,7 @@ impl Default for BeeperPreferences {
             compact_list: false,
             show_previews: true,
             show_unread_counts: true,
+            show_queue_counts: true,
             show_network_labels: true,
             notify_focused_chat: false,
             notify_group_messages: true,

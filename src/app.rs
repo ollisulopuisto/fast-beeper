@@ -3393,16 +3393,20 @@ impl App {
     }
     /// Queue and additional scope share one predicate for chat and message results.
     pub fn chat_scope_matches(&self, chat: &Chat) -> bool {
+        self.chat_scope_matches_queue(chat, self.chat_filter)
+    }
+
+    fn chat_scope_matches_queue(&self, chat: &Chat, queue: ChatFilter) -> bool {
         self.beeper_scope_matches(chat)
             && (self.show_archived
-                || (self.chat_filter == ChatFilter::All
+                || (queue == ChatFilter::All
                     && (self.category_filter == Some(ChatFilter::Channels)
                         || self.label_filter.is_some()))
-                || (self.chat_filter == ChatFilter::Unread
+                || (queue == ChatFilter::Unread
                     && self.category_filter == Some(ChatFilter::Channels)
                     && chat.looks_unread())
-                || self.filter_matches(self.chat_filter, chat)
-                || (self.chat_filter == ChatFilter::Unread && self.unread_kept.contains(&chat.id)))
+                || self.filter_matches(queue, chat)
+                || (queue == ChatFilter::Unread && self.unread_kept.contains(&chat.id)))
             && self
                 .category_filter
                 .is_none_or(|filter| filter.matches(chat))
@@ -3662,16 +3666,13 @@ impl App {
         rows
     }
 
-    /// Visible chats filtered by search, archive state, and the chat filter,
-    /// with pins first, then parked drafts. The Favorites chip retains the
-    /// phone's order below pins instead of promoting drafts.
+    /// Shared queue filtering before sorting and linked-person deduplication.
     /// Locked chats only appear inside the locked folder.
-    pub fn visible_chats(&self) -> Vec<&Chat> {
+    fn matching_queue_chats(&self, queue: ChatFilter) -> Vec<&Chat> {
         let needle = crate::util::search_key(self.search.trim());
         let locked = self.locked_folder_open();
         let filtering = !locked && !self.show_archived;
-        let mut chats: Vec<&Chat> = self
-            .chats
+        self.chats
             .iter()
             .filter(|chat| {
                 self.beeper_network_filter
@@ -3684,10 +3685,8 @@ impl App {
                     .is_none_or(|key| chat.backend_settings_key().as_ref() == Some(key))
             })
             .filter(|chat| {
-                matches!(
-                    self.chat_filter,
-                    ChatFilter::ReplyLater | ChatFilter::ReadLater
-                ) || !needle.is_empty()
+                matches!(queue, ChatFilter::ReplyLater | ChatFilter::ReadLater)
+                    || !needle.is_empty()
                     || self.show_archived
                     || match self
                         .settings
@@ -3710,7 +3709,7 @@ impl App {
                     })
             })
             .filter(|chat| chat.locked == locked)
-            .filter(|chat| !filtering || self.chat_scope_matches(chat))
+            .filter(|chat| !filtering || self.chat_scope_matches_queue(chat, queue))
             .filter(|chat| locked || chat.archived == self.show_archived || !needle.is_empty())
             // Searching still finds people never written to, and one being
             // opened stays.
@@ -3732,7 +3731,12 @@ impl App {
                         crate::util::search_key(&last.summary).contains(&needle)
                     })
             })
-            .collect();
+            .collect()
+    }
+
+    /// Visible list, with pins first then parked drafts. Favorites retain phone order.
+    pub fn visible_chats(&self) -> Vec<&Chat> {
+        let mut chats = self.matching_queue_chats(self.chat_filter);
         let favorites_order = self.favorites_order();
         // beeper_person_preview clones the chat and, for linked people, scans
         // every member conversation's messages, so calling it twice per sort
@@ -3794,6 +3798,31 @@ impl App {
                 .is_none_or(|index| people_seen.insert(index))
         });
         chats
+    }
+
+    /// Queue badges count the exact locally available list items, not messages.
+    /// Reuses filtering without sorting or cloning linked-person previews.
+    pub fn queue_chat_counts(&self) -> [usize; 4] {
+        [
+            ChatFilter::All,
+            ChatFilter::Unread,
+            ChatFilter::ReplyLater,
+            ChatFilter::ReadLater,
+        ]
+        .map(|queue| {
+            let mut people_seen = HashSet::new();
+            self.matching_queue_chats(queue)
+                .into_iter()
+                .filter(|chat| {
+                    self.settings
+                        .beeper
+                        .people
+                        .iter()
+                        .position(|person| person.members.iter().any(|member| member.matches(chat)))
+                        .is_none_or(|index| people_seen.insert(index))
+                })
+                .count()
+        })
     }
 
     /// Whether the chat list keeps the phone's favorites order instead of the
@@ -27339,6 +27368,112 @@ mod conversation_palette_tests {
         app.apply(Action::SetMuted("chat-1".into(), Some(0)), &ctx);
         app.apply(Action::SetArchived("chat-1".into(), true), &ctx);
         assert!(!app.settings.silenced.contains_key("chat-1"));
+    }
+}
+
+#[cfg(test)]
+mod queue_count_tests {
+    use super::*;
+    use crate::model::ChatKind;
+    fn fixture() -> App {
+        let root = std::env::temp_dir().join(format!("solmu-queue-count-{}", std::process::id()));
+        let mut app = App::headless(AppDirs::under(&root), Settings::default()).0;
+        for i in 0..12 {
+            let mut chat = Chat::new(format!("queue-{i}"), format!("Queue {i}"));
+            chat.backend_origin = Some("local".into());
+            chat.backend_account = Some("account".into());
+            chat.backend_network = Some(if i < 8 { "whatsapp" } else { "telegram" }.into());
+            chat.last_activity = i + 1;
+            chat.unread = if i < 3 { 50 } else { 0 };
+            chat.favorite = i < 7;
+            chat.kind = if i % 2 == 0 {
+                ChatKind::Group
+            } else {
+                ChatKind::Direct
+            };
+            if i < 5 {
+                app.settings
+                    .beeper
+                    .reply_later
+                    .push(crate::merged::Member::of(&chat).unwrap());
+            }
+            if i >= 10 {
+                app.settings
+                    .beeper
+                    .read_later
+                    .push(crate::merged::Member::of(&chat).unwrap());
+            }
+            app.chats.push(chat);
+        }
+        app
+    }
+    fn agrees_with_each_queue(app: &mut App) {
+        let selected = app.chat_filter;
+        let counts = app.queue_chat_counts();
+        assert_eq!(
+            app.chat_filter, selected,
+            "counting does not change selection"
+        );
+        for (index, queue) in [
+            ChatFilter::All,
+            ChatFilter::Unread,
+            ChatFilter::ReplyLater,
+            ChatFilter::ReadLater,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            app.chat_filter = queue;
+            assert_eq!(counts[index], app.visible_chats().len(), "queue {queue:?}");
+        }
+        app.chat_filter = selected;
+    }
+    #[test]
+    fn queue_counts_are_items_not_unread_message_totals() {
+        let mut app = fixture();
+        assert_eq!(app.queue_chat_counts(), [12, 3, 5, 2]);
+        agrees_with_each_queue(&mut app);
+        app.chats[0].unread = 400;
+        assert_eq!(app.queue_chat_counts(), [12, 3, 5, 2]);
+        app.settings.beeper.reply_later.pop();
+        assert_eq!(app.queue_chat_counts()[2], 4);
+    }
+    #[test]
+    fn queue_counts_match_search_scope_facets_and_hidden_boundaries() {
+        let mut app = fixture();
+        app.chats[0].locked = true;
+        app.chats[1].archived = true;
+        agrees_with_each_queue(&mut app);
+        app.beeper_network_filter = Some("whatsapp".into());
+        app.beeper_account_filter = app.chats[2].backend_settings_key();
+        app.category_filter = Some(ChatFilter::Groups);
+        app.favorites_only = true;
+        agrees_with_each_queue(&mut app);
+        app.search = "Queue 2".into();
+        agrees_with_each_queue(&mut app);
+        assert_eq!(app.queue_chat_counts(), [1, 1, 1, 0]);
+        app.search.clear();
+        app.show_archived = true;
+        agrees_with_each_queue(&mut app);
+    }
+    #[test]
+    fn queue_counts_deduplicate_linked_people_and_keep_hidden_later_items() {
+        let mut app = fixture();
+        app.settings.beeper.people.push(crate::merged::Person {
+            name: "Linked pair".into(),
+            primary: None,
+            members: app.chats[..2]
+                .iter()
+                .map(|chat| crate::merged::Member::of(chat).unwrap())
+                .collect(),
+        });
+        assert_eq!(app.queue_chat_counts(), [11, 2, 4, 2]);
+        agrees_with_each_queue(&mut app);
+        let key = app.chats[0].backend_settings_key().unwrap();
+        app.settings.beeper.accounts.entry(key).or_default().inbox =
+            crate::settings::BeeperInbox::None;
+        assert_eq!(app.queue_chat_counts(), [0, 0, 4, 2]);
+        agrees_with_each_queue(&mut app);
     }
 }
 

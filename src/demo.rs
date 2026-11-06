@@ -3549,6 +3549,37 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             // The chat list collapsed to avatars with unread badges.
             "nosidebar" | "rail" => app.sidebar_visible = false,
+            "queue-counts" => {
+                app.chats.clear();
+                app.settings.beeper.reply_later.clear();
+                app.settings.beeper.read_later.clear();
+                for i in 0..12 {
+                    let mut chat = Chat::new(
+                        format!("count-{i}@s.whatsapp.net"),
+                        format!("Queue sample {i}"),
+                    );
+                    chat.backend_origin = Some("demo".into());
+                    chat.backend_account = Some("demo".into());
+                    chat.last_activity = i + 1;
+                    chat.unread = if i < 3 { 2 } else { 0 };
+                    if i < 5 {
+                        app.settings
+                            .beeper
+                            .reply_later
+                            .push(crate::merged::Member::of(&chat).unwrap());
+                    }
+                    if i >= 10 {
+                        app.settings
+                            .beeper
+                            .read_later
+                            .push(crate::merged::Member::of(&chat).unwrap());
+                    }
+                    app.chats.push(chat);
+                }
+                app.open_chat = None;
+                app.settings.beeper.show_queue_counts = true;
+            }
+            "queue-counts-off" => app.settings.beeper.show_queue_counts = false,
             // A list wide enough for the whole chip row, which scrolls out of
             // sight at the default width.
             "wide" => app.settings.sidebar_width = 560.0,
