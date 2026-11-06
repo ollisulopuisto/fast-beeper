@@ -167,4 +167,8 @@ python3 scripts/render-demo.py raw.mp4 tour.json whats-new.mp4 --scale 1.5
 
 The four queue segments remain visible while typing. Filters composes category, favorites, labels, Unreplied and network/account choices rather than replacing the queue. All selects the whole current scope; Reset view removes the scope while preserving the query. The outside count covers available chat and backend message matches, not an estimated total across unloaded server pages. Unknown-chat and locked-chat message hits do not enter scoped results. Hide the chat list is in Filters and still uses Cmd+B (Ctrl+B off Mac).
 
+`--demo-page day-separators` shows five synthetic calendar days: today, yesterday,
+two days ago, three days ago and the previous year, for checking localized date labels.
+Use `linked-day-separators` for the same dates in a linked-person timeline.
+
 `--demo-page active-avatar` opens the unread group in the collapsed rail to check its selected ring and unread badge. Add `,light` for the light theme; `--demo-hover 26,195` checks hover without moving the real pointer.

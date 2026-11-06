@@ -3884,3 +3884,7 @@ msgstr "Velocidad de reproducción 2x"
 
 #~ msgid "Next pinned message"
 #~ msgstr "Siguiente mensaje fijado"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "Anteayer"

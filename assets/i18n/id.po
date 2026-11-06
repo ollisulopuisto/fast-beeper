@@ -3847,3 +3847,7 @@ msgstr "Enter untuk mengirim"
 #, fuzzy
 #~ msgid "Next pinned message"
 #~ msgstr "{} pesan belum dibaca"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "Dua hari lalu"
