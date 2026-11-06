@@ -3299,7 +3299,8 @@ mod tests {
         };
         app.scroll_chat_into_view = ids.last().cloned();
         let scrolled = frame(&mut app);
-        assert!(scrolled > theme::ROW_HEIGHT, "the list starts far down");
+        let row_height = chat_row_height(app.settings.beeper.compact_list);
+        assert!(scrolled > row_height, "the list starts far down");
         app.scroll_chats_to_top = true;
         assert_eq!(
             frame(&mut app),
@@ -3309,13 +3310,13 @@ mod tests {
         assert!(!app.scroll_chats_to_top, "the request was consumed");
 
         // Just over a row down still counts as working down the list.
-        scroll_list_to(&ctx, list_offset_id().with("id"), theme::ROW_HEIGHT + 1.0);
-        assert_eq!(frame(&mut app), theme::ROW_HEIGHT + 1.0);
+        scroll_list_to(&ctx, list_offset_id().with("id"), row_height + 1.0);
+        assert_eq!(frame(&mut app), row_height + 1.0);
         app.scroll_chats_to_top = true;
-        assert_eq!(frame(&mut app), theme::ROW_HEIGHT + 1.0);
+        assert_eq!(frame(&mut app), row_height + 1.0);
 
-        scroll_list_to(&ctx, list_offset_id().with("id"), theme::ROW_HEIGHT / 2.0);
-        assert_eq!(frame(&mut app), theme::ROW_HEIGHT / 2.0);
+        scroll_list_to(&ctx, list_offset_id().with("id"), row_height / 2.0);
+        assert_eq!(frame(&mut app), row_height / 2.0);
         app.scroll_chats_to_top = true;
         assert_eq!(frame(&mut app), 0.0, "the list is back at the top");
         assert_eq!(frame(&mut app), 0.0, "the list stays at the top");
