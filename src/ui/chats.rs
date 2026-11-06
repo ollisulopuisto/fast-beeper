@@ -353,10 +353,10 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
                     && app.label_filter.is_none()
                     && app.chat_filter == filter;
                 let name = filter.label(app.locale);
-                let tooltip = match ChatFilter::ALT_DIGIT.iter().position(|f| f == &filter) {
+                let tooltip = match ChatFilter::EVERY.iter().position(|f| f == &filter) {
                     Some(position) => format!(
                         "{name} ({})",
-                        super::keys::label(&format!("Alt+{}", position + 1))
+                        super::keys::label(&format!("Ctrl+Alt+{}", position + 1))
                     ),
                     None => name.to_string(),
                 };
@@ -762,10 +762,10 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                     ChatFilter::Channels => Icon::Volume2,
                 };
                 let name = filter.label(app.locale);
-                let tooltip = match ChatFilter::ALT_DIGIT.iter().position(|f| f == &filter) {
+                let tooltip = match ChatFilter::EVERY.iter().position(|f| f == &filter) {
                     Some(position) => format!(
                         "{name} ({})",
-                        super::keys::label(&format!("Alt+{}", position + 1))
+                        super::keys::label(&format!("Ctrl+Alt+{}", position + 1))
                     ),
                     None => name.to_string(),
                 };
@@ -821,7 +821,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 Icon::Reply,
                 0,
                 app.beeper_unreplied,
-                "Unreplied\nLatest known message is from someone else. Unknown/system previews excluded. Cmd+Shift+R",
+                "Unreplied\nLatest known message is from someone else. Unknown/system previews excluded. Cmd+Option+9",
             );
             if unreplied.clicked() {
                 app.beeper_unreplied = !app.beeper_unreplied;

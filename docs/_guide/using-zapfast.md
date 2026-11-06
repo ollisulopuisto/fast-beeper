@@ -626,7 +626,7 @@ Use `↑`/`↓` to select a matching chat and Enter to open it ready for typing.
 Click a message result to jump to it, or a contact to start a chat. Use
 `Alt+↑/↓`, or `Ctrl+Shift+[` and `Ctrl+Shift+]` as in WhatsApp, to switch chats
 without leaving the composer (Command instead of Ctrl on macOS), and
-`Ctrl+1` through `Ctrl+9` to open the chat at that position in the list. Within an open
+`Ctrl+1` through `Ctrl+0` to open the favorite at that position in the sidebar. Within an open
 chat, `PgUp`/`PgDn` scroll by about a page, and `Home`/`End` (or `Ctrl+End`)
 jump to the top or the newest message when the input is empty. With text in
 the input, they move the text cursor as in any editor.
