@@ -1670,7 +1670,7 @@ impl App {
         self.accounts
             .iter()
             .filter(|account| account.settings.notifications)
-            .map(Account::unread_chat_count)
+            .map(|account| account.unread_chat_count(&self.settings))
             .fold(0, u32::saturating_add)
     }
 
@@ -1681,7 +1681,7 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(index, account)| *index != self.active && account.settings.notifications)
-            .map(|(_, account)| account.unread_chat_count())
+            .map(|(_, account)| account.unread_chat_count(&self.settings))
             .fold(0, u32::saturating_add)
     }
 
@@ -3791,7 +3791,7 @@ impl App {
     /// The taskbar count: unarchived, unmuted, unlocked chats that look
     /// unread. WhatsApp counts chats here, not the messages inside them.
     pub fn unread_chat_count(&self) -> u32 {
-        self.account().unread_chat_count()
+        self.account().unread_chat_count(&self.settings)
     }
 
     /// Returns or requests a cached profile picture.
