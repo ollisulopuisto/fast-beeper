@@ -2317,6 +2317,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
     for part in page.split(',').map(str::trim) {
         match part {
             "history-date" => history_date_sample(app),
+            "day-separators" => day_separators_sample(app),
             "mentions" => mentions_sample(app),
             "chat" | "" => {}
             "phone-menu" => phone_menu_sample(app),
@@ -4119,6 +4120,47 @@ fn history_date_sample(app: &mut App) {
     app.open_chat = Some(chat.into());
     app.scroll_to_bottom = false;
     app.scroll_anchor = Some("history-date-45".into());
+}
+
+/// Compact calendar-day fixture for localized separator screenshots.
+fn day_separators_sample(app: &mut App) {
+    let chat = SAMPLES[0].id;
+    let today = crate::util::today();
+    let dates = [
+        (
+            jiff::civil::date(today.year() - 1, 1, 5),
+            "A note from last year",
+        ),
+        (
+            today.checked_sub(jiff::Span::new().days(3)).unwrap(),
+            "An earlier note",
+        ),
+        (
+            today.checked_sub(jiff::Span::new().days(2)).unwrap(),
+            "A note from two days ago",
+        ),
+        (today.yesterday().unwrap(), "A note from yesterday"),
+        (today, "A note from today"),
+    ];
+    let conversation = app.conversations.entry(chat.into()).or_default();
+    conversation.messages = dates
+        .into_iter()
+        .enumerate()
+        .map(|(index, (date, text))| {
+            let (start, _) = crate::util::day_bounds(date).unwrap();
+            message(
+                chat,
+                &format!("day-separator-{index}"),
+                false,
+                start + 12 * 3600,
+                Content::text(text),
+            )
+        })
+        .collect();
+    conversation.complete = true;
+    app.open_chat = Some(chat.into());
+    app.typing.clear();
+    app.scroll_to_bottom = true;
 }
 
 /// Names of all sample chats.
