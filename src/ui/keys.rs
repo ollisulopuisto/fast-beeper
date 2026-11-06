@@ -50,6 +50,9 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     Key::Num0,
                 ];
                 let mut found = None;
+                let unread = FILTER_UNREAD.keys[0];
+                let unreplied = FILTER_UNREPLIED.keys[0];
+                let reply_later = REPLY_LATER_OR_LOCK.keys[0];
                 input.events.retain(|event| {
                     if let egui::Event::Key {
                         key,
@@ -84,21 +87,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             found = Some((mode, index));
                             return false;
                         }
-                        if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT)
-                            && *key == Key::U
-                        {
+                        if modifiers.matches_exact(unread.0) && *key == unread.1 {
                             found = Some((3, 0));
                             return false;
                         }
-                        if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT)
-                            && *key == Key::R
-                        {
+                        if modifiers.matches_exact(unreplied.0) && *key == unreplied.1 {
                             found = Some((4, 0));
                             return false;
                         }
-                        if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT)
-                            && *key == Key::L
-                        {
+                        if modifiers.matches_exact(reply_later.0) && *key == reply_later.1 {
                             found = Some((5, 0));
                             return false;
                         }
@@ -197,50 +194,33 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
         };
         // Checked first: a plain Ctrl+F binding also matches Ctrl+Shift+F.
-        key(
-            Modifiers::COMMAND | Modifiers::SHIFT,
-            Key::F,
-            Action::FocusSearch,
-        );
-        key(Modifiers::COMMAND, Key::F, find);
+        let (modifiers, key_code) = SEARCH_CHATS.keys[0];
+        key(modifiers, key_code, Action::FocusSearch);
+        let (modifiers, key_code) = FIND.keys[0];
+        key(modifiers, key_code, find);
         // Before Ctrl+L, which would also match it with Shift held.
         if app.settings.app_lock_hash.is_some() {
-            key(
-                if app.beeper_browse_networks().is_empty() {
-                    Modifiers::COMMAND | Modifiers::SHIFT
-                } else {
-                    Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT
-                },
-                Key::L,
-                Action::LockApp,
-            );
+            let (mut modifiers, key_code) = REPLY_LATER_OR_LOCK.keys[0];
+            if !app.beeper_browse_networks().is_empty() {
+                modifiers |= Modifiers::ALT;
+            }
+            key(modifiers, key_code, Action::LockApp);
         }
-        key(
-            Modifiers::COMMAND,
-            Key::K,
-            Action::ShowDialog(Dialog::JumpToChat),
-        );
-        key(
-            Modifiers::COMMAND,
-            Key::P,
-            Action::ShowDialog(Dialog::Palette),
-        );
+        let (modifiers, key_code) = JUMP_TO_CHAT.keys[0];
+        key(modifiers, key_code, Action::ShowDialog(Dialog::JumpToChat));
+        let (modifiers, key_code) = PALETTE.keys[0];
+        key(modifiers, key_code, Action::ShowDialog(Dialog::Palette));
         if let Some(next_account) = next_account {
-            key(Modifiers::COMMAND | Modifiers::SHIFT, Key::A, next_account);
+            let (modifiers, key_code) = NEXT_ACCOUNT.keys[0];
+            key(modifiers, key_code, next_account);
         }
         if app.is_linked() {
-            key(
-                Modifiers::COMMAND,
-                Key::N,
-                Action::ShowDialog(Dialog::NewChat),
-            );
+            let (modifiers, key_code) = NEW_CHAT.keys[0];
+            key(modifiers, key_code, Action::ShowDialog(Dialog::NewChat));
         }
         if !editing_text {
-            key(
-                Modifiers::NONE,
-                Key::Questionmark,
-                Action::ShowDialog(Dialog::Shortcuts),
-            );
+            let (modifiers, key_code) = SHORTCUTS_DIALOG.keys[0];
+            key(modifiers, key_code, Action::ShowDialog(Dialog::Shortcuts));
         }
         if app.chat_view()
             && app.open_chat.is_some()
@@ -250,31 +230,39 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             && app.reaction_target.is_none()
             && app.recording.is_none()
         {
-            key(Modifiers::COMMAND, Key::L, Action::FocusComposer);
+            let (modifiers, key_code) = FOCUS_COMPOSER.keys[0];
+            key(modifiers, key_code, Action::FocusComposer);
         }
         if let Some(archive) = archive {
-            key(Modifiers::COMMAND, Key::E, archive);
+            let (modifiers, key_code) = ARCHIVE.keys[0];
+            key(modifiers, key_code, archive);
         }
-        key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
-        key(Modifiers::COMMAND, Key::Comma, Action::ToggleSettings);
-        key(Modifiers::COMMAND, Key::Q, Action::Quit);
-        key(Modifiers::COMMAND, Key::W, Action::CloseWindow);
+        let (modifiers, key_code) = SIDEBAR.keys[0];
+        key(modifiers, key_code, Action::ToggleSidebar);
+        let (modifiers, key_code) = SETTINGS.keys[0];
+        key(modifiers, key_code, Action::ToggleSettings);
+        let (modifiers, key_code) = QUIT.keys[0];
+        key(modifiers, key_code, Action::Quit);
+        let (modifiers, key_code) = CLOSE_WINDOW.keys[0];
+        key(modifiers, key_code, Action::CloseWindow);
         // Cmd+W owns CloseWindow everywhere; plain Ctrl+W closes the active
         // chat only where it is not the same physical shortcut.
         if cfg!(target_os = "macos") {
-            key(Modifiers::CTRL, Key::W, Action::CloseChat);
+            let (modifiers, key_code) = CLOSE_CHAT.keys[0];
+            key(modifiers, key_code, Action::CloseChat);
         }
-        key(
-            Modifiers::COMMAND,
-            Key::Slash,
-            Action::ShowDialog(Dialog::Shortcuts),
-        );
-        key(Modifiers::COMMAND, Key::Plus, Action::ZoomBy(0.1));
-        key(Modifiers::COMMAND, Key::Equals, Action::ZoomBy(0.1));
-        key(Modifiers::COMMAND, Key::Minus, Action::ZoomBy(-0.1));
-        key(Modifiers::COMMAND, Key::Num0, Action::ResetZoom);
+        let (modifiers, key_code) = SHORTCUTS_DIALOG.keys[1];
+        key(modifiers, key_code, Action::ShowDialog(Dialog::Shortcuts));
+        for &(modifiers, key_code) in ZOOM_IN.keys {
+            key(modifiers, key_code, Action::ZoomBy(0.1));
+        }
+        let (modifiers, key_code) = ZOOM_OUT.keys[0];
+        key(modifiers, key_code, Action::ZoomBy(-0.1));
+        let (modifiers, key_code) = ZOOM_RESET.keys[0];
+        key(modifiers, key_code, Action::ResetZoom);
         if jump_allowed {
-            key(Modifiers::COMMAND, Key::End, Action::ScrollToBottom);
+            let (modifiers, key_code) = SCROLL_BOTTOM.keys[0];
+            key(modifiers, key_code, Action::ScrollToBottom);
         }
         // The message list keeps Control+2 on macOS, where Command+1 to 9
         // open favorites and Option with a digit types characters some
@@ -289,7 +277,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             // The call screen covers the chats.
                 && messages_key_free
         {
-            key(Modifiers::CTRL, Key::Num2, Action::FocusMessages);
+            #[cfg(target_os = "macos")]
+            {
+                let (modifiers, key_code) = FOCUS_MESSAGES.keys[0];
+                key(modifiers, key_code, Action::FocusMessages);
+            }
         }
         // The rail's Chats, by the digit's place on the keyboard: with
         // Shift held, layouts report the digit as its symbol.
@@ -645,6 +637,7 @@ fn take_filter_number(input: &mut egui::InputState) -> Option<usize> {
 /// key's place on the keyboard: with Shift held, each layout reports the
 /// digit as a symbol of its own.
 fn take_destination(input: &mut egui::InputState) -> Option<u8> {
+    let (wanted_modifiers, wanted_key) = RAIL_CHATS.keys[0];
     let mut destination = None;
     input.events.retain(|event| {
         if destination.is_none()
@@ -655,10 +648,10 @@ fn take_destination(input: &mut egui::InputState) -> Option<u8> {
                 modifiers,
                 ..
             } = event
-            && modifiers.matches_exact(Modifiers::COMMAND | Modifiers::SHIFT)
+            && modifiers.matches_exact(wanted_modifiers)
         {
             destination = match physical_key.unwrap_or(*key) {
-                Key::Num1 => Some(1),
+                found if found == wanted_key => Some(1),
                 _ => None,
             };
             return destination.is_none();
@@ -1005,84 +998,472 @@ fn messages_modifier_alone(modifiers: Modifiers) -> bool {
 #[cfg(target_os = "macos")]
 const MESSAGES_KEYS: &str = "Control+2";
 
-/// Shortcuts shown in the help dialog.
-pub const SHORTCUTS: &[(&str, &str)] = &[
-    ("Ctrl+K", "Jump between the open chats"),
-    ("Ctrl+Shift+F", "Search chats"),
-    ("Ctrl+P", "Command palette: chats, filters, actions"),
-    ("Ctrl+F", "Search the open chat or the settings"),
-    (
-        "↑ / ↓, Enter",
+/// Command (Ctrl elsewhere) with Shift held, as a constant for the table:
+/// `Modifiers::COMMAND | Modifiers::SHIFT` is not a const expression.
+const COMMAND_SHIFT: Modifiers = Modifiers {
+    shift: true,
+    command: true,
+    ..Modifiers::NONE
+};
+
+/// One keyboard shortcut, defined once: the handler's binding, the help
+/// dialog's row and the macOS menu's accelerator all come from this entry,
+/// so the three surfaces cannot drift.
+pub struct Shortcut {
+    /// A stable name for looking the entry up from the handler and menus.
+    pub id: &'static str,
+    /// Every physical spelling that triggers it, in matching order.
+    pub keys: &'static [(Modifiers, Key)],
+    /// The help dialog's keys column, before platform relabeling. None when
+    /// the binding has no row of its own (documented with a sibling).
+    pub label: Option<&'static str>,
+    /// The help dialog's description column.
+    pub description: Option<&'static str>,
+    /// The macOS menu item mirroring it: id, text and accelerator string.
+    pub menu: Option<MenuItem>,
+}
+
+/// A macOS menu entry carrying a keyboard accelerator.
+pub struct MenuItem {
+    pub id: &'static str,
+    pub text: &'static str,
+    pub accelerator: &'static str,
+}
+
+/// A row of the registry: either a binding or a help-only gesture such as
+/// arrows, Enter and digit ranges, which have no single binding to consume.
+pub enum Row {
+    Binding(&'static Shortcut),
+    Help(&'static str, &'static str),
+}
+
+const JUMP_TO_CHAT: Shortcut = Shortcut {
+    id: "jump-to-chat",
+    keys: &[(Modifiers::COMMAND, Key::K)],
+    label: Some("Ctrl+K"),
+    description: Some("Jump between the open chats"),
+    menu: None,
+};
+const SEARCH_CHATS: Shortcut = Shortcut {
+    id: "search-chats",
+    keys: &[(COMMAND_SHIFT, Key::F)],
+    label: Some("Ctrl+Shift+F"),
+    description: Some("Search chats"),
+    menu: None,
+};
+const PALETTE: Shortcut = Shortcut {
+    id: "palette",
+    keys: &[(Modifiers::COMMAND, Key::P)],
+    label: Some("Ctrl+P"),
+    description: Some("Command palette: chats, filters, actions"),
+    menu: None,
+};
+const FIND: Shortcut = Shortcut {
+    id: "find",
+    keys: &[(Modifiers::COMMAND, Key::F)],
+    label: Some("Ctrl+F"),
+    description: Some("Search the open chat or the settings"),
+    menu: Some(MenuItem {
+        id: "search",
+        text: "Find\u{2026}",
+        accelerator: "Super+KeyF",
+    }),
+};
+const FOCUS_COMPOSER: Shortcut = Shortcut {
+    id: "focus-composer",
+    keys: &[(Modifiers::COMMAND, Key::L)],
+    label: Some("Ctrl+L"),
+    description: Some("Focus the message input"),
+    menu: None,
+};
+const SCROLL_BOTTOM: Shortcut = Shortcut {
+    id: "scroll-bottom",
+    keys: &[(Modifiers::COMMAND, Key::End)],
+    label: Some("Ctrl+End"),
+    description: Some("Jump to the newest message"),
+    menu: None,
+};
+const RAIL_CHATS: Shortcut = Shortcut {
+    id: "rail-chats",
+    keys: &[(COMMAND_SHIFT, Key::Num1)],
+    label: Some("Ctrl+Shift+1"),
+    description: Some("Chats"),
+    menu: None,
+};
+const NEW_CHAT: Shortcut = Shortcut {
+    id: "new-chat",
+    keys: &[(Modifiers::COMMAND, Key::N)],
+    label: Some("Ctrl+N"),
+    description: Some("New chat or message yourself"),
+    menu: Some(MenuItem {
+        id: "new",
+        text: "New Chat\u{2026}",
+        accelerator: "Super+KeyN",
+    }),
+};
+const ARCHIVE: Shortcut = Shortcut {
+    id: "archive",
+    keys: &[(Modifiers::COMMAND, Key::E)],
+    label: Some("Ctrl+E"),
+    description: Some("Archive or unarchive the open chat"),
+    menu: None,
+};
+const NEXT_ACCOUNT: Shortcut = Shortcut {
+    id: "next-account",
+    keys: &[(COMMAND_SHIFT, Key::A)],
+    label: Some("Ctrl+Shift+A"),
+    description: Some("Switch to the next linked number"),
+    menu: None,
+};
+const SIDEBAR: Shortcut = Shortcut {
+    id: "sidebar",
+    keys: &[(Modifiers::COMMAND, Key::B)],
+    label: Some("Ctrl+B"),
+    description: Some("Collapse or expand the chat list"),
+    menu: Some(MenuItem {
+        id: "sidebar",
+        text: "Toggle Sidebar",
+        accelerator: "Super+KeyB",
+    }),
+};
+const SETTINGS: Shortcut = Shortcut {
+    id: "settings",
+    keys: &[(Modifiers::COMMAND, Key::Comma)],
+    label: Some("Ctrl+,"),
+    description: Some("Settings"),
+    menu: Some(MenuItem {
+        id: "settings",
+        text: "Settings\u{2026}",
+        accelerator: "Super+Comma",
+    }),
+};
+const ZOOM_IN: Shortcut = Shortcut {
+    id: "zoom-in",
+    keys: &[
+        (Modifiers::COMMAND, Key::Plus),
+        (Modifiers::COMMAND, Key::Equals),
+    ],
+    label: Some("Ctrl++ / Ctrl+-"),
+    description: Some("Zoom in / out"),
+    menu: Some(MenuItem {
+        id: "zoom-in",
+        text: "Zoom In",
+        accelerator: "Super+Equal",
+    }),
+};
+const ZOOM_OUT: Shortcut = Shortcut {
+    id: "zoom-out",
+    keys: &[(Modifiers::COMMAND, Key::Minus)],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "zoom-out",
+        text: "Zoom Out",
+        accelerator: "Super+Minus",
+    }),
+};
+const ZOOM_RESET: Shortcut = Shortcut {
+    id: "zoom-reset",
+    keys: &[(Modifiers::COMMAND, Key::Num0)],
+    label: Some("Ctrl+0"),
+    description: Some("Reset zoom"),
+    menu: Some(MenuItem {
+        id: "zoom-reset",
+        text: "Actual Size",
+        accelerator: "Super+Digit0",
+    }),
+};
+const SHORTCUTS_DIALOG: Shortcut = Shortcut {
+    id: "shortcuts",
+    keys: &[
+        (Modifiers::NONE, Key::Questionmark),
+        (Modifiers::COMMAND, Key::Slash),
+    ],
+    label: Some("? / Ctrl+/"),
+    description: Some("Keyboard shortcuts (? when not typing)"),
+    menu: Some(MenuItem {
+        id: "shortcuts",
+        text: "Keyboard Shortcuts",
+        accelerator: "Super+Slash",
+    }),
+};
+const REPLY_LATER_OR_LOCK: Shortcut = Shortcut {
+    id: "reply-later-or-lock",
+    keys: &[(COMMAND_SHIFT, Key::L)],
+    label: Some("Ctrl+Shift+L"),
+    description: Some("Reply later in Beeper; lock elsewhere (add Alt in Beeper)"),
+    menu: None,
+};
+const CLOSE_WINDOW: Shortcut = Shortcut {
+    id: "close-window",
+    keys: &[(Modifiers::COMMAND, Key::W)],
+    label: Some("Ctrl+W"),
+    description: Some("Close the window (Solmu remains in the tray)"),
+    menu: Some(MenuItem {
+        id: "close",
+        text: "Close Window",
+        accelerator: "Super+KeyW",
+    }),
+};
+const QUIT: Shortcut = Shortcut {
+    id: "quit",
+    keys: &[(Modifiers::COMMAND, Key::Q)],
+    label: Some("Ctrl+Q"),
+    description: Some("Quit"),
+    menu: Some(MenuItem {
+        id: "quit",
+        text: "Quit Solmu",
+        accelerator: "Super+KeyQ",
+    }),
+};
+#[cfg(target_os = "macos")]
+const FOCUS_MESSAGES: Shortcut = Shortcut {
+    id: "focus-messages",
+    keys: &[(Modifiers::CTRL, Key::Num2)],
+    label: Some(MESSAGES_KEYS),
+    description: Some("Go to the message list"),
+    menu: None,
+};
+/// Bindings without a help row of their own.
+const CLOSE_CHAT: Shortcut = Shortcut {
+    id: "close-chat",
+    keys: &[(Modifiers::CTRL, Key::W)],
+    label: None,
+    description: None,
+    menu: None,
+};
+const FILTER_UNREAD: Shortcut = Shortcut {
+    id: "filter-unread",
+    keys: &[(COMMAND_SHIFT, Key::U)],
+    label: None,
+    description: None,
+    menu: None,
+};
+const FILTER_UNREPLIED: Shortcut = Shortcut {
+    id: "filter-unreplied",
+    keys: &[(COMMAND_SHIFT, Key::R)],
+    label: None,
+    description: None,
+    menu: None,
+};
+/// Menu accelerators that edit text natively rather than through `handle`:
+/// winit's view is no NSTextView, so the menu sends the events itself.
+const EDIT_UNDO: Shortcut = Shortcut {
+    id: "undo",
+    keys: &[],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "undo",
+        text: "Undo",
+        accelerator: "Super+KeyZ",
+    }),
+};
+const EDIT_REDO: Shortcut = Shortcut {
+    id: "redo",
+    keys: &[],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "redo",
+        text: "Redo",
+        accelerator: "Super+Shift+KeyZ",
+    }),
+};
+const EDIT_CUT: Shortcut = Shortcut {
+    id: "cut",
+    keys: &[],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "cut",
+        text: "Cut",
+        accelerator: "Super+KeyX",
+    }),
+};
+const EDIT_COPY: Shortcut = Shortcut {
+    id: "copy",
+    keys: &[],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "copy",
+        text: "Copy",
+        accelerator: "Super+KeyC",
+    }),
+};
+const EDIT_PASTE: Shortcut = Shortcut {
+    id: "paste",
+    keys: &[],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "paste",
+        text: "Paste",
+        accelerator: "Super+KeyV",
+    }),
+};
+const EDIT_SELECT_ALL: Shortcut = Shortcut {
+    id: "select-all",
+    keys: &[],
+    label: None,
+    description: None,
+    menu: Some(MenuItem {
+        id: "select-all",
+        text: "Select All",
+        accelerator: "Super+KeyA",
+    }),
+};
+
+/// Every shortcut, in the order the help dialog shows them; entries without
+/// a help row follow at the end.
+pub static REGISTRY: &[Row] = &[
+    Row::Binding(&JUMP_TO_CHAT),
+    Row::Binding(&SEARCH_CHATS),
+    Row::Binding(&PALETTE),
+    Row::Binding(&FIND),
+    Row::Help(
+        "\u{2191} / \u{2193}, Enter",
         "Walk the open chat's search results and jump to one",
     ),
-    ("Ctrl+L", "Focus the message input"),
-    (
+    Row::Binding(&FOCUS_COMPOSER),
+    Row::Help(
         "PageUp / PageDown",
         "Scroll the open chat a screen at a time",
     ),
-    (
+    Row::Help(
         "Home / End",
         "Jump to the oldest loaded / newest message (with the input empty)",
     ),
-    ("Ctrl+End", "Jump to the newest message"),
-    ("Alt+↑ / Alt+↓", "Previous / next chat"),
-    ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
-    ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
-    (
+    Row::Binding(&SCROLL_BOTTOM),
+    Row::Help("Alt+\u{2191} / Alt+\u{2193}", "Previous / next chat"),
+    Row::Help("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
+    Row::Help("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
+    Row::Help(
         "Ctrl+Alt+Shift+1..9",
         "Open a pinned chat by its place in the sidebar",
     ),
-    (
+    Row::Help(
         "Ctrl+Alt+1..0",
         "Filter to a network by its place in the sidebar",
     ),
-    (
+    Row::Help(
         "Alt+1..6",
         "Pick a chat filter by its place in the sidebar (outside text fields)",
     ),
-    ("Ctrl+Shift+1", "Chats"),
-    ("↑", "Edit the previous message (when the input is empty)"),
-    ("Enter", "Send (Shift+Enter for a new line)"),
-    (
+    Row::Binding(&RAIL_CHATS),
+    Row::Help(
+        "\u{2191}",
+        "Edit the previous message (when the input is empty)",
+    ),
+    Row::Help("Enter", "Send (Shift+Enter for a new line)"),
+    Row::Help(
         "Escape",
         "Dismiss the current action, return from search or Starred, or close the chat",
     ),
-    ("Ctrl+N", "New chat or message yourself"),
-    ("Ctrl+E", "Archive or unarchive the open chat"),
-    ("Ctrl+Shift+A", "Switch to the next linked number"),
-    (
+    Row::Binding(&NEW_CHAT),
+    Row::Binding(&ARCHIVE),
+    Row::Binding(&NEXT_ACCOUNT),
+    Row::Help(
         "Ctrl+V",
         "Paste text, or stage a picture from the clipboard",
     ),
-    ("Ctrl+C", "Copy the selected messages"),
-    ("Ctrl+B", "Collapse or expand the chat list"),
-    (
+    Row::Help("Ctrl+C", "Copy the selected messages"),
+    Row::Binding(&SIDEBAR),
+    Row::Help(
         "Ctrl+End",
         "Jump to the newest message (when the input is empty)",
     ),
     #[cfg(target_os = "macos")]
-    (MESSAGES_KEYS, "Go to the message list"),
-    (
-        "↑ / ↓, Home / End, PgUp / PgDn",
+    Row::Binding(&FOCUS_MESSAGES),
+    Row::Help(
+        "\u{2191} / \u{2193}, Home / End, PgUp / PgDn",
         "Move through messages (in the message list)",
     ),
-    ("PgUp / PgDn", "Scroll the open chat by a page"),
-    (
+    Row::Help("PgUp / PgDn", "Scroll the open chat by a page"),
+    Row::Help(
         "Home / End",
         "Top / bottom of the open chat (when the input is empty)",
     ),
-    ("Ctrl+,", "Settings"),
-    ("Ctrl++ / Ctrl+-", "Zoom in / out"),
-    ("Ctrl+0", "Reset zoom"),
-    ("← / →", "Previous / next item in the media viewer"),
-    ("? / Ctrl+/", "Keyboard shortcuts (? when not typing)"),
-    (
-        "Ctrl+Shift+L",
-        "Reply later in Beeper; lock elsewhere (add Alt in Beeper)",
+    Row::Binding(&SETTINGS),
+    Row::Binding(&ZOOM_IN),
+    Row::Binding(&ZOOM_OUT),
+    Row::Binding(&ZOOM_RESET),
+    Row::Help(
+        "\u{2190} / \u{2192}",
+        "Previous / next item in the media viewer",
     ),
-    ("Ctrl+W", "Close the window (Solmu remains in the tray)"),
-    ("Ctrl+Q", "Quit"),
+    Row::Binding(&SHORTCUTS_DIALOG),
+    Row::Binding(&REPLY_LATER_OR_LOCK),
+    Row::Binding(&CLOSE_WINDOW),
+    Row::Binding(&QUIT),
+    Row::Binding(&CLOSE_CHAT),
+    Row::Binding(&FILTER_UNREAD),
+    Row::Binding(&FILTER_UNREPLIED),
+    Row::Binding(&EDIT_UNDO),
+    Row::Binding(&EDIT_REDO),
+    Row::Binding(&EDIT_CUT),
+    Row::Binding(&EDIT_COPY),
+    Row::Binding(&EDIT_PASTE),
+    Row::Binding(&EDIT_SELECT_ALL),
 ];
+
+/// Looks a registry entry up by its stable id.
+pub fn shortcut(id: &str) -> &'static Shortcut {
+    REGISTRY
+        .iter()
+        .find_map(|row| match row {
+            Row::Binding(shortcut) if shortcut.id == id => Some(*shortcut),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("unknown shortcut: {id}"))
+}
+
+/// The help dialog's rows, in registry order.
+pub fn help_rows() -> impl Iterator<Item = (&'static str, &'static str)> {
+    REGISTRY.iter().filter_map(|row| match row {
+        Row::Binding(shortcut) => shortcut.label.zip(shortcut.description),
+        Row::Help(label, description) => Some((*label, *description)),
+    })
+}
+
+/// The muda accelerator string for a binding, for the menu keys the
+/// registry carries: letters name their `Key` code, digits their `Digit`.
+pub fn menu_accelerator(modifiers: Modifiers, key: Key) -> Option<String> {
+    let mut parts = Vec::new();
+    if modifiers.command {
+        parts.push("Super");
+    }
+    if modifiers.ctrl {
+        parts.push("Control");
+    }
+    if modifiers.alt {
+        parts.push("Alt");
+    }
+    if modifiers.shift {
+        parts.push("Shift");
+    }
+    let code = match key {
+        Key::A => "KeyA",
+        Key::B => "KeyB",
+        Key::C => "KeyC",
+        Key::F => "KeyF",
+        Key::N => "KeyN",
+        Key::Q => "KeyQ",
+        Key::V => "KeyV",
+        Key::W => "KeyW",
+        Key::X => "KeyX",
+        Key::Z => "KeyZ",
+        Key::Comma => "Comma",
+        Key::Equals => "Equal",
+        Key::Minus => "Minus",
+        Key::Slash => "Slash",
+        Key::Num0 => "Digit0",
+        _ => return None,
+    };
+    parts.push(code);
+    Some(parts.join("+"))
+}
 
 /// Uses Command and Option labels on macOS.
 pub fn label(keys: &str) -> String {
@@ -1099,6 +1480,128 @@ pub fn label(keys: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_help_rows_stay_exactly_as_written() {
+        let expected: Vec<(&str, &str)> = vec![
+            ("Ctrl+K", "Jump between the open chats"),
+            ("Ctrl+Shift+F", "Search chats"),
+            ("Ctrl+P", "Command palette: chats, filters, actions"),
+            ("Ctrl+F", "Search the open chat or the settings"),
+            (
+                "\u{2191} / \u{2193}, Enter",
+                "Walk the open chat's search results and jump to one",
+            ),
+            ("Ctrl+L", "Focus the message input"),
+            (
+                "PageUp / PageDown",
+                "Scroll the open chat a screen at a time",
+            ),
+            (
+                "Home / End",
+                "Jump to the oldest loaded / newest message (with the input empty)",
+            ),
+            ("Ctrl+End", "Jump to the newest message"),
+            ("Alt+\u{2191} / Alt+\u{2193}", "Previous / next chat"),
+            ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
+            ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
+            (
+                "Ctrl+Alt+Shift+1..9",
+                "Open a pinned chat by its place in the sidebar",
+            ),
+            (
+                "Ctrl+Alt+1..0",
+                "Filter to a network by its place in the sidebar",
+            ),
+            (
+                "Alt+1..6",
+                "Pick a chat filter by its place in the sidebar (outside text fields)",
+            ),
+            ("Ctrl+Shift+1", "Chats"),
+            (
+                "\u{2191}",
+                "Edit the previous message (when the input is empty)",
+            ),
+            ("Enter", "Send (Shift+Enter for a new line)"),
+            (
+                "Escape",
+                "Dismiss the current action, return from search or Starred, or close the chat",
+            ),
+            ("Ctrl+N", "New chat or message yourself"),
+            ("Ctrl+E", "Archive or unarchive the open chat"),
+            ("Ctrl+Shift+A", "Switch to the next linked number"),
+            (
+                "Ctrl+V",
+                "Paste text, or stage a picture from the clipboard",
+            ),
+            ("Ctrl+C", "Copy the selected messages"),
+            ("Ctrl+B", "Collapse or expand the chat list"),
+            (
+                "Ctrl+End",
+                "Jump to the newest message (when the input is empty)",
+            ),
+            #[cfg(target_os = "macos")]
+            (MESSAGES_KEYS, "Go to the message list"),
+            (
+                "\u{2191} / \u{2193}, Home / End, PgUp / PgDn",
+                "Move through messages (in the message list)",
+            ),
+            ("PgUp / PgDn", "Scroll the open chat by a page"),
+            (
+                "Home / End",
+                "Top / bottom of the open chat (when the input is empty)",
+            ),
+            ("Ctrl+,", "Settings"),
+            ("Ctrl++ / Ctrl+-", "Zoom in / out"),
+            ("Ctrl+0", "Reset zoom"),
+            (
+                "\u{2190} / \u{2192}",
+                "Previous / next item in the media viewer",
+            ),
+            ("? / Ctrl+/", "Keyboard shortcuts (? when not typing)"),
+            (
+                "Ctrl+Shift+L",
+                "Reply later in Beeper; lock elsewhere (add Alt in Beeper)",
+            ),
+            ("Ctrl+W", "Close the window (Solmu remains in the tray)"),
+            ("Ctrl+Q", "Quit"),
+        ];
+        assert_eq!(help_rows().collect::<Vec<_>>(), expected);
+    }
+
+    #[test]
+    fn every_menu_accelerator_matches_a_binding() {
+        for row in REGISTRY {
+            let Row::Binding(entry) = row else { continue };
+            let Some(menu) = &entry.menu else { continue };
+            if entry.keys.is_empty() {
+                // Native edit items reach egui as clipboard events instead.
+                continue;
+            }
+            assert!(
+                entry.keys.iter().any(|(modifiers, key)| {
+                    menu_accelerator(*modifiers, *key).as_deref() == Some(menu.accelerator)
+                }),
+                "{}: the menu accelerator matches no binding",
+                entry.id
+            );
+        }
+    }
+
+    #[test]
+    fn shortcut_ids_are_unique() {
+        let mut ids: Vec<&str> = REGISTRY
+            .iter()
+            .filter_map(|row| match row {
+                Row::Binding(entry) => Some(entry.id),
+                Row::Help(_, _) => None,
+            })
+            .collect();
+        let before = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), before, "duplicate shortcut ids");
+    }
 
     #[test]
     fn ctrl_f_searches_the_open_chat_the_list_or_the_settings() {
@@ -1497,7 +2000,7 @@ mod tests {
     /// and a real Cmd+Shift press on macOS.
     fn ctrl_shift() -> [Modifiers; 3] {
         [
-            Modifiers::COMMAND | Modifiers::SHIFT,
+            COMMAND_SHIFT,
             Modifiers {
                 ctrl: true,
                 command: true,
@@ -1756,7 +2259,7 @@ mod tests {
                         physical_key: Some(physical),
                         pressed: true,
                         repeat: false,
-                        modifiers: Modifiers::COMMAND | Modifiers::SHIFT,
+                        modifiers: COMMAND_SHIFT,
                     }],
                     ..Default::default()
                 },
