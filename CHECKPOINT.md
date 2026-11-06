@@ -1,5 +1,33 @@
 # Fast-beeper coordination and development checkpoint
 
+## Cmd-Tab with a closed window - November 7, 2026
+
+Branch: fix/macos-headless-activation, owned by Instinct. User reports manual.11
+still leaves the window closed after Cmd-Tab. Native Rust/egui/winit, not a
+Tauri/Electron app: Cmd-Tab activates; Dock/Finder has a separate reopen path.
+Closing destroys the GUI, while the shell keeps AppKit pumping with the tray.
+eframe caches the event loop and winit delegate, so delegate destruction is
+not the cause. The activation callback still tested whether *any* AppKit
+window was visible, including unrelated native status-item/panel windows.
+That cannot establish whether the chat window exists. This is a source defect;
+the user's diagnostic log is still needed to confirm this gate, rather than
+missing notification delivery, is the cause on his Mac.
+
+Activation now always queues ActivateWindow. The app uses its explicit
+window_hidden state to reopen through the shell, or its own viewport's
+minimized flag to restore. A normal visible-window activation sends no focus
+or unminimize command, preserving native dialogs. Dock/Finder Show remains
+unconditional and separate. No layout, messages, data, linking, dependencies,
+launcher changes or build dispatch. Human-led merge only, no main push.
+
+Five focused actual app/shell/GUI tests pass in a source copy omitting
+unrelated test bodies: closed-shell reopen, minimized restore, no forced focus
+for an existing window, existing shell lifecycle, existing keyboard activation.
+Strict all-target/all-feature clippy, library check, formatting and diff checks
+pass locally. Native action mapping assertion added; macOS runtime and actual
+Cmd-Tab acceptance remain unverified. No new DMG requested or built.
+Rollback: revert this PR; #210's explicit activation subscription stays.
+
 ## Optional queue counts - November 6, 2026
 
 Branch: feat/queue-count-preference, owned by Instinct. Wireframe shared before

@@ -263,14 +263,11 @@ unsafe extern "C-unwind" fn reopen(
     objc2::runtime::Bool::YES
 }
 
-/// `applicationDidBecomeActive:` injected alongside `reopen`: AppKit sends
-/// no reopen message when the app is activated through Cmd-Tab or an app
-/// switcher, so with the window closed to the tray the activation changed
-/// only the menu bar. The injected method asks for a window through the
-/// same action the tray's Show uses whenever activation finds no visible
-/// window; a window left miniaturized is restored through the app's own
-/// unminimize path. Installation happens after the first window attaches:
-/// skipping a first notification here would swallow the first real Cmd-Tab.
+/// Cmd-Tab activates without sending a Dock/Finder reopen event. Always
+/// forward activation to the app: AppKit's window list also contains the
+/// status item's window, which can outlive the closed chat window.
+/// Only the shell knows whether its window exists. It also knows whether
+/// that window is minimized, without confusing a native panel for it.
 unsafe extern "C-unwind" fn did_become_active(
     _this: &objc2::runtime::AnyObject,
     _sel: objc2::runtime::Sel,
@@ -281,16 +278,10 @@ unsafe extern "C-unwind" fn did_become_active(
     };
     let app = NSApplication::sharedApplication(mtm);
     dock_diag(&format!("did_become_active {}", window_counts(&app)));
-    // A visible window (including a native panel or file dialog) already
-    // gives the switch something to show. Miniaturized windows report not
-    // visible and go through the app's restore path.
-    if app.windows().iter().any(|window| window.isVisible()) {
-        return;
-    }
     EVENTS
         .lock()
         .unwrap_or_else(|p| p.into_inner())
-        .push("show-window".into());
+        .push("activate-window".into());
     if let Some(ctx) = &*REPAINT.lock().unwrap_or_else(|p| p.into_inner()) {
         ctx.request_repaint();
     }
@@ -507,6 +498,7 @@ fn action(id: &str) -> Option<Action> {
         "shortcuts" => Action::ShowDialog(Dialog::Shortcuts),
         "help" => Action::OpenUrl("https://zapfast.rocks/using-zapfast/".into()),
         "show-window" => Action::ShowWindow,
+        "activate-window" => Action::ActivateWindow,
         _ => return None,
     })
 }
@@ -663,6 +655,10 @@ mod tests {
         assert!(matches!(action("close"), Some(Action::CloseWindow)));
         assert!(matches!(action("quit"), Some(Action::Quit)));
         assert!(matches!(action("show-window"), Some(Action::ShowWindow)));
+        assert!(matches!(
+            action("activate-window"),
+            Some(Action::ActivateWindow)
+        ));
         assert!(matches!(edit_event("copy"), Some(egui::Event::Copy)));
         assert!(
             matches!(edit_event("redo"), Some(egui::Event::Key { key: egui::Key::Z, modifiers, .. }) if modifiers.command && modifiers.shift)
