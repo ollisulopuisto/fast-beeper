@@ -169,3 +169,4 @@ The four queue segments remain visible while typing. Filters composes category, 
 
 `--demo-page day-separators` shows five synthetic calendar days: today, yesterday,
 two days ago, three days ago and the previous year, for checking localized date labels.
+Use `linked-day-separators` for the same dates in a linked-person timeline.

@@ -2318,6 +2318,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
         match part {
             "history-date" => history_date_sample(app),
             "day-separators" => day_separators_sample(app),
+            "linked-day-separators" => {
+                linked_sample(app);
+                day_separators_sample(app);
+                if let Some(conversation) = app.conversations.get_mut("393331234567@signal") {
+                    conversation.messages.clear();
+                }
+            }
             "mentions" => mentions_sample(app),
             "chat" | "" => {}
             "phone-menu" => phone_menu_sample(app),
