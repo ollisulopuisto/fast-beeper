@@ -10200,6 +10200,13 @@ mod tests {
                 .map(|chat| chat.id.clone())
                 .collect()
         };
+        // Dentist is archived in the fixtures; the parked draft needs a
+        // visible, non-favorite home, so bring it back to the list first.
+        for chat in &mut app.chats {
+            if chat.id.as_str() == SAMPLES[8].id {
+                chat.archived = false;
+            }
+        }
         let original = ids(&app);
         let draft = SAMPLES[8].id;
         let pinned = SAMPLES[0].id;
