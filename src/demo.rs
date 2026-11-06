@@ -10201,7 +10201,7 @@ mod tests {
                 .collect()
         };
         let original = ids(&app);
-        let draft = SAMPLES[3].id;
+        let draft = SAMPLES[8].id;
         let pinned = SAMPLES[0].id;
         app.actions
             .push(crate::model::Action::OpenChat(draft.into()));
@@ -10218,8 +10218,11 @@ mod tests {
             .push(crate::model::Action::OpenChat(pinned.into()));
         frame_with(&mut app, &ctx, vec![]);
         let parked = ids(&app);
-        assert_eq!(parked[0], pinned, "the pin stays first");
-        assert_eq!(parked[1], draft, "the parked draft follows the pin");
+        assert_eq!(parked[0], pinned, "the pinned favorite stays first");
+        assert_eq!(
+            parked[7], draft,
+            "the parked draft follows the seven favorites"
+        );
         app.actions
             .push(crate::model::Action::OpenChat(draft.into()));
         app.focus_composer = true;
@@ -21315,11 +21318,14 @@ mod bubble_detail_tests {
         app.attach(&ctx);
         apply_flags(&mut app, Some("drafts"));
         let ordered = app.visible_chats();
-        assert_eq!(ordered[0].id, SAMPLES[0].id, "the pin stays above drafts");
-        assert_eq!(ordered[1].id, SAMPLES[2].id, "the newer draft follows pins");
+        assert_eq!(ordered[0].id, SAMPLES[0].id, "the pinned favorite leads");
         assert_eq!(
-            ordered[2].id, SAMPLES[3].id,
-            "drafts precede newer messages"
+            ordered[1].id, SAMPLES[1].id,
+            "favorites follow in bar order"
+        );
+        assert_eq!(
+            ordered[6].id, SAMPLES[6].id,
+            "every favorite sits above drafts and recency"
         );
         let shapes = frames(&mut app, &ctx, egui::vec2(1180.0, 780.0));
         let texts: Vec<(String, egui::Color32)> = shapes

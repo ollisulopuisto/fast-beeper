@@ -3666,11 +3666,9 @@ impl App {
         // order at the top of the list.
         chats.sort_by(|a, b| {
             b.favorite.cmp(&a.favorite).then_with(|| {
-                if a.favorite && b.favorite {
-                    a.favorite_position
-                        .cmp(&b.favorite_position)
-                        .then(a.id.cmp(&b.id))
-                } else if favorites_order {
+                // Reached only when a.favorite == b.favorite, so the first
+                // disjunct means both are favorites.
+                if (a.favorite && b.favorite) || favorites_order {
                     a.favorite_position
                         .cmp(&b.favorite_position)
                         .then(a.id.cmp(&b.id))
@@ -24482,7 +24480,7 @@ mod tests {
     #[test]
     fn favorite_order_survives_new_messages() {
         let mut app = app();
-        for (id, position, activity) in [("a", 1, 999), ("b", 0, 1), ("c", 0, 0), ("d", 0, 900)] {
+        for (id, position, activity) in [("a", 1, 999), ("b", 0, 1), ("c", 0, 10), ("d", 0, 900)] {
             let mut chat = Chat::new(id.into(), id.into());
             chat.favorite = position > 0 || id == "b";
             chat.favorite_position = position;

@@ -2077,8 +2077,8 @@ mod tests {
         let (_root, mut app, ids) = app_with_chats(4);
         favorite_all(&mut app);
         let ctx = egui::Context::default();
-        // Pinned, archived and locked favorites leave the bar (a pinned one
-        // shows under Pinned instead): only the first chat keeps a number.
+        // Archived and locked favorites leave the bar; a pinned one stays,
+        // a favorite among favorites, and keeps its digit.
         app.chats[3].pinned = true;
         app.chats[2].archived = true;
         app.chats[1].locked = true;
@@ -2086,7 +2086,7 @@ mod tests {
         assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
         app.actions.clear();
         assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::COMMAND));
-        assert!(app.actions.is_empty());
+        assert!(app.actions.contains(&Action::OpenChat(ids[3].clone())));
 
         app.chat_filter = crate::model::ChatFilter::Unread;
         app.chats[0].unread = 1;
