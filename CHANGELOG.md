@@ -9,6 +9,8 @@ version in Cargo.toml is bumped.
 
 ## Unreleased
 
+- The active avatar in the collapsed sidebar and favorite bar has a clear ring around its circle instead of a thin line at the left edge. Unread and service badges remain on top.
+
 - Chat-list redesign: Search first, then Chats beside an aligned four-way icon queue (All, Unread, Reply later, Read later). Filters combines chat type, favorites, labels, Unreplied and network/account scope; the bottom New message button stays fixed even with no results. Search keeps the selected scope and offers a count of available matches outside it, without listing them until the scope is cleared. Keyboard filter/network/favorite digits keep their assignments.
 - Incoming group messages use a fixed avatar gutter and a straight bubble-body column, including follow-up messages from the same sender.
 

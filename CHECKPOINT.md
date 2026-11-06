@@ -1,5 +1,24 @@
 # Fast-beeper coordination and development checkpoint
 
+## Active avatar ring - November 6, 2026
+
+Branch: fix/active-avatar-ring, owned by Instinct. Replaces the hard-to-see
+left-edge selected marker with a 2.5-point accent ring around the circle in
+the collapsed rail and favorite-avatar bar. A 5-point backing stroke separates
+the ring from photos and hover backgrounds. Badges paint after the ring so
+unread counts, network marks and timer marks stay on top. The ring fits the
+existing cells; no width or hit-target changes.
+
+Wireframe: selected `[| (avatar)]` becomes `[((avatar))]`, unselected stays
+`[(avatar)]`. Dark and light actual app captures and selected-unread hover
+capture inspected with offline synthetic chats. Active avatar remains legible,
+14 unread badge clear, no clipping. `active-avatar` demo page reproduces it.
+`cargo check --all-targets --all-features`, format and diff checks pass. An
+isolated actual helper shape test executes and passes; full app regression
+compiles, runtime execution awaits CI. Native Mac appearance unverified.
+No real messages, account changes, settings or new dependencies. Revert PR
+to roll back. Optional queue-count preference follows separately.
+
 ## Local attachment actions - November 6, 2026
 
 Branch: fix/image-viewer-actions, owned by Instinct. Copy image and Save as

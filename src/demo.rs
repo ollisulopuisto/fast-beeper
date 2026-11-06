@@ -3541,6 +3541,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             // The chat list collapsed to avatars with unread badges.
             "nosidebar" | "rail" => app.sidebar_visible = false,
+            "active-avatar" => {
+                app.sidebar_visible = false;
+                app.open_chat = Some(SAMPLES[1].id.to_owned());
+            }
             // A list wide enough for the whole chip row, which scrolls out of
             // sight at the default width.
             "wide" => app.settings.sidebar_width = 560.0,
