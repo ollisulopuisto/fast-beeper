@@ -27,6 +27,30 @@ normal labels show 12/3/5/2 without layout growth. Native Mac runtime unverified
 No real messages, account/data changes, new dependencies or remote calls.
 Revert this PR to roll back. Other shortcut/ring/reopen work stays separate.
 
+## Sidebar shortcut audit - November 6, 2026
+
+Branch: fix/shortcut-collisions, owned by Instinct. No new controls or layout:
+queue wireframe remains `[All] [Unread] [Reply later] [Read later]`; digits now
+follow that visible order. Cmd+Option+3 previously toggled Favorites from the
+old ChatFilter::EVERY ordering, not two simultaneously firing handlers.
+Favorites moves to 5; Private/Groups/Channels stay 6/7/8 and Unreplied stays 9.
+Network tooltips incorrectly advertised Cmd+Option while the exact handler
+uses Option alone. Help said 1..0 although filter 0 is unassigned. Fixed both.
+Off Mac, the network-present visible-row shortcut swallowed Ctrl+Shift+1
+before the Chats destination handler; that digit is now reserved for Chats.
+Other row digits are unchanged. Mac keeps Cmd+Control+digit for visible rows.
+Updated linked latest-reply docs to Cmd+Option+Shift+R, added help, removed the
+nonexistent Calls shortcut promise, and corrected off-Mac focus-message docs.
+
+Six pure registry/menu/label tests executed against extracted actual source
+pass, including platform binding uniqueness. Full all-target/all-feature
+`cargo check` passes. New GUI mapping and network-present regressions compile,
+but local execution and full clippy exceeded the two-minute per-command limit;
+CI must establish their runtime/lint result. No native Mac interaction claimed.
+No new dependencies, messages, account changes, main pushes or merge.
+Rollback: revert this PR. Separate active-avatar ring and optional queue-count
+badges are queued next; neither is included here.
+
 ## Active avatar ring - November 6, 2026
 
 Branch: fix/active-avatar-ring, owned by Instinct. Replaces the hard-to-see

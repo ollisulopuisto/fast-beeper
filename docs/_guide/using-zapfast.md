@@ -560,8 +560,7 @@ the ones it reports as they happen, the calls missed while Solmu was closed,
 and the call history it sends when the computer is linked. Right-click a call
 in a chat to call back from there.
 
-**Calls** in the rail on the left of the chat list (`Ctrl+Shift+2`, Command
-on macOS) opens the **Calls** tab, laid out as in WhatsApp: the list shows
+**Calls** opens the **Calls** tab, laid out as in WhatsApp: the list shows
 every call of the number on screen, newest first, with calls in a row from the
 same person folded into one row with a count. Each row says which way the call
 went (a missed call's name is red), when, and how it went, and its phone or
@@ -818,15 +817,14 @@ wearing it, channels included. A label is one more chip: picking it lets go of
 the other chips, it does not narrow search or the archive. Click the active
 label chip again, or **All**, to see every chat.
 
-A thin rail runs down the left of the chat list: **Chats** and **Calls**
-(`Ctrl+Shift+1` and `Ctrl+Shift+2`, Command on macOS) at the top;
+A thin rail runs down the left of the chat list: **Chats**
+(`Ctrl+Shift+1`, Command on macOS) at the top;
 **Starred**, **Archived** and **Locked** (while you have archived or locked
 chats), **Settings**, and your own picture (the account switcher) at the
 bottom. The one on screen is lit. The chat list's header keeps its title, **New
 chat**, and the button beside it (`Ctrl+B`), which hides the list: the chats'
 avatars then fill the rail between its top and bottom buttons. Unread chats
-show their badge, hovering names a chat, clicking opens it, and `Ctrl+B` or
-the button under **Calls** brings the full list back.
+show their badge, hovering names a chat, clicking opens it, and `Ctrl+B` brings the full list back.
 In a short window, scroll the rail to reach its lower buttons. Tab and
 Shift+Tab bring the focused button into view, too.
 
@@ -890,7 +888,7 @@ Unread.
 
 The messages form one list, named for the chat, such as "Messages with Ada" or
 "Messages in Rust Berlin", and each message, or album, reports its position in
-it. The list is a single Tab stop: Alt+2 (Control+2 on macOS) also moves there.
+it. The list is a single Tab stop. Control+2 on macOS also moves there; elsewhere use Tab. Alt+digit selects a network when outside a text field, not message focus.
 In the list, Up and Down move one item, Home and End go to the oldest loaded
 and the newest message, and PgUp and PgDn move about a screen; Home on the
 oldest loaded message loads older history. The current message stays put when
@@ -906,3 +904,12 @@ reactions and chat rows are not stops; Alt+Up/Down switches conversations.
 
 Cmd+D (Ctrl+D elsewhere) toggles the right-hand info sidebar for the open
 chat. Cmd+B still toggles the left chat list; Cmd+I marks Reply later.
+
+### Numbered sidebar shortcuts
+
+Command+Option+1..9 on macOS (Ctrl+Alt+1..9 elsewhere) selects All, Unread,
+Reply later, Read later, Favorites only, Private, Groups, Channels, then toggles
+Unreplied. The first four follow the visible queue order; Favorites and chat type
+are additional facets, so selecting a queue does not clear them. 0 is unassigned.
+Option+1..0 (Alt elsewhere) selects a network outside text fields. Command+1..0
+(Ctrl elsewhere) opens a favorite chat. These modifier families are distinct.

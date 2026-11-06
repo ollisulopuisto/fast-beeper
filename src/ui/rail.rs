@@ -396,7 +396,7 @@ fn network_plate(
     let mut label = if index < 10 {
         format!(
             "{name} ({})",
-            super::keys::label(&format!("Ctrl+Alt+{}", (index + 1) % 10))
+            super::keys::label(&format!("Alt+{}", (index + 1) % 10))
         )
     } else {
         name.to_owned()
