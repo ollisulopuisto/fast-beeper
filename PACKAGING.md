@@ -242,3 +242,9 @@ After changing this policy, test a freshly installed bundle on macOS: quit
 the old copy, open the app, confirm one Cmd-Tab entry, then test Dock reopen,
 minimize/restore and closing/reopening the chat window. Source checks and
 signed-DMG metadata verification cannot prove the live switcher behavior.
+
+Cmd-Tab activation is subscribed explicitly through NSNotificationCenter after
+the optional delegate method is installed. Adding a selector after winit assigned
+its delegate does not by itself register notification delivery. Dock reopen
+remains a separate direct delegate callback. The existing headless loop handles
+the ShowWindow action by creating a fresh window, without restarting accounts.

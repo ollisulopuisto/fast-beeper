@@ -11,6 +11,8 @@ version in Cargo.toml is bumped.
 
 - Conversation day separators now show Today, Yesterday and Day before yesterday, then short numeric dates in the system locale's order. Dates from another year include the full year. Finnish regions show Tänään, Eilen and Toissapäivänä. Bubble clocks and chat-row timestamps are unchanged.
 
+- macOS: explicitly subscribe the late-installed Cmd-Tab activation handler so it can request a new window after Close keeps Solmu running in the background. Dock reopen stays separate.
+
 - Sidebar shortcuts follow the visible queue: Cmd+Option+3 (Ctrl+Alt+3 elsewhere) selects Reply later, and 5 toggles Favorites only. Network tooltips now show Option/Alt without Command/Ctrl. Fixed the off-Mac Ctrl+Shift+1 Chats collision and corrected shortcut help and guide references.
 
 - Chat-list redesign: Search first, then Chats beside an aligned four-way icon queue (All, Unread, Reply later, Read later). Filters combines chat type, favorites, labels, Unreplied and network/account scope; the bottom New message button stays fixed even with no results. Search keeps the selected scope and offers a count of available matches outside it, without listing them until the scope is cleared. Keyboard filter/network/favorite digits keep their assignments.

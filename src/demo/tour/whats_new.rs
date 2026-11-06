@@ -217,12 +217,12 @@ pub(super) fn script() -> Vec<Cue> {
     add(
         47.4,
         Key(
-            K::Num3,
+            K::Num5,
             Modifiers {
                 alt: true,
                 ..command()
             },
-            "Ctrl+Alt+3 · Favorites",
+            "Ctrl+Alt+5 · Favorites",
         ),
     );
     add(48.0, Move(Stop(Control::Filters)));
