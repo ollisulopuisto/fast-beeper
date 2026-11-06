@@ -3640,7 +3640,6 @@ impl App {
                     })
             })
             .collect();
-        // The Favorites chip keeps the phone's order below the pinned chats.
         let favorites_order = self.favorites_order();
         // beeper_person_preview clones the chat and, for linked people, scans
         // every member conversation's messages, so calling it twice per sort
@@ -3663,10 +3662,14 @@ impl App {
                 )
             })
             .collect();
+        // Favorites - Beeper pins mirrored among them - keep their bar
+        // order at the top of the list.
         chats.sort_by(|a, b| {
-            b.pinned.cmp(&a.pinned).then_with(|| {
-                if a.pinned && b.pinned {
-                    b.pinned_at.cmp(&a.pinned_at).then(a.id.cmp(&b.id))
+            b.favorite.cmp(&a.favorite).then_with(|| {
+                if a.favorite && b.favorite {
+                    a.favorite_position
+                        .cmp(&b.favorite_position)
+                        .then(a.id.cmp(&b.id))
                 } else if favorites_order {
                     a.favorite_position
                         .cmp(&b.favorite_position)
@@ -23568,7 +23571,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_chats_pin_first_and_filter() {
+    fn visible_chats_favorites_first_and_filter() {
         let mut app = app();
         let mut a = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
         a.last_activity = 10;
@@ -23576,7 +23579,7 @@ mod tests {
         b.last_activity = 20;
         let mut c = Chat::new("3@s.whatsapp.net".into(), "Cy".into());
         c.last_activity = 5;
-        c.pinned = true;
+        c.favorite = true;
         let mut d = Chat::new("4@s.whatsapp.net".into(), "Dee".into());
         d.archived = true;
         app.chats = vec![b, a, c, d];
@@ -23596,7 +23599,7 @@ mod tests {
     }
 
     #[test]
-    fn the_favorites_chip_keeps_the_phone_order_below_pins() {
+    fn the_favorites_chip_keeps_the_bar_order() {
         let mut app = app();
         let favorite = |id: &str, name: &str, position: u32, activity: i64| {
             let mut chat = Chat::new(id.into(), name.into());
@@ -23624,7 +23627,7 @@ mod tests {
             .iter()
             .map(|chat| chat.name.as_str())
             .collect();
-        assert_eq!(names, ["Cy", "Bob", "Ada"]);
+        assert_eq!(names, ["Bob", "Ada", "Cy"]);
         app.chat_filter = ChatFilter::All;
         let names: Vec<&str> = app
             .visible_chats()
@@ -23633,15 +23636,15 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["Cy", "Ada", "Bob", "Dee"],
-            "other chips keep recency"
+            ["Bob", "Ada", "Cy", "Dee"],
+            "favorites keep their bar order at the top, then recency"
         );
     }
 
-    /// Pins retain their order above text and attachment drafts; filtered
-    /// chats do not reappear merely because they contain a draft.
+    /// Favorites retain their bar order above text and attachment drafts;
+    /// filtered chats do not reappear merely because they contain a draft.
     #[test]
-    fn pins_stay_above_eligible_text_and_attachment_drafts() {
+    fn favorites_stay_above_eligible_text_and_attachment_drafts() {
         let mut app = app();
         let mut chat = |id: &str, activity| {
             let mut chat = Chat::new(id.into(), id.into());
@@ -23655,10 +23658,10 @@ mod tests {
         chat("file", 10);
         chat("locked", 100);
         chat("archived", 100);
-        app.chats[0].pinned = true;
-        app.chats[0].pinned_at = 10;
-        app.chats[1].pinned = true;
-        app.chats[1].pinned_at = 20;
+        app.chats[0].favorite = true;
+        app.chats[0].favorite_position = 0;
+        app.chats[1].favorite = true;
+        app.chats[1].favorite_position = 1;
         app.chats[5].locked = true;
         app.chats[6].archived = true;
         for id in ["pin-old", "text", "locked", "archived"] {
@@ -23672,7 +23675,7 @@ mod tests {
             .iter()
             .map(|chat| chat.id.clone())
             .collect();
-        assert_eq!(ids, ["pin-new", "pin-old", "text", "file", "recent"]);
+        assert_eq!(ids, ["pin-old", "pin-new", "text", "file", "recent"]);
     }
 
     /// A new draft moves only on leaving; reopening and clearing a saved
@@ -24477,12 +24480,12 @@ mod tests {
     }
 
     #[test]
-    fn pinned_order_survives_new_messages_and_legacy_pin_ties() {
+    fn favorite_order_survives_new_messages() {
         let mut app = app();
-        for (id, pin, activity) in [("a", 100, 999), ("b", 200, 1), ("c", 0, 0), ("d", 0, 900)] {
+        for (id, position, activity) in [("a", 1, 999), ("b", 0, 1), ("c", 0, 0), ("d", 0, 900)] {
             let mut chat = Chat::new(id.into(), id.into());
-            chat.pinned = true;
-            chat.pinned_at = pin;
+            chat.favorite = position > 0 || id == "b";
+            chat.favorite_position = position;
             chat.last_activity = activity;
             app.chats.push(chat);
         }
@@ -24492,7 +24495,7 @@ mod tests {
                 .map(|chat| chat.id.clone())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(order(&app), ["b", "a", "c", "d"]);
+        assert_eq!(order(&app), ["b", "a", "d", "c"]);
         app.chats[0].last_activity = 10_000;
         app.chats[2].last_activity = 20_000;
         assert_eq!(order(&app), ["b", "a", "c", "d"]);

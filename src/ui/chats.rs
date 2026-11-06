@@ -1063,34 +1063,6 @@ fn starred_row(
     }
 }
 
-/// Compact pins intentionally span network/account navigation in this
-/// profile. They render as ordinary chat rows, so pin/unpin, context
-/// menus and unread badges behave exactly as in the chat list.
-pub(super) fn pinned_row(app: &mut App, ui: &mut egui::Ui) {
-    let pins = app.beeper_global_pins();
-    if pins.is_empty() {
-        return;
-    }
-    ui.spacing_mut().item_spacing.y = 0.0;
-    // One avatar per row down the rail's column, with the rail's own scroll
-    // keeping every pin reachable. The hover names the chat, the right-click
-    // menu is the chat row's, so nothing the full rows offered is lost.
-    widgets::chip_scroll_row(ui, "beeper-global-pins", |ui| {
-        ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-            for (index, chat) in pins.iter().enumerate() {
-                let shortcut = (index < 9)
-                    .then(|| super::keys::label(&format!("Ctrl+Alt+Shift+{}", index + 1)));
-                let chip = favorite_chip(app, ui, chat, shortcut);
-                // Store the chip rect for interaction tests, like the list.
-                ui.ctx()
-                    .data_mut(|data| data.insert_temp(chat_row_id(&chat.id), chip.rect));
-            }
-        });
-    });
-    ui.add_space(4.0);
-}
-
 /// Side of a favorite chip: the avatar, its badges and a little air.
 const FAVORITE_CELL: f32 = 44.0;
 /// The avatar inside a favorite chip.
@@ -1106,23 +1078,11 @@ const FAVORITE_AVATAR: f32 = 36.0;
 /// activity, then id. Command+1..9 jumps by this same order, so the bar and
 /// the keys never disagree about which chat a number means.
 pub(super) fn favorite_bar_chats(app: &App) -> Vec<Chat> {
-    // A chat that is both favorited and pinned shows under Pinned only:
-    // two sections listing the same chat would read as a bug.
-    let pins: Vec<ChatId> = app
-        .beeper_global_pins()
-        .iter()
-        .map(|chat| chat.id.clone())
-        .collect();
     let mut favorites: Vec<Chat> = app
         .chats
         .iter()
         .filter(|c| {
-            c.backend_account.is_some()
-                && c.favorite
-                && !c.is_channel()
-                && !c.locked
-                && !c.archived
-                && !pins.contains(&c.id)
+            c.backend_account.is_some() && c.favorite && !c.is_channel() && !c.locked && !c.archived
         })
         .cloned()
         .collect();
@@ -2125,10 +2085,10 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
                 .paint_at(ui, icon_rect);
             badge_right -= 20.0;
         }
-        if chat.pinned {
+        if chat.favorite {
             let icon_rect =
                 Rect::from_center_size(pos2(badge_right - 8.0, line_y + 8.0), Vec2::splat(14.0));
-            Icon::Pin.image(palette.dim, 14.0).paint_at(ui, icon_rect);
+            Icon::Heart.image(palette.dim, 14.0).paint_at(ui, icon_rect);
             badge_right -= 20.0;
         }
         if app.reply_later_contains(chat) {
@@ -2682,20 +2642,6 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
             app.actions.push(Action::ToggleReadLater(chat.id.clone()));
         }
     }
-    let pin_label = if chat.pinned {
-        crate::i18n::gettext(locale, "Unpin")
-    } else {
-        crate::i18n::gettext(locale, "Pin to top")
-    };
-    if widgets::menu_item(
-        ui,
-        palette,
-        Some(if chat.pinned { Icon::PinOff } else { Icon::Pin }),
-        pin_label.as_ref(),
-    ) {
-        app.actions
-            .push(Action::SetPinned(chat.id.clone(), !chat.pinned));
-    }
     // Channels cannot be favorites, as on the phone. A Beeper chat's mark
     // lives here only: no phone knows its network's chats to sync it to.
     if !chat.is_channel() {
@@ -2706,8 +2652,13 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
             crate::i18n::gettext(locale, "Add to favorites")
         };
         if widgets::menu_item(ui, palette, Some(Icon::Heart), favorite_label.as_ref()) {
-            app.actions
-                .push(Action::SetFavorite(chat.id.clone(), !chat.favorite));
+            if chat.pinned {
+                // A pin mirrored into a favorite leaves through the bridge.
+                app.actions.push(Action::SetPinned(chat.id.clone(), false));
+            } else {
+                app.actions
+                    .push(Action::SetFavorite(chat.id.clone(), !chat.favorite));
+            }
         }
     }
     let archive_label = if chat.archived {
@@ -3866,8 +3817,8 @@ mod tests {
             |ui| show(&mut app, ui),
         );
         output.textures_delta.clear();
-        // The rail keeps its pinned chip; the list keeps the full row. One
-        // pin, one shortcut, one row: no surface drops the chat.
+        // The list keeps the pinned chat's full row; its favorite chip is
+        // the rail's business, never a replacement for the row.
         let row = ctx
             .data(|data| data.get_temp::<Rect>(chat_row_id(&pinned.id)))
             .expect("a pinned chat keeps its ordinary row in the list");
@@ -3952,25 +3903,13 @@ mod tests {
             last.top() > first.bottom() - 1.0,
             "the fifth chip wraps to a second row"
         );
-        // A chat that is also pinned shows under Pinned only: its chip
-        // sits in the pinned section below the bar, never in it. Both
-        // sections draw the same avatar chips, so the position, not the
-        // rect's absence, tells the sections apart.
-        let pinned_chip = ctx
-            .data(|data| data.get_temp::<Rect>(favorite_chip_id(&pinned_favorite.id)))
-            .expect("the pinned favorite renders as a pinned chip");
+        // A chat that is also pinned is one favorite among many now: its
+        // chip sits in the bar by its favorite position, never in a
+        // section of its own.
+        let pinned_chip = chip(&pinned_favorite);
         assert!(
             pinned_chip.top() >= last.bottom() - 1.0,
-            "the pinned favorite's chip belongs to the pinned section below the bar: {pinned_chip:?} vs bar ending at {last:?}"
-        );
-        // The section must allocate every wrapped row: the Pinned section
-        // starts below the last chip's bottom edge, never over it.
-        let pinned_row = ctx
-            .data(|data| data.get_temp::<Rect>(chat_row_id(&pinned_favorite.id)))
-            .expect("the pinned favorite renders under Pinned");
-        assert!(
-            pinned_row.top() >= last.bottom() - 1.0,
-            "the section clips its wrapped row: pinned {pinned_row:?} vs chip {last:?}"
+            "the pinned favorite's chip wraps with the bar: {pinned_chip:?} vs chip {last:?}"
         );
         // Badges: a count for the unread chat, a dot for the marked one,
         // nothing for the read one, and every badge inside the rail panel.

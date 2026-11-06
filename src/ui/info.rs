@@ -658,13 +658,18 @@ fn actions(app: &mut App, ui: &mut egui::Ui, shown: &Shown, mine: bool, editable
             )
         });
         buttons.push((
-            if shown.pinned {
-                Icon::PinOff
+            Icon::Heart,
+            if shown.favorite {
+                "Unfavorite"
             } else {
-                Icon::Pin
+                "Favorite"
             },
-            if shown.pinned { "Unpin" } else { "Pin" },
-            vec![Action::SetPinned(id.to_owned(), !shown.pinned)],
+            if shown.pinned {
+                // A pin mirrored into a favorite leaves through the bridge.
+                vec![Action::SetPinned(id.to_owned(), false)]
+            } else {
+                vec![Action::SetFavorite(id.to_owned(), !shown.favorite)]
+            },
         ));
         buttons.push((
             Icon::Archive,
