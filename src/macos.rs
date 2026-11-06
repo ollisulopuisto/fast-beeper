@@ -85,6 +85,7 @@ fn item(id: &str, text: &str, shortcut: Option<&str>) -> MenuItem {
 fn registered(id: &str) -> MenuItem {
     let entry = crate::ui::keys::shortcut(id)
         .menu
+        .as_ref()
         .unwrap_or_else(|| panic!("shortcut {id} has no menu item"));
     item(entry.id, entry.text, Some(entry.accelerator))
 }
