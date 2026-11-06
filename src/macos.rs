@@ -80,13 +80,22 @@ fn item(id: &str, text: &str, shortcut: Option<&str>) -> MenuItem {
     )
 }
 
+/// The menu item the shortcut registry carries for `id`: same binding the
+/// keyboard handler consumes, so the two cannot drift.
+fn registered(id: &str) -> MenuItem {
+    let entry = crate::ui::keys::shortcut(id)
+        .menu
+        .unwrap_or_else(|| panic!("shortcut {id} has no menu item"));
+    item(entry.id, entry.text, Some(entry.accelerator))
+}
+
 fn build_menu() -> tray_icon::menu::Result<Menu> {
     let menu = Menu::new();
     let app = Submenu::new("Solmu", true);
     app.append_items(&[
         &item("about", "About Solmu", None),
         &Native::separator(),
-        &item("settings", "Settings…", Some("Super+Comma")),
+        &registered("settings"),
         &Native::separator(),
         &Native::services(None),
         &Native::separator(),
@@ -94,35 +103,35 @@ fn build_menu() -> tray_icon::menu::Result<Menu> {
         &Native::hide_others(None),
         &Native::show_all(None),
         &Native::separator(),
-        &item("quit", "Quit Solmu", Some("Super+KeyQ")),
+        &registered("quit"),
     ])?;
     let file = Submenu::new("File", true);
     file.append_items(&[
-        &item("new", "New Chat…", Some("Super+KeyN")),
+        &registered("new-chat"),
         &Native::separator(),
-        &item("close", "Close Window", Some("Super+KeyW")),
+        &registered("close-window"),
     ])?;
     let edit = Submenu::new("Edit", true);
     // Winit's view is not an NSTextView: AppKit's copy:/undo: selectors
     // cannot edit egui text. Send the same events as its keyboard shortcuts.
     edit.append_items(&[
-        &item("undo", "Undo", Some("Super+KeyZ")),
-        &item("redo", "Redo", Some("Super+Shift+KeyZ")),
+        &registered("undo"),
+        &registered("redo"),
         &Native::separator(),
-        &item("cut", "Cut", Some("Super+KeyX")),
-        &item("copy", "Copy", Some("Super+KeyC")),
-        &item("paste", "Paste", Some("Super+KeyV")),
-        &item("select-all", "Select All", Some("Super+KeyA")),
+        &registered("cut"),
+        &registered("copy"),
+        &registered("paste"),
+        &registered("select-all"),
         &Native::separator(),
-        &item("search", "Find…", Some("Super+KeyF")),
+        &registered("find"),
     ])?;
     let view = Submenu::new("View", true);
     view.append_items(&[
-        &item("sidebar", "Toggle Sidebar", Some("Super+KeyB")),
+        &registered("sidebar"),
         &Native::separator(),
-        &item("zoom-in", "Zoom In", Some("Super+Equal")),
-        &item("zoom-out", "Zoom Out", Some("Super+Minus")),
-        &item("zoom-reset", "Actual Size", Some("Super+Digit0")),
+        &registered("zoom-in"),
+        &registered("zoom-out"),
+        &registered("zoom-reset"),
         &Native::separator(),
         &Native::fullscreen(None),
     ])?;
@@ -136,7 +145,7 @@ fn build_menu() -> tray_icon::menu::Result<Menu> {
     let help = Submenu::new("Help", true);
     help.append_items(&[
         &item("whats-new", "What's New", None),
-        &item("shortcuts", "Keyboard Shortcuts", Some("Super+Slash")),
+        &registered("shortcuts"),
         &item("help", "Solmu Help", None),
     ])?;
     menu.append_items(&[&app, &file, &edit, &view, &window, &help])?;

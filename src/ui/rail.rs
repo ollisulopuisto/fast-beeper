@@ -493,7 +493,11 @@ fn destination_plate(
             format!(
                 "{} ({})",
                 gettext(app.locale, "Chats"),
-                super::keys::label("Ctrl+Shift+1")
+                super::keys::label(
+                    super::keys::shortcut("rail-chats")
+                        .label
+                        .unwrap_or_default(),
+                )
             ),
         ),
         Destination::Starred => (
