@@ -3828,10 +3828,16 @@ impl App {
     /// Whether the chat list keeps the phone's favorites order instead of the
     /// latest activity, so a sent message does not move its chat up.
     fn favorites_order(&self) -> bool {
+        // Most queries are ASCII: avoid normalization/allocation there.
+        // Unicode combining-mark-only queries still normalize to empty.
         self.label_filter.is_none()
             && (self.chat_filter == ChatFilter::Favorites || self.favorites_only)
             && !self.show_archived
-            && crate::util::search_key(self.search.trim()).is_empty()
+            && (if self.search.is_ascii() {
+                self.search.trim().is_empty()
+            } else {
+                crate::util::search_key(self.search.trim()).is_empty()
+            })
             && !self.locked_folder_open()
     }
 
@@ -27468,5 +27474,25 @@ mod queue_count_tests {
             crate::settings::BeeperInbox::None;
         assert_eq!(app.queue_chat_counts(), [0, 0, 4, 2]);
         agrees_with_each_queue(&mut app);
+    }
+}
+
+#[cfg(test)]
+mod favorites_query_emptiness_tests {
+    use super::*;
+    #[test]
+    fn favorites_order_keeps_normalized_unicode_empty_queries() {
+        let root =
+            std::env::temp_dir().join(format!("solmu-favorites-empty-{}", std::process::id()));
+        let mut app = App::headless(AppDirs::under(&root), Settings::default()).0;
+        app.favorites_only = true;
+        for query in ["", "  ", "hello", "  friend  ", "\u{301}", "é", "東京"] {
+            app.search = query.into();
+            assert_eq!(
+                app.favorites_order(),
+                crate::util::search_key(query.trim()).is_empty(),
+                "query {query:?}"
+            );
+        }
     }
 }
