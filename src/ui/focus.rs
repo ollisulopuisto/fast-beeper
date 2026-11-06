@@ -38,7 +38,6 @@ pub enum Stop {
     Settings,
     Profile,
     Back,
-    NewChat,
     Sidebar,
     Search,
     /// The first chip, All, on the chat list.
@@ -46,6 +45,7 @@ pub enum Stop {
     Unread,
     ReplyLater,
     ReadLater,
+    Filters,
     Private,
     Favorites,
     Groups,
@@ -53,6 +53,7 @@ pub enum Stop {
     /// One chip in the label row, by its position among the labels.
     Label(u8),
     ManageLabels,
+    NewChat,
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -120,7 +120,35 @@ pub fn full_show(app: &mut App, ui: &mut egui::Ui) {
 
 /// What the list pane holds under its header: the chats.
 fn body(app: &mut App, ui: &mut egui::Ui) {
-    list(app, ui);
+    let height = (ui.available_height() - 60.0).max(0.0);
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), height),
+        Layout::top_down(Align::Min),
+        |ui| {
+            ui.set_min_height(height);
+            ui.set_max_height(height);
+            list(app, ui);
+        },
+    );
+    let palette = app.palette;
+    Frame::new()
+        .inner_margin(Margin::symmetric(14, 8))
+        .show(ui, |ui| {
+            let button = ui
+                .add_sized(
+                    vec2(ui.available_width(), 40.0),
+                    egui::Button::new(crate::i18n::gettext(app.locale, "New message"))
+                        .fill(palette.accent.gamma_multiply(0.18)),
+                )
+                .tab_stop(Stop::NewChat)
+                .on_hover_text(super::keys::label("Ctrl+N"));
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(egui::Id::new("new-message-footer"), button.rect)
+            });
+            if button.clicked() {
+                app.actions.push(Action::ShowDialog(Dialog::NewChat));
+            }
+        });
 }
 
 /// Walks matching chats while the global search field keeps keyboard focus.
@@ -182,7 +210,228 @@ fn search_keyboard(app: &mut App, ui: &egui::Ui) {
     }
 }
 
+/// Search, title and queues, then the composed scope. Shared by every platform.
 fn header(app: &mut App, ui: &mut egui::Ui) {
+    if app.show_starred || app.show_archived || app.locked_folder_open() {
+        legacy_header(app, ui);
+        return;
+    }
+    let palette = app.palette;
+    Frame::new()
+        .inner_margin(Margin::symmetric(14, 8))
+        .show(ui, |ui| {
+            // Keep editable controls below native traffic lights / drawn captions.
+            let room = super::caption_room(ui.ctx(), ui.max_rect(), LIST_HEADER_MIN_CONTENT);
+            let top = if theme::macos_chrome(ui.ctx()) {
+                38.0
+            } else {
+                room.top.max(
+                    (theme::caption_footprint(ui.ctx()).height
+                        - (ui.max_rect().top() - ui.ctx().content_rect().top()))
+                    .max(0.0),
+                )
+            };
+            if top > 0.0 {
+                let (drag, _) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), top), Sense::hover());
+                super::titlebar_drag(ui, drag);
+            }
+            search_field(app, ui);
+            ui.add_space(8.0);
+            let row = ui.horizontal(|ui| {
+                ui.set_min_height(36.0);
+                theme::text(
+                    ui,
+                    crate::i18n::gettext(app.locale, "Chats").as_ref(),
+                    theme::bold(20.0),
+                    palette.text,
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let width = queue_width(ui.available_width());
+                    ui.allocate_ui_with_layout(
+                        vec2(width, 36.0),
+                        Layout::left_to_right(Align::Center),
+                        |ui| facet_row(app, ui),
+                    );
+                });
+            });
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(header_row_id(), row.response.rect));
+            ui.add_space(6.0);
+            scope_row(app, ui);
+            let count = app.outside_scope_matches();
+            if count > 0
+                && ui
+                    .add(
+                        egui::Button::new(
+                            crate::i18n::ngettext(
+                                app.locale,
+                                "{} match outside current scope",
+                                "{} matches outside current scope",
+                                count.min(u32::MAX as usize) as u32,
+                            )
+                            .replace("{}", &count.to_string()),
+                        )
+                        .frame(false),
+                    )
+                    .on_hover_text("Show available matches in all scopes")
+                    .clicked()
+            {
+                app.clear_chat_scope();
+            }
+        });
+}
+
+fn queue_width(available: f32) -> f32 {
+    available.clamp(128.0, 168.0)
+}
+
+fn scope_row(app: &mut App, ui: &mut egui::Ui) {
+    let locale = app.locale;
+    let palette = app.palette;
+    ui.horizontal(|ui| {
+        ui.menu_button(crate::i18n::gettext(locale, "Filters"), |ui| {
+            ui.set_max_width(280.0);
+            ui.label(crate::i18n::gettext(locale, "Chat type"));
+            let mut category = app.category_filter;
+            ui.radio_value(&mut category, None, crate::i18n::gettext(locale, "Any"));
+            for filter in [
+                ChatFilter::Private,
+                ChatFilter::Groups,
+                ChatFilter::Channels,
+            ] {
+                ui.radio_value(&mut category, Some(filter), filter.label(app.locale));
+            }
+            let mut changed = category != app.category_filter;
+            app.category_filter = category;
+            changed |= ui
+                .checkbox(
+                    &mut app.favorites_only,
+                    crate::i18n::gettext(locale, "Favorites only"),
+                )
+                .changed();
+            ui.checkbox(
+                &mut app.beeper_unreplied,
+                crate::i18n::gettext(locale, "Unreplied only"),
+            );
+            if changed {
+                app.actions.push(Action::SetChatFilter(app.chat_filter));
+            }
+            ui.separator();
+            ui.label(crate::i18n::gettext(locale, "Network / account"));
+            if ui
+                .selectable_label(
+                    !app.beeper_scope_is_active(),
+                    crate::i18n::gettext(locale, "All networks"),
+                )
+                .clicked()
+            {
+                app.select_beeper_scope(None, None);
+            }
+            for network in app.beeper_browse_networks() {
+                ui.menu_button(&network, |ui| {
+                    if ui
+                        .button(crate::i18n::gettext(locale, "All accounts"))
+                        .clicked()
+                    {
+                        app.select_beeper_scope(Some(network.clone()), None);
+                    }
+                    for (key, name) in app.beeper_network_accounts(&network) {
+                        if ui
+                            .selectable_label(
+                                app.beeper_account_filter.as_ref() == Some(&key),
+                                name,
+                            )
+                            .clicked()
+                        {
+                            app.select_beeper_scope(Some(network.clone()), Some(key));
+                        }
+                    }
+                });
+            }
+            if !app.labels.is_empty() {
+                ui.separator();
+                ui.menu_button(crate::i18n::gettext(locale, "Labels"), |ui| {
+                    if ui
+                        .selectable_label(
+                            app.label_filter.is_none(),
+                            crate::i18n::gettext(locale, "Any"),
+                        )
+                        .clicked()
+                    {
+                        app.actions.push(Action::SelectLabel(None));
+                    }
+                    for label in app.labels.clone() {
+                        if ui
+                            .selectable_label(
+                                app.label_filter.as_ref() == Some(&label.id),
+                                &label.name,
+                            )
+                            .clicked()
+                        {
+                            app.actions
+                                .push(Action::SelectLabel(Some(label.id.clone())));
+                        }
+                    }
+                    if ui
+                        .button(crate::i18n::gettext(locale, "Manage labels"))
+                        .clicked()
+                    {
+                        app.actions.push(Action::ShowDialog(Dialog::Labels));
+                    }
+                });
+            }
+            ui.separator();
+            if !super::narrow(ui.ctx())
+                && ui
+                    .button(crate::i18n::gettext(locale, "Hide the chat list"))
+                    .clicked()
+            {
+                app.actions.push(Action::ToggleSidebar);
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::gettext(locale, "Reset view"))
+                .clicked()
+            {
+                app.clear_chat_scope();
+            }
+        })
+        .response
+        .tab_stop(Stop::Filters);
+        let mut parts = vec![
+            app.category_filter
+                .map(|f| f.label(app.locale).into_owned())
+                .unwrap_or_else(|| crate::i18n::gettext(locale, "All types").into_owned()),
+        ];
+        parts.push(
+            app.beeper_network_filter
+                .clone()
+                .unwrap_or_else(|| crate::i18n::gettext(locale, "All networks").into_owned()),
+        );
+        if let Some(key) = &app.beeper_account_filter
+            && let Some(name) = app.beeper_browse_accounts().get(key)
+        {
+            parts.push(name.clone());
+        }
+        if app.favorites_only {
+            parts.push(crate::i18n::gettext(locale, "Favorites").into_owned());
+        }
+        if app.beeper_unreplied {
+            parts.push(crate::i18n::gettext(locale, "Unreplied").into_owned());
+        }
+        if let Some(label) = app.label_filter.as_ref().and_then(|id| app.label(id)) {
+            parts.push(label.name.clone());
+        }
+        ui.add(
+            egui::Label::new(egui::RichText::new(parts.join(" · ")).color(palette.secondary))
+                .truncate(),
+        )
+        .on_hover_text(parts.join(" · "));
+    });
+}
+
+fn legacy_header(app: &mut App, ui: &mut egui::Ui) {
     if theme::macos_chrome(ui.ctx()) {
         macos_header(app, ui);
         return;
@@ -307,6 +556,11 @@ fn tab_title(_page: &Page) -> &'static str {
 /// The search field under the header's first row, and the filter chips
 /// under it.
 fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {
+    search_field(app, ui);
+    facet_row(app, ui);
+}
+
+fn search_field(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let width = ui.available_width();
     let mut text = app.search.clone();
@@ -327,77 +581,80 @@ fn search_and_filters(app: &mut App, ui: &mut egui::Ui) {
         app.focus_search = false;
         response.request_focus();
     }
-    facet_row(app, ui);
 }
 
-/// The permanent facets under the search field: All and Unread beside the
-/// Reply later and Read later marks, each chip labeled and carrying its
-/// count. They hide with the list's other filters: the starred panel
-/// replaces the list, and a typed search already lists every match.
+/// Four permanent queue cells, independent of the additional scope.
 fn facet_row(app: &mut App, ui: &mut egui::Ui) {
     if app.show_starred {
         return;
     }
-    if !app.locked_folder_open() && !app.search.trim().is_empty() {
-        return;
-    }
-    const FACETS: [ChatFilter; 4] = [
-        ChatFilter::All,
-        ChatFilter::Unread,
-        ChatFilter::ReplyLater,
-        ChatFilter::ReadLater,
-    ];
     let palette = app.palette;
-    ui.add_space(6.0);
-    // horizontal_wrapped: a narrow list wraps the chips onto another row
-    // rather than overflowing it.
-    widgets::chip_scroll_row(ui, "chat-facets", |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
-            for filter in FACETS {
-                let count = match filter {
-                    ChatFilter::All => 0,
-                    _ => app.unread_chats(filter),
-                };
-                let selected = !app.locked_folder_open()
-                    && !app.show_archived
-                    && app.label_filter.is_none()
-                    && app.chat_filter == filter;
-                let name = filter.label(app.locale);
-                let tooltip = match ChatFilter::EVERY.iter().position(|f| f == &filter) {
-                    Some(position) => format!(
-                        "{name} ({})",
-                        super::keys::label(&format!("Ctrl+Alt+{}", position + 1))
-                    ),
-                    None => name.to_string(),
-                };
-                let chip = widgets::filter_chip(ui, &palette, name.as_ref(), count, selected)
-                    .tab_stop(match filter {
-                        ChatFilter::All => Stop::All,
-                        ChatFilter::Unread => Stop::Unread,
-                        ChatFilter::ReplyLater => Stop::ReplyLater,
-                        ChatFilter::ReadLater => Stop::ReadLater,
-                        _ => unreachable!("FACETS holds only the four facets"),
-                    })
-                    .on_hover_text(tooltip);
-                // Store the chip rect for interaction tests.
-                ui.ctx()
-                    .data_mut(|data| data.insert_temp(filter_chip_id(filter), chip.rect));
-                if chip.clicked() {
-                    // A second click on the active facet returns to every chat.
-                    let next = if selected { ChatFilter::All } else { filter };
-                    app.beeper_unreplied = false;
-                    app.actions.push(Action::SetChatFilter(next));
-                }
+    let width = queue_width(ui.available_width());
+    let cell = width / 4.0;
+    ui.spacing_mut().item_spacing.x = 0.0;
+    ui.horizontal(|ui| {
+        for (filter, icon, stop) in [
+            (ChatFilter::All, Icon::QueueAll, Stop::All),
+            (ChatFilter::Unread, Icon::QueueUnread, Stop::Unread),
+            (ChatFilter::ReplyLater, Icon::QueueReply, Stop::ReplyLater),
+            (ChatFilter::ReadLater, Icon::QueueRead, Stop::ReadLater),
+        ] {
+            let selected = app.chat_filter == filter;
+            let shortcut = ChatFilter::EVERY.iter().position(|f| *f == filter).unwrap() + 1;
+            let tooltip = format!(
+                "{} · {}",
+                filter.label(app.locale),
+                super::keys::label(&format!("Ctrl+Alt+{shortcut}"))
+            );
+            let (rect, response) = ui.allocate_exact_size(vec2(cell, 36.0), Sense::click());
+            let response = response.tab_stop(stop).on_hover_text(&tooltip);
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::SelectableLabel,
+                    ui.is_enabled(),
+                    selected,
+                    &tooltip,
+                )
+            });
+            ui.painter().rect_stroke(
+                rect,
+                3.0,
+                Stroke::new(1.0, palette.outline),
+                egui::StrokeKind::Inside,
+            );
+            if selected || response.hovered() {
+                ui.painter().rect_filled(
+                    rect.shrink(1.0),
+                    2.0,
+                    palette
+                        .accent
+                        .gamma_multiply(if selected { 0.22 } else { 0.10 }),
+                );
             }
-        });
+            theme::focus_outline(ui, response.id, rect, 3.0);
+            theme::paint_icon(
+                ui,
+                icon,
+                rect,
+                22.0,
+                if selected {
+                    palette.accent
+                } else {
+                    palette.secondary
+                },
+            );
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(filter_chip_id(filter), rect));
+            if response.clicked() {
+                app.actions.push(Action::SetChatFilter(filter));
+            }
+        }
     });
 }
 
 /// A button on the right of the chat list header's first row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeaderButton {
-    NewChat,
     HideList,
 }
 
@@ -413,7 +670,7 @@ const LIST_HEADER_MIN_CONTENT: f32 = 230.0;
 /// the window is narrow. Starred and Settings are in the rail beside
 /// the list. The title before them measures its room from the same list.
 fn header_buttons(ctx: &egui::Context) -> Vec<HeaderButton> {
-    let mut buttons = vec![HeaderButton::NewChat];
+    let mut buttons = Vec::new();
     if !super::narrow(ctx) {
         buttons.push(HeaderButton::HideList);
     }
@@ -435,21 +692,6 @@ fn header_button_row(app: &mut App, ui: &mut egui::Ui, buttons: &[HeaderButton],
     let palette = app.palette;
     for button in buttons {
         match button {
-            HeaderButton::NewChat => {
-                if theme::icon_button(
-                    ui,
-                    Icon::SquarePen,
-                    HEADER_ICON,
-                    palette.secondary,
-                    palette.text,
-                    if macos { "New chat (⌘N)" } else { "New chat" },
-                )
-                .tab_stop(Stop::NewChat)
-                .clicked()
-                {
-                    app.actions.push(Action::ShowDialog(Dialog::NewChat));
-                }
-            }
             HeaderButton::HideList => {
                 if theme::icon_button(
                     ui,
@@ -760,8 +1002,10 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 };
                 let selected = !app.locked_folder_open()
                     && !app.show_archived
-                    && app.label_filter.is_none()
-                    && app.chat_filter == filter;
+                    && match filter {
+                        ChatFilter::Favorites => app.favorites_only,
+                        _ => app.category_filter == Some(filter),
+                    };
                 let icon = match filter {
                     ChatFilter::All => Icon::MessageCircle,
                     ChatFilter::Unread => Icon::Bell,
@@ -816,9 +1060,7 @@ pub(super) fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                 }
                 if row.clicked() {
                     // A second click on the active filter returns to every chat.
-                    let next = if selected { ChatFilter::All } else { filter };
-                    app.beeper_unreplied = false;
-                    app.actions.push(Action::SetChatFilter(next));
+                    app.actions.push(Action::SetChatFilter(filter));
                 }
             }
         });
@@ -1665,13 +1907,13 @@ fn results(app: &mut App, ui: &mut egui::Ui) {
             );
         }
     }
-    let contacts: Vec<Contact> = if app.beeper_scope_is_active() {
+    let contacts: Vec<Contact> = if app.search_scope_active() {
         Vec::new()
     } else {
         app.matching_contacts().into_iter().cloned().collect()
     };
     let needle = crate::util::search_key(app.search.trim());
-    let offer_self = !app.beeper_scope_is_active()
+    let offer_self = !app.search_scope_active()
         && !needle.is_empty()
         && app.offers_self(&needle)
         && !chats
@@ -2973,6 +3215,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn queues_share_a_row_below_search_even_while_typing() {
+        for width in [260.0, 340.0, 520.0] {
+            let directory = tempfile::tempdir().unwrap();
+            let (mut app, _) = App::headless(AppDirs::under(directory.path()), Settings::default());
+            app.search = "needle".into();
+            let ctx = egui::Context::default();
+            app.attach(&ctx);
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            vec2(width, 600.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| header(&mut app, ui),
+                );
+                out.textures_delta.clear();
+            }
+            let search = ctx
+                .read_response(egui::Id::new("chat-search"))
+                .unwrap()
+                .rect;
+            let rects = [
+                ChatFilter::All,
+                ChatFilter::Unread,
+                ChatFilter::ReplyLater,
+                ChatFilter::ReadLater,
+            ]
+            .map(|f| ctx.data(|d| d.get_temp::<Rect>(filter_chip_id(f))).unwrap());
+            for rect in rects {
+                assert!(rect.top() >= search.bottom());
+                assert!(rect.right() <= width);
+                assert_eq!(rect.height(), 36.0);
+            }
+            for pair in rects.windows(2) {
+                assert_eq!(pair[0].center().y, pair[1].center().y);
+                assert!((pair[0].width() - pair[1].width()).abs() < 0.01);
+            }
+        }
+    }
+
+    #[test]
     fn chat_density_keeps_virtual_rows_and_text_geometry_in_sync() {
         assert_eq!(chat_row_height(false), 80.0);
         assert_eq!(chat_row_height(true), 56.0);
@@ -3010,7 +3296,7 @@ mod tests {
     /// list beside a chat. Calls, Starred and Settings are in the rail.
     #[test]
     fn header_buttons_follow_the_width() {
-        use HeaderButton::{HideList, NewChat};
+        use HeaderButton::HideList;
         let buttons = |width: f32| {
             let ctx = egui::Context::default();
             let mut buttons = Vec::new();
@@ -3027,8 +3313,8 @@ mod tests {
             output.textures_delta.clear();
             buttons
         };
-        assert_eq!(buttons(1000.0), [NewChat, HideList]);
-        assert_eq!(buttons(400.0), [NewChat]);
+        assert_eq!(buttons(1000.0), [HideList]);
+        assert!(buttons(400.0).is_empty());
     }
 
     use crate::paths::AppDirs;

@@ -220,7 +220,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
         .into_iter()
         .filter(|destination| destination.offered(app))
         .collect();
-        let networks = app.beeper_browse_networks();
+        let networks = if hidden {
+            app.beeper_browse_networks()
+        } else {
+            Vec::new()
+        };
         let top_height = 2.0 * CELL;
         let (_, network_rows) = bottom_wrap(width, networks.len());
         let (_, bottom_rows) = bottom_wrap(width, bottom.len());
@@ -288,7 +292,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                     // live here, so the chat-list column keeps only its
                     // search field and chats.
                     ui.spacing_mut().item_spacing.y = row_gap;
-                    super::chats::filter_chips(app, ui);
+                    if hidden {
+                        super::chats::filter_chips(app, ui);
+                    }
                     super::chats::favorites_row(app, ui);
                     ui.spacing_mut().item_spacing.y = 0.0;
                 }

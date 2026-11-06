@@ -115,6 +115,8 @@ pub struct Account {
     pub scheduled_messages: Option<Vec<crate::scheduler::ScheduledMessage>>,
     pub show_archived: bool,
     pub chat_filter: ChatFilter,
+    pub category_filter: Option<ChatFilter>,
+    pub favorites_only: bool,
     /// The chip the Calls page's history shows.
     pub labels: Vec<Label>,
     /// Starred messages, newest star first, and whether the left panel lists
@@ -163,6 +165,12 @@ impl Account {
             Some(crate::model::ListFilter::Chip(chip)) => chip,
             _ => ChatFilter::All,
         };
+        let category_filter = settings.chat_category.or(match chat_filter {
+            ChatFilter::Private | ChatFilter::Groups | ChatFilter::Channels => Some(chat_filter),
+            _ => None,
+        });
+        let favorites_only = settings.favorites_only || chat_filter == ChatFilter::Favorites;
+        let chat_filter = settings.chat_queue.unwrap_or(chat_filter);
         Self {
             id,
             dirs,
@@ -233,7 +241,19 @@ impl Account {
             send_later_draft_backup: None,
             scheduled_messages: None,
             show_archived: false,
-            chat_filter,
+            chat_filter: if matches!(
+                chat_filter,
+                ChatFilter::Private
+                    | ChatFilter::Groups
+                    | ChatFilter::Channels
+                    | ChatFilter::Favorites
+            ) {
+                ChatFilter::All
+            } else {
+                chat_filter
+            },
+            category_filter,
+            favorites_only,
             labels: Vec::new(),
             starred: Vec::new(),
             show_starred: false,

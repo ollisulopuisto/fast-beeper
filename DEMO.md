@@ -160,3 +160,9 @@ cargo build --release --locked --features demo
 ffmpeg -framerate 30 -i frames/frame-%05d.png -c:v libx264 -crf 12 -pix_fmt yuv420p raw.mp4
 python3 scripts/render-demo.py raw.mp4 tour.json whats-new.mp4 --scale 1.5
 ```
+
+## Chat-list scope previews
+
+`--demo-page scope-search` shows Unread with scoped search and an outside-scope hint; `scope-group` combines Unread and Groups. `grid` shows three synthetic incoming group messages on one bubble column. Add `,light` for the light palette and `--demo --demo-macos` for native Mac layout preview.
+
+The four queue segments remain visible while typing. Filters composes category, favorites, labels, Unreplied and network/account choices rather than replacing the queue. All selects the whole current scope; Reset view removes the scope while preserving the query. The outside count covers available chat and backend message matches, not an estimated total across unloaded server pages. Unknown-chat and locked-chat message hits do not enter scoped results. Hide the chat list is in Filters and still uses Cmd+B (Ctrl+B off Mac).

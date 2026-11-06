@@ -450,7 +450,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         // The ninth slot is the layered Unreplied toggle, as on the rail.
         Some(8) => {
             app.beeper_unreplied = !app.beeper_unreplied;
-            actions.push(Action::SetChatFilter(crate::model::ChatFilter::All));
         }
         Some(index) => {
             if let Some(filter) = crate::model::ChatFilter::EVERY.get(index) {
@@ -2394,10 +2393,7 @@ mod tests {
         // 9 is the layered Unreplied toggle, as the rail's icon does it.
         assert!(!press(&mut app, &ctx, Key::Num9, modifiers));
         assert!(app.beeper_unreplied);
-        assert!(
-            app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::All))
-        );
+        assert!(app.actions.is_empty(), "Unreplied layers over the queue");
         app.actions.clear();
         app.beeper_unreplied = false;
         // 0 is free: nothing takes it.

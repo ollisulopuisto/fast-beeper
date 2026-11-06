@@ -4345,6 +4345,7 @@ fn bubble(
         |ui| {
             if with_avatar {
                 ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     let (space, _) =
                         ui.allocate_exact_size(Vec2::splat(SENDER_AVATAR), Sense::hover());
                     // Keep bubble content vertically laid out inside the row.
@@ -4926,11 +4927,15 @@ fn bubble_frame(
     let early = previous.map(|rect| ui.interact(rect, bubble_id, Sense::CLICK));
     // Painted once the contents are measured, beneath them.
     let backdrop = ui.painter().add(egui::Shape::Noop);
-    let tail = (tailed && fill != Color32::TRANSPARENT).then_some(if own {
-        widgets::Side::Right
-    } else {
-        widgets::Side::Left
-    });
+    // Group messages share a straight bubble-body column, including follow-ups.
+    // A protruding incoming tail made the first bubble look offset from the run.
+    let tail =
+        (tailed && (own || !shows_sender_pictures(view.chat)) && fill != Color32::TRANSPARENT)
+            .then_some(if own {
+                widgets::Side::Right
+            } else {
+                widgets::Side::Left
+            });
     // A picture without a caption carries its time over its corner, so
     // the bubble closes under it as evenly as it opens above it.
     let over_picture = album.is_none() && time_over_picture(message);

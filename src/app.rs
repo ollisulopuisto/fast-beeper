@@ -2680,7 +2680,6 @@ impl App {
             self.search_hits.clear();
         }
         self.label_filter = label;
-        self.chat_filter = ChatFilter::All;
         self.show_archived = false;
         self.unread_kept.clear();
         self.remember_list_filter();
@@ -2688,6 +2687,20 @@ impl App {
 
     /// Keeps the chip or label the chat list shows for the next start.
     fn remember_list_filter(&mut self) {
+        let category = self.category_filter;
+        let favorites = self.favorites_only;
+        let queue = self.chat_filter;
+        if self.account().settings.chat_queue != Some(queue) {
+            self.account_mut().settings.chat_queue = Some(queue);
+            self.account_mut().mark_settings_dirty();
+        }
+        if self.account().settings.chat_category != category
+            || self.account().settings.favorites_only != favorites
+        {
+            self.account_mut().settings.chat_category = category;
+            self.account_mut().settings.favorites_only = favorites;
+            self.account_mut().mark_settings_dirty();
+        }
         let key = crate::model::ListFilter::key(self.chat_filter, self.label_filter.as_deref());
         if self.account().settings.list_filter != key {
             self.account_mut().settings.list_filter = key;
@@ -3378,15 +3391,106 @@ impl App {
     pub fn beeper_scope_is_active(&self) -> bool {
         self.beeper_network_filter.is_some() || self.beeper_account_filter.is_some()
     }
+    /// Queue and additional scope share one predicate for chat and message results.
+    pub fn chat_scope_matches(&self, chat: &Chat) -> bool {
+        self.beeper_scope_matches(chat)
+            && (self.show_archived
+                || (self.chat_filter == ChatFilter::All
+                    && (self.category_filter == Some(ChatFilter::Channels)
+                        || self.label_filter.is_some()))
+                || (self.chat_filter == ChatFilter::Unread
+                    && self.category_filter == Some(ChatFilter::Channels)
+                    && chat.looks_unread())
+                || self.filter_matches(self.chat_filter, chat)
+                || (self.chat_filter == ChatFilter::Unread && self.unread_kept.contains(&chat.id)))
+            && self
+                .category_filter
+                .is_none_or(|filter| filter.matches(chat))
+            && (!self.favorites_only || chat.favorite)
+            && self
+                .label_filter
+                .as_ref()
+                .is_none_or(|label| self.chat_wears(chat, label))
+            && (!self.beeper_unreplied
+                || chat.last.as_ref().is_some_and(|last| {
+                    !last.from_me
+                        && !last.sender.is_empty()
+                        && !last.labelled
+                        && !last.summary.is_empty()
+                }))
+    }
+
+    pub fn search_scope_active(&self) -> bool {
+        self.beeper_scope_is_active()
+            || self.chat_filter != ChatFilter::All
+            || self.category_filter.is_some()
+            || self.favorites_only
+            || self.label_filter.is_some()
+            || self.beeper_unreplied
+    }
+
+    /// Available matches, not an estimated server-wide total. Never count locked content.
+    pub fn outside_scope_matches(&self) -> usize {
+        if self.search.trim().is_empty()
+            || !self.search_scope_active()
+            || self.locked_folder_open()
+            || self.secret_code_matched()
+        {
+            return 0;
+        }
+        let needle = crate::util::search_key(self.search.trim());
+        let chats = self
+            .chats
+            .iter()
+            .filter(|chat| {
+                !chat.locked
+                    && !self.chat_scope_matches(chat)
+                    && (crate::util::search_key(&self.chat_title(chat)).contains(&needle)
+                        || chat.phone().is_some_and(|phone| phone.contains(&needle))
+                        || chat.last.as_ref().is_some_and(|last| {
+                            crate::util::search_key(&last.summary).contains(&needle)
+                        }))
+            })
+            .count();
+        let mut messages: HashSet<_> = self
+            .search_hits
+            .iter()
+            .filter(|hit| {
+                self.chat(&hit.chat)
+                    .is_some_and(|chat| !chat.locked && !self.chat_scope_matches(chat))
+            })
+            .map(|hit| (hit.chat.clone(), hit.id.clone()))
+            .collect();
+        if let Some(worker) = &self.transcriber {
+            for hit in self.transcript_hit_messages(worker.search(self.search.trim())) {
+                if self
+                    .chat(&hit.chat)
+                    .is_some_and(|chat| !chat.locked && !self.chat_scope_matches(chat))
+                {
+                    messages.insert((hit.chat, hit.id));
+                }
+            }
+        }
+        chats + messages.len()
+    }
+
+    pub fn clear_chat_scope(&mut self) {
+        self.chat_filter = ChatFilter::All;
+        self.category_filter = None;
+        self.favorites_only = false;
+        self.label_filter = None;
+        self.beeper_unreplied = false;
+        self.select_beeper_scope(None, None);
+        self.remember_list_filter();
+    }
+
     pub fn scoped_search_hits(&self) -> Vec<Message> {
         let mut hits: Vec<Message> = self
             .search_hits
             .iter()
             .filter(|message| {
-                !self.beeper_scope_is_active()
-                    || self
-                        .chat(&message.chat)
-                        .is_some_and(|c| self.beeper_scope_matches(c))
+                self.chat(&message.chat)
+                    .is_some_and(|chat| !chat.locked && self.chat_scope_matches(chat))
             })
             .cloned()
             .collect();
@@ -3401,10 +3505,9 @@ impl App {
                 if self.chat(&hit.chat).is_some_and(|chat| chat.locked) {
                     continue;
                 }
-                if self.beeper_scope_is_active()
-                    && !self
-                        .chat(&hit.chat)
-                        .is_some_and(|c| self.beeper_scope_matches(c))
+                if !self
+                    .chat(&hit.chat)
+                    .is_some_and(|chat| self.chat_scope_matches(chat))
                 {
                     continue;
                 }
@@ -3566,7 +3669,7 @@ impl App {
     pub fn visible_chats(&self) -> Vec<&Chat> {
         let needle = crate::util::search_key(self.search.trim());
         let locked = self.locked_folder_open();
-        let filtering = !locked && needle.is_empty() && !self.show_archived;
+        let filtering = !locked && !self.show_archived;
         let mut chats: Vec<&Chat> = self
             .chats
             .iter()
@@ -3607,6 +3710,7 @@ impl App {
                     })
             })
             .filter(|chat| chat.locked == locked)
+            .filter(|chat| !filtering || self.chat_scope_matches(chat))
             .filter(|chat| locked || chat.archived == self.show_archived || !needle.is_empty())
             // Searching still finds people never written to, and one being
             // opened stays.
@@ -3616,17 +3720,6 @@ impl App {
                     || self.reply_later_contains(chat)
                     || self.read_later_contains(chat)
                     || !self.unlisted_stranger(chat)
-            })
-            .filter(|chat| match &self.label_filter {
-                // A label lists every chat wearing it, channels included,
-                // because someone put each of them there.
-                _ if !filtering => true,
-                Some(label) => self.chat_wears(chat, label),
-                None => {
-                    self.filter_matches(self.chat_filter, chat)
-                        || (self.chat_filter == ChatFilter::Unread
-                            && self.unread_kept.contains(&chat.id))
-                }
             })
             .filter(|chat| {
                 // Inside the locked folder the typed text is the secret code,
@@ -3707,7 +3800,7 @@ impl App {
     /// latest activity, so a sent message does not move its chat up.
     fn favorites_order(&self) -> bool {
         self.label_filter.is_none()
-            && self.chat_filter == ChatFilter::Favorites
+            && (self.chat_filter == ChatFilter::Favorites || self.favorites_only)
             && !self.show_archived
             && crate::util::search_key(self.search.trim()).is_empty()
             && !self.locked_folder_open()
@@ -3716,7 +3809,7 @@ impl App {
     /// Matching individual contacts without an existing chat, sorted by name.
     pub fn matching_contacts(&self) -> Vec<&Contact> {
         let needle = crate::util::search_key(self.search.trim());
-        if needle.is_empty() {
+        if needle.is_empty() || self.search_scope_active() {
             return Vec::new();
         }
         let mut contacts: Vec<&Contact> = self
@@ -9645,8 +9738,14 @@ impl App {
                     self.search.clear();
                     self.search_hits.clear();
                 }
-                self.chat_filter = filter;
-                self.label_filter = None;
+                match filter {
+                    ChatFilter::Private | ChatFilter::Groups | ChatFilter::Channels => {
+                        self.category_filter =
+                            (self.category_filter != Some(filter)).then_some(filter);
+                    }
+                    ChatFilter::Favorites => self.favorites_only = !self.favorites_only,
+                    queue => self.chat_filter = queue,
+                }
                 self.show_archived = false;
                 self.unread_kept.clear();
                 self.remember_list_filter();
@@ -17576,14 +17675,15 @@ mod tests {
     }
 
     #[test]
-    fn picking_a_chip_lets_go_of_the_label() {
+    fn picking_a_category_keeps_the_label() {
         let ctx = egui::Context::default();
         let mut app = app();
         app.labels = vec![label("label-1", "Work")];
         app.apply(Action::SelectLabel(Some("label-1".into())), &ctx);
         app.apply(Action::SetChatFilter(ChatFilter::Groups), &ctx);
-        assert!(app.label_filter.is_none());
-        assert_eq!(app.chat_filter, ChatFilter::Groups);
+        assert_eq!(app.label_filter.as_deref(), Some("label-1"));
+        assert_eq!(app.category_filter, Some(ChatFilter::Groups));
+        assert_eq!(app.chat_filter, ChatFilter::All);
     }
 
     /// The chip or label the list showed comes back at the next start, with
@@ -17613,11 +17713,12 @@ mod tests {
         let mut app = app();
         app.apply(Action::SetChatFilter(ChatFilter::Groups), &ctx);
         assert_eq!(
-            app.account().settings.list_filter.as_deref(),
-            Some("groups")
+            app.account().settings.chat_category,
+            Some(ChatFilter::Groups)
         );
         let (again, _root) = restart(app.account().settings.clone());
-        assert_eq!(again.chat_filter, ChatFilter::Groups);
+        assert_eq!(again.chat_filter, ChatFilter::All);
+        assert_eq!(again.category_filter, Some(ChatFilter::Groups));
         assert!(again.label_filter.is_none());
 
         app.labels = vec![label("label-1", "Work")];
@@ -17632,8 +17733,9 @@ mod tests {
         assert!(again.label_filter.is_none());
         assert_eq!(again.account().settings.list_filter, None);
 
-        app.apply(Action::SetChatFilter(ChatFilter::All), &ctx);
+        app.clear_chat_scope();
         assert_eq!(app.account().settings.list_filter, None);
+        assert_eq!(app.account().settings.chat_category, None);
     }
 
     #[test]
@@ -17684,7 +17786,7 @@ mod tests {
     }
 
     #[test]
-    fn a_label_chip_replaces_the_chip_filter() {
+    fn a_label_composes_with_the_queue() {
         let ctx = egui::Context::default();
         let mut app = app();
         app.labels = vec![label("label-1", "Work")];
@@ -17693,8 +17795,8 @@ mod tests {
         assert_eq!(app.label_filter.as_deref(), Some("label-1"));
         assert_eq!(
             app.chat_filter,
-            ChatFilter::All,
-            "a label replaces what the chips were filtering"
+            ChatFilter::Unread,
+            "a label narrows the active queue"
         );
     }
 
@@ -23654,6 +23756,12 @@ mod tests {
         assert_eq!(app.archived_unread(), 1);
         app.apply(Action::SetChatFilter(ChatFilter::All), &ctx);
         assert!(!app.show_archived, "choosing a filter leaves the archive");
+        assert_eq!(
+            names(&app),
+            ["News"],
+            "All retains the selected channel scope"
+        );
+        app.clear_chat_scope();
         assert_eq!(names(&app), ["Ada"]);
     }
 
@@ -23878,6 +23986,50 @@ mod tests {
     }
 
     #[test]
+    fn composed_scope_keeps_search_and_messages_in_the_same_queue() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let mut group = Chat::new("group@g.us".into(), "Needle group".into());
+        group.unread = 1;
+        let direct = Chat::new("peer@s.whatsapp.net".into(), "Needle peer".into());
+        let mut locked = Chat::new("locked@s.whatsapp.net".into(), "Needle locked".into());
+        locked.locked = true;
+        app.chats = vec![group, direct, locked];
+        app.search = "needle".into();
+        app.apply(Action::SetChatFilter(ChatFilter::Unread), &ctx);
+        app.apply(Action::SetChatFilter(ChatFilter::Groups), &ctx);
+        assert_eq!(app.chat_filter, ChatFilter::Unread);
+        assert_eq!(app.category_filter, Some(ChatFilter::Groups));
+        assert_eq!(app.visible_chats().len(), 1);
+        app.search_hits = vec![
+            message("group@g.us", "g", 1),
+            message("peer@s.whatsapp.net", "p", 1),
+            message("locked@s.whatsapp.net", "l", 1),
+        ];
+        assert_eq!(app.scoped_search_hits().len(), 1);
+        assert_eq!(app.outside_scope_matches(), 2);
+        app.clear_chat_scope();
+        assert_eq!(app.search, "needle");
+        assert_eq!(app.visible_chats().len(), 2);
+        assert_eq!(app.scoped_search_hits().len(), 2);
+        assert_eq!(app.outside_scope_matches(), 0);
+    }
+
+    #[test]
+    fn unread_queue_composes_with_explicit_channels_scope() {
+        let mut app = app();
+        let mut channel = Chat::new("news@newsletter".into(), "News".into());
+        channel.unread = 1;
+        app.chats = vec![channel];
+        app.chat_filter = ChatFilter::Unread;
+        assert!(app.visible_chats().is_empty());
+        app.category_filter = Some(ChatFilter::Channels);
+        assert_eq!(app.visible_chats().len(), 1);
+        app.chats[0].unread = 0;
+        assert!(app.visible_chats().is_empty());
+    }
+
+    #[test]
     fn the_chat_filter_narrows_the_main_list_only() {
         let mut app = app();
         let mut ada = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
@@ -23917,9 +24069,9 @@ mod tests {
         assert_eq!(app.unread_chats(ChatFilter::Unread), 2);
         assert_eq!(app.unread_chats(ChatFilter::Private), 1);
         assert_eq!(app.unread_chats(ChatFilter::Groups), 1);
-        // Search and the archive ignore the filter.
+        // Search respects the selected group scope; archive remains independent.
         app.search = "bob".into();
-        assert_eq!(names(&app), ["Bob"]);
+        assert!(names(&app).is_empty());
         app.search = String::new();
         app.show_archived = true;
         assert_eq!(names(&app), ["Old group"]);
