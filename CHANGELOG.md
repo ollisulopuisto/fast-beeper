@@ -11,6 +11,7 @@ version in Cargo.toml is bumped.
 
 - The Dock/taskbar unread badge and the Unread filter now count the same chats: channels and chats from Beeper accounts hidden from the inbox no longer leave a ghost number on the icon. Muted chats still appear under Unread without raising the badge.
 - Settings: clearer spacing between sections, consistent row rhythm, and each Beeper account's technical details (account ID, backend, bridge status) grouped under an Advanced heading inside the account panel instead of crowding its title.
+- Cmd+D toggles the right-hand info sidebar. Cmd+B still toggles the chat list; Cmd+I still marks Reply later.
 - Links whose separators arrive entity-escaped from Beeper Server (Dropbox share links among them) now render and open with a plain `&` instead of a literal `&amp;`. The repair is scoped to link addresses - one level - and text outside links keeps its entities byte-for-byte. Diagnosed from a live payload probe.
 
 ## v0.22.0

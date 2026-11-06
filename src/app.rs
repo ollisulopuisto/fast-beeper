@@ -9918,6 +9918,14 @@ impl App {
             }
             Action::OpenChatSearch => self.open_chat_search(),
             Action::OpenInfo(chat) => self.open_info(chat),
+            Action::ToggleInfoSidebar => {
+                if self.info_visible() {
+                    self.close_info();
+                    self.refocus_composer(ctx);
+                } else if let Some(chat) = self.open_chat.clone() {
+                    self.open_info(chat);
+                }
+            }
             Action::CloseInfo => {
                 self.close_info();
                 self.refocus_composer(ctx);
@@ -22574,6 +22582,24 @@ mod tests {
                 ..Default::default()
             }),
         }
+    }
+
+    #[test]
+    fn info_sidebar_toggle_opens_and_closes_without_changing_the_chat_list() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.apply(Action::ToggleInfoSidebar, &ctx);
+        assert!(app.info.is_none(), "no chat means no panel");
+        let chat = "1@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Ada".into()));
+        app.apply(Action::OpenChat(chat.into()), &ctx);
+        app.apply(Action::ToggleInfoSidebar, &ctx);
+        assert!(app.info_visible());
+        assert_eq!(app.info.as_ref().unwrap().chat, chat);
+        assert!(app.sidebar_visible);
+        app.apply(Action::ToggleInfoSidebar, &ctx);
+        assert!(app.info.is_none());
+        assert!(app.sidebar_visible);
     }
 
     #[test]

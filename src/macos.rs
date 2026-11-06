@@ -129,6 +129,7 @@ fn build_menu() -> tray_icon::menu::Result<Menu> {
     let view = Submenu::new("View", true);
     view.append_items(&[
         &registered("sidebar"),
+        &registered("info-sidebar"),
         &Native::separator(),
         &Native::fullscreen(None),
     ])?;
@@ -466,6 +467,7 @@ fn action(id: &str) -> Option<Action> {
         "quit" => Action::Quit,
         "search" => Action::FocusSearch,
         "sidebar" => Action::ToggleSidebar,
+        "info-sidebar" => Action::ToggleInfoSidebar,
         "whats-new" => Action::ShowDialog(Dialog::WhatsNew),
         "shortcuts" => Action::ShowDialog(Dialog::Shortcuts),
         "help" => Action::OpenUrl("https://zapfast.rocks/using-zapfast/".into()),

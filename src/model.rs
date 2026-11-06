@@ -2579,6 +2579,8 @@ pub enum Action {
     /// Opens the info panel beside the conversation for a chat or a group
     /// member, on its overview.
     OpenInfo(ChatId),
+    /// Toggles the current chat's right-hand info sidebar.
+    ToggleInfoSidebar,
     CloseInfo,
     /// Moves the open info panel between its overview and its media view.
     ShowInfo(InfoView),
