@@ -198,11 +198,12 @@ pub fn paint_selectable(
 }
 
 /// The web addresses in `text`, each once, in reading order, found the way
-/// a bubble underlines them. Mail addresses are left out: they do not open
+/// a bubble underlines them. A clean URL used as a link label resolves to
+/// the full destination once, just like a named title. Mail addresses do not open
 /// in a browser.
 pub fn links(text: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    for span in parse(text, &[]) {
+    for span in display_spans(parse(text, &[])) {
         if let Some(link) = span.link
             && !link.starts_with("mailto:")
             && !found.contains(&link)
@@ -324,19 +325,29 @@ fn named_link_line(mut line: Vec<Span>) -> Vec<Span> {
     else {
         return line;
     };
-    if !line[n - 3].text.ends_with(" (")
-        || line[..n - 2]
-            .iter()
-            .any(|span| span.link.is_some() || span.mono)
-    {
+    if !line[n - 3].text.ends_with(" (") || line[..n - 2].iter().any(|span| span.mono) {
         return line;
     }
+    // Bridges can label a tracked destination with its clean URL (for
+    // example an Instagram reel). Treat that address as a named link too,
+    // but only when the complete label is the same resource without a query
+    // or fragment. Never hide an unrelated second URL or discard its target.
+    let has_link = line[..n - 2].iter().any(|span| span.link.is_some());
     let title: String = line[..n - 2]
         .iter()
         .map(|span| span.text.as_str())
         .collect();
     if title.trim_end_matches(" (").trim().is_empty() {
         return line;
+    }
+    if has_link {
+        let label = title.strip_suffix(" (").unwrap_or(&title).trim();
+        let resource = url.split(['?', '#']).next().unwrap_or(&url);
+        if label.contains(['?', '#'])
+            || label.trim_end_matches('/') != resource.trim_end_matches('/')
+        {
+            return line;
+        }
     }
     line.truncate(n - 2);
     let last = line.last_mut().expect("title span");
@@ -936,6 +947,88 @@ mod tests {
                 .map(|s| s.text.as_str())
                 .collect();
             assert_eq!(displayed, before, "no invented title: {source}");
+        }
+    }
+
+    #[test]
+    fn wrapped_clean_url_label_uses_the_full_target_on_every_character() {
+        let ctx = egui::Context::default();
+        let target = "https://www.instagram.com/reel/DemoReel/?id=123_456&is_sponsored=false";
+        let source = format!("https://www.instagram.com/reel/DemoReel/ ({target})");
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let text = layout(
+                ui,
+                &source,
+                &[],
+                &Style {
+                    size: 16.0,
+                    color: Color32::WHITE,
+                    secondary: Color32::GRAY,
+                    link: Color32::LIGHT_BLUE,
+                    mention: Color32::WHITE,
+                },
+                90.0,
+            );
+            assert!(text.galley.rows.len() > 1);
+            assert_eq!(
+                text.galley.text(),
+                "https://www.instagram.com/reel/DemoReel/"
+            );
+            for character in 0..text.galley.text().chars().count() {
+                assert_eq!(text.link_at(character), Some(target));
+            }
+            assert_eq!(text.accessible_text, source);
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn clean_url_labels_hide_tracked_destinations_only_for_the_same_resource() {
+        for (label, target) in [
+            (
+                "https://www.instagram.com/reel/DemoReel/",
+                "https://www.instagram.com/reel/DemoReel/?id=123_456&is_sponsored=false&is_ineligible_for_clips_chaining=false",
+            ),
+            (
+                "https://example.com/story",
+                "https://example.com/story/?utm_source=share",
+            ),
+            (
+                "https://example.com/story",
+                "https://example.com/story#section",
+            ),
+        ] {
+            let source = format!("{label} ({target})");
+            let spans = display_spans(parse(&source, &[]));
+            assert_eq!(
+                spans.iter().map(|s| s.text.as_str()).collect::<String>(),
+                label
+            );
+            assert!(spans.iter().all(|s| s.link.as_deref() == Some(target)));
+            assert_eq!(
+                links(&source),
+                vec![target],
+                "Copy URL keeps the full target once"
+            );
+            assert_eq!(
+                plain(&source, &[]),
+                source,
+                "copy/export retains both original addresses"
+            );
+        }
+        for source in [
+            "https://example.com/a (https://example.com/b?tracking=1)",
+            "https://example.com/a (https://other.example.com/a?tracking=1)",
+            "https://example.com/a?q=one (https://example.com/a?q=two)",
+            "See https://example.com/a (https://example.com/a?tracking=1)",
+            "https://example.com/a\n(https://example.com/a?tracking=1)",
+            "`https://example.com/a` (https://example.com/a?tracking=1)",
+        ] {
+            let spans = display_spans(parse(source, &[]));
+            assert_eq!(
+                spans.iter().map(|s| s.text.as_str()).collect::<String>(),
+                plain(source, &[])
+            );
         }
     }
 
