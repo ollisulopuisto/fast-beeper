@@ -32,8 +32,8 @@ impl RowCache {
 
 /// The local calendar day a timestamp falls on, for day headers.
 fn day_stamp(timestamp: i64) -> String {
-    jiff::Timestamp::from_second(timestamp)
-        .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date().to_string())
+    crate::util::day_key(timestamp)
+        .map(|date| date.to_string())
         .unwrap_or_default()
 }
 #[derive(Clone, Default)]
@@ -851,7 +851,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> bool {
                                 message.sender_name.as_deref().unwrap_or("Sender")
                             };
                             if day_boundary {
-                                ui.small(&day);
+                                ui.small(crate::util::day_label(app.locale, message.timestamp));
                             } else if boundary {
                                 ui.add_space(4.0);
                             }
@@ -1802,6 +1802,68 @@ mod tests {
             mentions: Vec::new(),
             forwarded: false,
             thumbnail: None,
+        }
+    }
+
+    #[test]
+    fn linked_day_headers_use_shared_labels_not_iso_keys() {
+        let now = "2026-03-07T12:00:00Z"
+            .parse::<jiff::Timestamp>()
+            .unwrap()
+            .as_second();
+        let _clock = crate::util::fixed_clock::set(crate::util::fixed_clock::Clock {
+            now,
+            zone: jiff::tz::TimeZone::UTC,
+            twelve_hour: false,
+        });
+        let (wa, tg, person) = ada_pair();
+        let (_dir, mut app, ctx) = linked_app(vec![wa.clone(), tg], vec![person]);
+        app.conversations.insert(
+            wa.id.clone(),
+            crate::app::Conversation {
+                messages: vec![
+                    sample_message(&wa.id, "older", now - 2 * 86_400),
+                    sample_message(&wa.id, "newer", now),
+                ],
+                complete: true,
+                ..Default::default()
+            },
+        );
+        handled(&mut app, &ctx, &wa);
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                assert!(show(&mut app, ui, &wa));
+            },
+        );
+        output.textures_delta.clear();
+        let text: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    Some(text.galley.text())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for timestamp in [now - 2 * 86_400, now] {
+            let label = crate::util::day_label(app.locale, timestamp);
+            assert!(
+                text.contains(&label.as_str()),
+                "missing day header: {label}"
+            );
+            assert!(
+                !text.contains(&day_stamp(timestamp).as_str()),
+                "ISO day key leaked into the UI"
+            );
         }
     }
 

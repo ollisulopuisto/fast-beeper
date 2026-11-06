@@ -3853,3 +3853,7 @@ msgstr "Invio invia"
 
 #~ msgid "Next pinned message"
 #~ msgstr "Messaggio fissato successivo"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "L'altro ieri"

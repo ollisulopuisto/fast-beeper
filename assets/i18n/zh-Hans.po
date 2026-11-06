@@ -3744,3 +3744,7 @@ msgstr "回车发送"
 
 #~ msgid "Next pinned message"
 #~ msgstr "下一条置顶消息"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "前天"

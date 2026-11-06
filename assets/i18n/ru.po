@@ -3874,3 +3874,7 @@ msgstr "Enter отправляет"
 
 #~ msgid "Next pinned message"
 #~ msgstr "Следующее закреплённое сообщение"
+
+#. Conversation calendar-day separator, two days before today.
+msgid "Day before yesterday"
+msgstr "Позавчера"
