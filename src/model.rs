@@ -189,25 +189,16 @@ impl ListFilter {
 }
 
 impl ChatFilter {
+    /// Every chip in the sidebar's order, which is also the
+    /// Command+Option+digit order: 1 is All, 8 is Channels, and 9 is the
+    /// layered Unreplied toggle, which is not a filter of its own.
     pub const EVERY: [Self; 8] = [
         Self::All,
         Self::Unread,
-        Self::ReplyLater,
+        Self::Favorites,
         Self::ReadLater,
+        Self::ReplyLater,
         Self::Private,
-        Self::Favorites,
-        Self::Groups,
-        Self::Channels,
-    ];
-
-    /// The Alt+digit chip bindings, in their long-standing order. The
-    /// later chips joined the row after these were established, so they
-    /// get no positional binding and the existing ones never move.
-    pub const ALT_DIGIT: [Self; 6] = [
-        Self::All,
-        Self::Unread,
-        Self::Private,
-        Self::Favorites,
         Self::Groups,
         Self::Channels,
     ];

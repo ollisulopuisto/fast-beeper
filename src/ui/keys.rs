@@ -50,8 +50,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     Key::Num0,
                 ];
                 let mut found = None;
-                let unread = FILTER_UNREAD.keys[0];
-                let unreplied = FILTER_UNREPLIED.keys[0];
                 input.events.retain(|event| {
                     if let egui::Event::Key {
                         key,
@@ -62,8 +60,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     {
                         let mode = if modifiers.matches_exact(Modifiers::COMMAND) {
                             Some(0)
-                        } else if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::ALT) {
-                            Some(1)
                         } else if (cfg!(target_os = "macos")
                             && modifiers.command
                             && modifiers.ctrl
@@ -82,14 +78,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             found = Some((mode, index));
                             return false;
                         }
-                        if modifiers.matches_exact(unread.0) && *key == unread.1 {
-                            found = Some((3, 0));
-                            return false;
-                        }
-                        if modifiers.matches_exact(unreplied.0) && *key == unreplied.1 {
-                            found = Some((4, 0));
-                            return false;
-                        }
                     }
                     true
                 });
@@ -104,12 +92,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             app.actions.push(Action::OpenChat(chat.id.clone()));
                         }
                     }
-                    // Networks move to Command+Alt+digit.
-                    1 => {
-                        if let Some(network) = networks.get(index) {
-                            app.select_beeper_scope(Some(network.clone()), None);
-                        }
-                    }
                     2 => {
                         let ids: Vec<_> = app
                             .visible_chats()
@@ -120,21 +102,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             app.actions.push(Action::OpenChat(id.clone()));
                         }
                     }
-                    3 => {
-                        app.beeper_unreplied = false;
-                        app.actions.push(Action::SetChatFilter(
-                            if app.chat_filter == crate::model::ChatFilter::Unread {
-                                crate::model::ChatFilter::All
-                            } else {
-                                crate::model::ChatFilter::Unread
-                            },
-                        ));
-                    }
-                    4 => {
-                        app.beeper_unreplied = !app.beeper_unreplied;
-                        app.actions
-                            .push(Action::SetChatFilter(crate::model::ChatFilter::All));
-                    }
                     _ => {}
                 }
                 return;
@@ -144,7 +111,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     let editing_text = ctx.text_edit_focused();
     let find = find_action(app);
     let archive = archive_action(app);
-    let next_account = next_account_action(app);
+    let read_later = read_later_action(app);
+    let reply_later = reply_later_action(app);
+    let next_account = account_switch_action(app, true);
+    let prev_account = account_switch_action(app, false);
     let composer_focused = ctx.memory(|memory| memory.has_focus(egui::Id::new("composer-text")));
     // Home/End (and Ctrl+End) move the text cursor in a field with text in
     // it, as in any editor; they scroll the chat only from an empty composer
@@ -190,9 +160,21 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(modifiers, key_code, Action::ShowDialog(Dialog::JumpToChat));
         let (modifiers, key_code) = PALETTE.keys[0];
         key(modifiers, key_code, Action::ShowDialog(Dialog::Palette));
+        if let Some(read_later) = read_later {
+            let (modifiers, key_code) = READ_LATER.keys[0];
+            key(modifiers, key_code, read_later);
+        }
+        if let Some(reply_later) = reply_later {
+            let (modifiers, key_code) = REPLY_LATER.keys[0];
+            key(modifiers, key_code, reply_later);
+        }
         if let Some(next_account) = next_account {
             let (modifiers, key_code) = NEXT_ACCOUNT.keys[0];
             key(modifiers, key_code, next_account);
+        }
+        if let Some(prev_account) = prev_account {
+            let (modifiers, key_code) = NEXT_ACCOUNT.keys[1];
+            key(modifiers, key_code, prev_account);
         }
         if app.is_linked() {
             let (modifiers, key_code) = NEW_CHAT.keys[0];
@@ -247,7 +229,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         }
         // The rail's Chats, by the digit's place on the keyboard: with
         // Shift held, layouts report the digit as its symbol.
-        // Ctrl+1..9 without Shift open chats by their place in the list.
+        // Ctrl+1..0 without Shift open favorites by their place in the bar.
         if app.is_linked()
             && let Some(1) = take_destination(input)
         {
@@ -432,11 +414,12 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             0
         }
     });
-    // Numbered shortcuts: Command+1..9 jumps to the favorites bar's nth
-    // chat, Option+1..n picks the sidebar's nth filter. Command+digit is
-    // free even mid-typing; Option+digit types characters some layouts
-    // need, so it yields to a focused text field.
-    let (number, filter_number) = if app.page == Page::Chats
+    // Numbered shortcuts: Command+1..0 opens the favorites bar's nth
+    // chat, Command+Option+1..9 picks the sidebar's nth filter (9 toggles
+    // Unreplied), and Option+1..0 picks a network. Command and
+    // Command+Option digits are free even mid-typing; Option+digit types
+    // characters some layouts need, so it yields to a focused text field.
+    let (number, network_number, filter_number) = if app.page == Page::Chats
         && app.dialog.is_none()
         && !app.show_update
         && app.picker.is_none()
@@ -444,17 +427,35 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         && app.recording.is_none()
         && !menu_open
     {
-        let filter = (!editing_text)
-            .then(|| ctx.input_mut(take_filter_number))
+        let network = (!editing_text)
+            .then(|| ctx.input_mut(take_network_number))
             .flatten();
-        (ctx.input_mut(take_chat_number), filter)
+        (
+            ctx.input_mut(take_chat_number),
+            network,
+            ctx.input_mut(take_filter_number),
+        )
     } else {
-        (None, None)
+        (None, None, None)
     };
-    if let Some(filter) =
-        filter_number.and_then(|index| crate::model::ChatFilter::ALT_DIGIT.get(index))
-    {
-        actions.push(Action::SetChatFilter(*filter));
+    if let Some(index) = network_number {
+        let networks = app.beeper_browse_networks();
+        if let Some(network) = networks.get(index) {
+            app.select_beeper_scope(Some(network.clone()), None);
+        }
+    }
+    match filter_number {
+        // The ninth slot is the layered Unreplied toggle, as on the rail.
+        Some(8) => {
+            app.beeper_unreplied = !app.beeper_unreplied;
+            actions.push(Action::SetChatFilter(crate::model::ChatFilter::All));
+        }
+        Some(index) => {
+            if let Some(filter) = crate::model::ChatFilter::EVERY.get(index) {
+                actions.push(Action::SetChatFilter(*filter));
+            }
+        }
+        None => {}
     }
     if step != 0 || number.is_some() {
         // Switching chats from the keyboard is keyboard navigation, as Tab
@@ -533,7 +534,7 @@ fn is_copy_event(event: &egui::Event) -> bool {
             && !modifiers.alt && !modifiers.shift)
 }
 
-/// Takes an exact Command/Ctrl+1..9 press, leaving modified number keys alone.
+/// Takes an exact Command/Ctrl+1..0 press, leaving modified number keys alone.
 fn take_chat_number(input: &mut egui::InputState) -> Option<usize> {
     let keys = [
         Key::Num1,
@@ -545,6 +546,7 @@ fn take_chat_number(input: &mut egui::InputState) -> Option<usize> {
         Key::Num7,
         Key::Num8,
         Key::Num9,
+        Key::Num0,
     ];
     let mut number = None;
     input.events.retain(|event| {
@@ -566,7 +568,7 @@ fn take_chat_number(input: &mut egui::InputState) -> Option<usize> {
     number
 }
 
-/// Takes an exact Alt/Option+1..9 press, the sidebar filter's place,
+/// Takes an exact Command+Option+1..9 press, the sidebar filter's place,
 /// leaving modified number keys alone.
 fn take_filter_number(input: &mut egui::InputState) -> Option<usize> {
     let keys = [
@@ -579,6 +581,41 @@ fn take_filter_number(input: &mut egui::InputState) -> Option<usize> {
         Key::Num7,
         Key::Num8,
         Key::Num9,
+    ];
+    let mut number = None;
+    input.events.retain(|event| {
+        if number.is_none()
+            && let egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } = event
+            && modifiers.matches_exact(Modifiers::COMMAND | Modifiers::ALT)
+            && let Some(index) = keys.iter().position(|candidate| candidate == key)
+        {
+            number = Some(index);
+            return false;
+        }
+        true
+    });
+    number
+}
+
+/// Takes an exact Alt/Option+1..0 press, the network's place in the rail,
+/// leaving modified number keys alone.
+fn take_network_number(input: &mut egui::InputState) -> Option<usize> {
+    let keys = [
+        Key::Num1,
+        Key::Num2,
+        Key::Num3,
+        Key::Num4,
+        Key::Num5,
+        Key::Num6,
+        Key::Num7,
+        Key::Num8,
+        Key::Num9,
+        Key::Num0,
     ];
     let mut number = None;
     input.events.retain(|event| {
@@ -959,10 +996,35 @@ fn archive_action(app: &App) -> Option<Action> {
     Some(Action::SetArchived(chat.id.clone(), !chat.archived))
 }
 
-/// Ctrl+Shift+A shows the next linked number, in the switcher's order and
-/// wrapping after the last. An account still being added is left through
-/// its own Cancel, not by this shortcut.
-fn next_account_action(app: &App) -> Option<Action> {
+/// Cmd+U queues the open chat for reading later, as the chat menus do.
+fn read_later_action(app: &App) -> Option<Action> {
+    Some(Action::ToggleReadLater(later_queue_target(app)?))
+}
+
+/// Cmd+I queues the open chat for replying later, as the chat menus do.
+fn reply_later_action(app: &App) -> Option<Action> {
+    Some(Action::ToggleReplyLater(later_queue_target(app)?))
+}
+
+/// The open chat a later-queue key would mark, when no overlay owns keys.
+fn later_queue_target(app: &App) -> Option<crate::model::ChatId> {
+    if !app.chat_view()
+        || app.dialog.is_some()
+        || app.show_update
+        || app.picker.is_some()
+        || app.reaction_target.is_some()
+        || app.recording.is_some()
+    {
+        return None;
+    }
+    let chat = app.chat(app.open_chat.as_deref()?)?;
+    Some(chat.id.clone())
+}
+
+/// Ctrl+Alt+Right shows the next linked number, Ctrl+Alt+Left the
+/// previous, in the switcher's order and wrapping around. An account
+/// still being added is left through its own Cancel, not by these keys.
+fn account_switch_action(app: &App, forward: bool) -> Option<Action> {
     if !app.has_several_accounts()
         || app.adding_account
         || app.dialog.is_some()
@@ -973,7 +1035,11 @@ fn next_account_action(app: &App) -> Option<Action> {
     {
         return None;
     }
-    let next = (app.active + 1) % app.accounts.len();
+    let next = if forward {
+        (app.active + 1) % app.accounts.len()
+    } else {
+        (app.active + app.accounts.len() - 1) % app.accounts.len()
+    };
     Some(Action::SwitchAccount(app.accounts[next].id.clone()))
 }
 
@@ -999,6 +1065,13 @@ const MESSAGES_KEYS: &str = "Control+2";
 /// `Modifiers::COMMAND | Modifiers::SHIFT` is not a const expression.
 const COMMAND_SHIFT: Modifiers = Modifiers {
     shift: true,
+    command: true,
+    ..Modifiers::NONE
+};
+
+/// Command (Ctrl elsewhere) with Alt held, for the table.
+const COMMAND_ALT: Modifiers = Modifiers {
+    alt: true,
     command: true,
     ..Modifiers::NONE
 };
@@ -1100,9 +1173,12 @@ const ARCHIVE: Shortcut = Shortcut {
 };
 const NEXT_ACCOUNT: Shortcut = Shortcut {
     id: "next-account",
-    keys: &[(COMMAND_SHIFT, Key::A)],
-    label: Some("Ctrl+Shift+A"),
-    description: Some("Switch to the next linked number"),
+    keys: &[
+        (COMMAND_ALT, Key::ArrowRight),
+        (COMMAND_ALT, Key::ArrowLeft),
+    ],
+    label: Some("Ctrl+Alt+\u{2192} / Ctrl+Alt+\u{2190}"),
+    description: Some("Switch to the next / previous linked number"),
     menu: None,
 };
 const SIDEBAR: Shortcut = Shortcut {
@@ -1179,18 +1255,18 @@ const CLOSE_CHAT: Shortcut = Shortcut {
     description: None,
     menu: None,
 };
-const FILTER_UNREAD: Shortcut = Shortcut {
-    id: "filter-unread",
-    keys: &[(COMMAND_SHIFT, Key::U)],
-    label: None,
-    description: None,
+const READ_LATER: Shortcut = Shortcut {
+    id: "read-later",
+    keys: &[(Modifiers::COMMAND, Key::U)],
+    label: Some("Ctrl+U"),
+    description: Some("Mark the open chat to read later"),
     menu: None,
 };
-const FILTER_UNREPLIED: Shortcut = Shortcut {
-    id: "filter-unreplied",
-    keys: &[(COMMAND_SHIFT, Key::R)],
-    label: None,
-    description: None,
+const REPLY_LATER: Shortcut = Shortcut {
+    id: "reply-later",
+    keys: &[(Modifiers::COMMAND, Key::I)],
+    label: Some("Ctrl+I"),
+    description: Some("Mark the open chat to reply later"),
     menu: None,
 };
 /// Menu accelerators that edit text natively rather than through `handle`:
@@ -1292,14 +1368,14 @@ pub static REGISTRY: &[Row] = &[
     Row::Help("Alt+\u{2191} / Alt+\u{2193}", "Previous / next chat"),
     Row::Help("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
     Row::Help(TAB_STEP_KEYS, "Next / previous chat, as in Safari's tabs"),
-    Row::Help("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
+    Row::Help("Ctrl+1..0", "Open a favorite by its place in the sidebar"),
     Row::Help(
-        "Ctrl+Alt+1..0",
-        "Filter to a network by its place in the sidebar",
+        "Alt+1..0",
+        "Filter to a network by its place in the sidebar (outside text fields)",
     ),
     Row::Help(
-        "Alt+1..6",
-        "Pick a chat filter by its place in the sidebar (outside text fields)",
+        "Ctrl+Alt+1..0",
+        "Pick a chat filter by its place in the sidebar (9 toggles Unreplied)",
     ),
     Row::Binding(&RAIL_CHATS),
     Row::Help(
@@ -1313,6 +1389,8 @@ pub static REGISTRY: &[Row] = &[
     ),
     Row::Binding(&NEW_CHAT),
     Row::Binding(&ARCHIVE),
+    Row::Binding(&READ_LATER),
+    Row::Binding(&REPLY_LATER),
     Row::Binding(&NEXT_ACCOUNT),
     Row::Help(
         "Ctrl+V",
@@ -1345,8 +1423,6 @@ pub static REGISTRY: &[Row] = &[
     Row::Binding(&CLOSE_WINDOW),
     Row::Binding(&QUIT),
     Row::Binding(&CLOSE_CHAT),
-    Row::Binding(&FILTER_UNREAD),
-    Row::Binding(&FILTER_UNREPLIED),
     Row::Binding(&EDIT_UNDO),
     Row::Binding(&EDIT_REDO),
     Row::Binding(&EDIT_CUT),
@@ -1556,14 +1632,14 @@ mod tests {
             ("Alt+\u{2191} / Alt+\u{2193}", "Previous / next chat"),
             ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
             (TAB_STEP_KEYS, "Next / previous chat, as in Safari's tabs"),
-            ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
+            ("Ctrl+1..0", "Open a favorite by its place in the sidebar"),
             (
-                "Ctrl+Alt+1..0",
-                "Filter to a network by its place in the sidebar",
+                "Alt+1..0",
+                "Filter to a network by its place in the sidebar (outside text fields)",
             ),
             (
-                "Alt+1..6",
-                "Pick a chat filter by its place in the sidebar (outside text fields)",
+                "Ctrl+Alt+1..0",
+                "Pick a chat filter by its place in the sidebar (9 toggles Unreplied)",
             ),
             ("Ctrl+Shift+1", "Chats"),
             (
@@ -1577,7 +1653,12 @@ mod tests {
             ),
             ("Ctrl+N", "New chat or message yourself"),
             ("Ctrl+E", "Archive or unarchive the open chat"),
-            ("Ctrl+Shift+A", "Switch to the next linked number"),
+            ("Ctrl+U", "Mark the open chat to read later"),
+            ("Ctrl+I", "Mark the open chat to reply later"),
+            (
+                "Ctrl+Alt+\u{2192} / Ctrl+Alt+\u{2190}",
+                "Switch to the next / previous linked number",
+            ),
             (
                 "Ctrl+V",
                 "Paste text, or stage a picture from the clipboard",
@@ -2236,7 +2317,7 @@ mod tests {
         app.chats.clear();
         press(&mut app, &ctx, Key::Num1, Modifiers::COMMAND);
         assert!(app.actions.is_empty());
-        // Command+0 is no zoom reset: the zoom keys are gone altogether.
+        // Command+0 is the favorites bar's tenth slot, empty with two.
         press(&mut app, &ctx, Key::Num0, Modifiers::COMMAND);
         assert!(app.actions.is_empty());
     }
@@ -2248,53 +2329,70 @@ mod tests {
         for modifiers in [
             Modifiers::NONE,
             Modifiers::SHIFT,
-            Modifiers::COMMAND | Modifiers::ALT,
+            Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT,
         ] {
             assert!(press(&mut app, &ctx, Key::Num1, modifiers));
             assert!(app.actions.is_empty());
         }
     }
 
-    /// Option+1..n picks the sidebar's nth filter; beyond the filter count
-    /// the key is taken but inert, so no other binding can disagree.
+    /// Command+Option+1..8 picks the sidebar's nth filter in the chips'
+    /// order, 9 toggles Unreplied over the list, and 0 stays free.
     #[test]
-    fn option_numbered_shortcuts_pick_sidebar_filters() {
+    fn command_option_numbered_shortcuts_pick_sidebar_filters() {
         let (_root, mut app, _ids) = app_with_chats(2);
         let ctx = egui::Context::default();
         use crate::model::ChatFilter;
-        assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
+        let modifiers = Modifiers::COMMAND | Modifiers::ALT;
+        assert!(!press(&mut app, &ctx, Key::Num1, modifiers));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::ALT_DIGIT[0]))
+                .contains(&Action::SetChatFilter(ChatFilter::All))
         );
         app.actions.clear();
-        assert!(!press(&mut app, &ctx, Key::Num6, Modifiers::ALT));
+        assert!(!press(&mut app, &ctx, Key::Num3, modifiers));
         assert!(
             app.actions
-                .contains(&Action::SetChatFilter(ChatFilter::ALT_DIGIT[5]))
+                .contains(&Action::SetChatFilter(ChatFilter::Favorites))
         );
         app.actions.clear();
-        // The later chips have no positional binding: Alt+7 stays free.
-        assert!(!press(&mut app, &ctx, Key::Num7, Modifiers::ALT));
+        // 9 is the layered Unreplied toggle, as the rail's icon does it.
+        assert!(!press(&mut app, &ctx, Key::Num9, modifiers));
+        assert!(app.beeper_unreplied);
+        assert!(
+            app.actions
+                .contains(&Action::SetChatFilter(ChatFilter::All))
+        );
+        app.actions.clear();
+        app.beeper_unreplied = false;
+        // 0 is free: nothing takes it.
+        assert!(press(&mut app, &ctx, Key::Num0, modifiers));
         assert!(app.actions.is_empty());
     }
 
-    /// A focused text field keeps Option+digit: layouts type characters
-    /// with it, such as @ or brackets, that must reach the field.
+    /// Option+digit picks a network, and a focused text field keeps it:
+    /// layouts type characters with it, such as @ or brackets, that must
+    /// reach the field.
     #[test]
-    fn option_numbered_shortcuts_yield_to_a_focused_text_field() {
+    fn option_numbered_shortcuts_pick_networks_outside_text_fields() {
         let (_root, mut app, _ids) = app_with_chats(2);
+        for chat in &mut app.chats {
+            chat.backend_network = Some("whatsapp".into());
+        }
         let ctx = egui::Context::default();
+        assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
+        assert_eq!(app.beeper_network_filter.as_deref(), Some("whatsapp"));
+        app.beeper_network_filter = None;
         let field = egui::Id::new("composer-text");
         egui::widgets::text_edit::TextEditState::default().store(&ctx, field);
         ctx.memory_mut(|memory| memory.request_focus(field));
         assert!(press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
-        assert!(app.actions.is_empty());
+        assert!(app.beeper_network_filter.is_none());
     }
 
     /// With Beeper networks present, Command+digit still opens the
-    /// favorites bar; networks moved to Command+Alt+digit and pins a
-    /// Shift higher, so the bar's promise holds in every account setup.
+    /// favorites bar; networks live on Option+digit, so the bar's promise
+    /// holds in every account setup.
     #[test]
     fn beeper_shortcuts_keep_command_digit_on_the_favorites_bar() {
         let (_root, mut app, ids) = app_with_chats(3);
@@ -2308,13 +2406,8 @@ mod tests {
         assert!(app.actions.contains(&Action::OpenChat(ids[0].clone())));
         assert!(app.beeper_network_filter.is_none());
         app.actions.clear();
-        // Command+Alt+1 picks the first network.
-        assert!(!press(
-            &mut app,
-            &ctx,
-            Key::Num1,
-            Modifiers::COMMAND | Modifiers::ALT
-        ));
+        // Option+1 picks the first network.
+        assert!(!press(&mut app, &ctx, Key::Num1, Modifiers::ALT));
         assert_eq!(app.beeper_network_filter.as_deref(), Some("whatsapp"));
         app.beeper_network_filter = None;
         // Command+Alt+Shift+digit no longer opens pins: they are favorites
@@ -2415,7 +2508,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_shift_a_steps_through_linked_numbers_and_wraps() {
+    fn command_option_arrows_step_through_linked_numbers_and_wrap() {
         let (_root, mut app) = app_with_two_numbers();
         let ids: Vec<_> = app
             .accounts
@@ -2423,29 +2516,31 @@ mod tests {
             .map(|account| account.id.clone())
             .collect();
         let ctx = egui::Context::default();
-        for modifiers in ctrl_shift() {
-            for (active, expected) in [(0, &ids[1]), (1, &ids[0])] {
+        let modifiers = Modifiers::COMMAND | Modifiers::ALT;
+        // With two numbers both arrows wrap to the other one.
+        for (active, expected) in [(0, &ids[1]), (1, &ids[0])] {
+            for key in [Key::ArrowRight, Key::ArrowLeft] {
                 app.active = active;
                 app.actions.clear();
-                assert!(!press(&mut app, &ctx, Key::A, modifiers));
+                assert!(!press(&mut app, &ctx, key, modifiers));
                 assert_eq!(app.actions, [Action::SwitchAccount(expected.clone())]);
             }
         }
     }
 
     #[test]
-    fn ctrl_shift_a_needs_a_second_number_that_is_not_being_added() {
+    fn command_option_arrows_need_a_second_number_that_is_not_being_added() {
         let (_root, mut single, _ids) = app_with_chats(1);
         let ctx = egui::Context::default();
-        let ctrl_shift_a = Modifiers::COMMAND | Modifiers::SHIFT;
-        assert!(press(&mut single, &ctx, Key::A, ctrl_shift_a));
+        let modifiers = Modifiers::COMMAND | Modifiers::ALT;
+        assert!(press(&mut single, &ctx, Key::ArrowRight, modifiers));
         assert!(
             single.actions.is_empty(),
             "one number has nothing to switch to"
         );
         let (_root, mut app) = app_with_two_numbers();
         app.adding_account = true;
-        assert!(press(&mut app, &ctx, Key::A, ctrl_shift_a));
+        assert!(press(&mut app, &ctx, Key::ArrowRight, modifiers));
         assert!(
             app.actions.is_empty(),
             "a number being added keeps its Cancel"
@@ -2453,19 +2548,19 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_shift_a_leaves_dialogs_and_other_combinations_alone() {
+    fn command_option_arrows_leave_dialogs_and_other_combinations_alone() {
         let (_root, mut app) = app_with_two_numbers();
         let ctx = egui::Context::default();
         app.dialog = Some(Dialog::Shortcuts);
         assert!(press(
             &mut app,
             &ctx,
-            Key::A,
-            Modifiers::COMMAND | Modifiers::SHIFT
+            Key::ArrowRight,
+            Modifiers::COMMAND | Modifiers::ALT
         ));
         app.dialog = None;
         for modifiers in [Modifiers::NONE, Modifiers::SHIFT, Modifiers::COMMAND] {
-            assert!(press(&mut app, &ctx, Key::A, modifiers));
+            assert!(press(&mut app, &ctx, Key::ArrowRight, modifiers));
         }
         assert!(
             !app.actions
@@ -2630,26 +2725,29 @@ mod tests {
         assert_eq!(app.actions, [Action::FocusMessages]);
     }
 
-    /// On Linux, Alt+2 picks the second sidebar filter and yields to a
-    /// focused text field; the message list is reached by Tab.
+    /// Ctrl+Alt+2 picks the second sidebar filter, and keeps working with
+    /// a field focused: the combo types no characters to steal.
     #[cfg(not(target_os = "macos"))]
     #[test]
-    fn the_filter_digits_pick_filters_outside_text_fields() {
+    fn the_filter_digits_pick_filters_even_while_typing() {
         let (_root, mut app, ids) = app_with_chats(1);
         app.open_chat = Some(ids[0].clone());
         let ctx = egui::Context::default();
-        assert!(!press(&mut app, &ctx, Key::Num2, Modifiers::ALT));
+        let modifiers = Modifiers::COMMAND | Modifiers::ALT;
+        assert!(!press(&mut app, &ctx, Key::Num2, modifiers));
         assert_eq!(
             app.actions,
             [Action::SetChatFilter(crate::model::ChatFilter::Unread)]
         );
-        // A focused text field keeps the digit: no filter change.
         app.actions.clear();
         let field = egui::Id::new("composer-text");
         egui::widgets::text_edit::TextEditState::default().store(&ctx, field);
         ctx.memory_mut(|memory| memory.request_focus(field));
-        assert!(press(&mut app, &ctx, Key::Num2, Modifiers::ALT));
-        assert!(app.actions.is_empty(), "{:?}", app.actions);
+        assert!(!press(&mut app, &ctx, Key::Num2, modifiers));
+        assert_eq!(
+            app.actions,
+            [Action::SetChatFilter(crate::model::ChatFilter::Unread)]
+        );
     }
 
     /// The list's shortcut and the rail's Ctrl+Shift+1 (Cmd on macOS) never
