@@ -60,6 +60,12 @@ if [[ "$mode" == beeper ]]; then
     /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Solmu' "$app/Contents/Info.plist"
 fi
 
+# Starting in the tray at login: a login item cannot pass --start-hidden, so
+# SMAppService registers this agent from the bundle instead.
+identifier=me.paolino.fastsapp
+mkdir -p "$app/Contents/Library/LaunchAgents"
+cp "$here/autostart.plist" "$app/Contents/Library/LaunchAgents/$identifier.autostart.plist"
+
 iconset="$(mktemp -d)/solmu.iconset"
 mkdir -p "$iconset"
 # iconutil reads these base sizes and optional @2x versions. It ignores 64x64.

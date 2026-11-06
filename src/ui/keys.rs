@@ -294,11 +294,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         // The rail's Chats, by the digit's place on the keyboard: with
         // Shift held, layouts report the digit as its symbol.
         // Ctrl+1..9 without Shift open chats by their place in the list.
-        if app.is_linked() {
-            match take_destination(input) {
-                Some(1) => actions.extend(super::rail::Destination::Chats.actions(app)),
-                _ => {}
-            }
+        if app.is_linked()
+            && let Some(1) = take_destination(input)
+        {
+            actions.extend(super::rail::Destination::Chats.actions(app));
         }
     });
     drop_shortcut_text(ctx);
@@ -1744,6 +1743,9 @@ mod tests {
     fn shifted_digits_lead_to_the_chats() {
         let (_root, mut app, ids) = app_with_chats(2);
         app.link = crate::backend::LinkStatus::Connected;
+        // Chats is not a toggle: from a Chats page the digit changes
+        // nothing, so the check begins away from it.
+        app.page = Page::Settings;
         let ctx = egui::Context::default();
         let shifted = |app: &mut App, key: Key, physical: Key| {
             app.actions.clear();

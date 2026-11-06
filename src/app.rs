@@ -1927,7 +1927,6 @@ impl App {
             self.clear_account_ui();
         }
         self.accounts[index].backend.shutdown();
-        let removed = self.accounts[index].id.clone();
         let dirs = self.accounts[index].dirs.clone();
         // The key outlives the archive only by mistake: forget it once the
         // archive is gone, never before.
@@ -2216,12 +2215,11 @@ impl App {
                 continue;
             }
             self.switch_account(&target.account);
-            match target.message {
-                Some(message) => self.actions.push(Action::OpenMessage {
+            if let Some(message) = target.message {
+                self.actions.push(Action::OpenMessage {
                     chat: target.chat,
                     message,
-                }),
-                None => {}
+                });
             }
             self.actions.push(Action::ShowWindow);
         }
@@ -5411,9 +5409,6 @@ impl App {
                 if live {
                     self.announced_offline = false;
                     self.announced_connecting = false;
-                    self.dialog = match self.dialog.take() {
-                        other => other,
-                    };
                 }
                 if let Some(open) = self.open_chat.clone() {
                     self.ensure_loaded(&open);
@@ -6708,7 +6703,9 @@ impl App {
         }
         self.emoji_start = None;
         self.mention_start = None;
-        if crate::backend::beeper::BeeperConfig::from_env().is_some() {
+        if !self.backend.is_offline() {
+            // Offline demos have no remote history to refetch: their seeded
+            // conversations are the source of truth and must not be evicted.
             // Every reopened cached chat must reselect the backend's polling
             // target, even when its first page is already in memory.
             if let Some(conversation) = self.conversations.get_mut(&id) {
@@ -7643,22 +7640,6 @@ impl App {
                 | Action::SendRecording
         ) {
             self.toast("Linked chats currently support text sends only. Unlink to send attachments; nothing was sent.");
-            return;
-        }
-        // Refuse unsupported capture/call actions before creating local state.
-        if crate::backend::beeper::BeeperConfig::from_env().is_some()
-            && matches!(
-                &action,
-                Action::StartRecording
-                    | Action::SendRecording
-                    | Action::PasteImage { .. }
-                    | Action::SendGif(_)
-                    | Action::SendSticker(_)
-                    | Action::MakeSticker { .. }
-                    | Action::SendLocation { .. }
-            )
-        {
-            self.toast("Beeper: recording, clipboard images and stickers are not supported yet");
             return;
         }
         let reply_send = match &action {
@@ -8660,22 +8641,7 @@ impl App {
             }
             Action::Attach { documents } => {
                 if let Some(chat) = self.open_chat.clone() {
-                    if crate::backend::beeper::BeeperConfig::from_env().is_some() {
-                        let commands = self.backend.command_sender();
-                        std::thread::spawn(move || {
-                            let paths = rfd::FileDialog::new()
-                                .set_title("Attach to Beeper chat")
-                                .pick_files()
-                                .unwrap_or_default();
-                            let _ = commands.send(Command::Picked {
-                                chat,
-                                paths,
-                                documents,
-                            });
-                        });
-                    } else {
-                        self.backend.send(Command::PickFiles { chat, documents });
-                    }
+                    self.backend.send(Command::PickFiles { chat, documents });
                 }
             }
             Action::SetComposerTools(open) => {
@@ -12859,6 +12825,33 @@ mod tests {
         App::headless(AppDirs::under(&root), Settings::default()).0
     }
 
+    #[test]
+    fn opening_an_offline_chat_preserves_seeded_history() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        app.link = LinkStatus::Connected;
+        for index in 0..10 {
+            let id = format!("offline-{index}");
+            app.chats
+                .push(Chat::new(id.clone(), format!("Chat {index}")));
+            app.conversations.insert(
+                id,
+                Conversation {
+                    requested: true,
+                    complete: true,
+                    ..Default::default()
+                },
+            );
+        }
+        assert!(app.backend.is_offline());
+        app.open_chat("offline-0".into());
+        assert_eq!(app.conversations.len(), 10, "no backend can refetch these");
+        assert!(app.conversations["offline-0"].requested);
+        app.open_chat("offline-9".into());
+        assert_eq!(app.conversations.len(), 10);
+        assert!(app.conversations["offline-9"].requested);
+    }
+
     /// While recording, the light, the timer and the waveform ask for a
     /// frame every 40 ms, or every step while a screen reader is attached,
     /// and the recorder then stops asking for frames of its own.
@@ -14246,7 +14239,9 @@ mod tests {
         app.apply(Action::AddAccount, &ctx);
         let (backend, mut commands) = Backend::recording();
         app.backend = backend;
-        app.link = LinkStatus::Connecting;
+        // Connecting still counts as linked; a brand-new account that has
+        // no session yet is logged out.
+        app.link = LinkStatus::LoggedOut;
         app.apply(Action::CancelAddAccount, &ctx);
         assert_eq!(app.account().id, AccountId::first());
         assert!(!app.adding_account);

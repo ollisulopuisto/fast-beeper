@@ -3232,6 +3232,24 @@ pub fn run(
                     paths,
                     documents,
                 }),
+                Command::PickFiles { chat, documents } => {
+                    // The picker is a desktop dialog, shown from a side
+                    // thread so a slow answer never stalls the worker.
+                    let events = events.clone();
+                    let waker = waker.clone();
+                    std::thread::spawn(move || {
+                        let paths = rfd::FileDialog::new()
+                            .set_title("Attach to chat")
+                            .pick_files()
+                            .unwrap_or_default();
+                        let _ = events.send(Event::Picked {
+                            chat,
+                            paths,
+                            documents,
+                        });
+                        waker.wake();
+                    });
+                }
                 Command::SendFiles {
                     chat,
                     paths,
@@ -3399,7 +3417,6 @@ pub fn run(
                     }
                 }
                 Command::SendSticker { .. }
-                | Command::PickFiles { .. }
                 | Command::CreateGroup { .. }
                 | Command::SetProfile { .. }
                 | Command::SetGroupName { .. }

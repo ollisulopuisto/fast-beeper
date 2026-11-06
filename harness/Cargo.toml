@@ -19,6 +19,7 @@ fastframe_shell = { path = "stubs/fastframe_shell" }
 log = "0.4"
 fastframe-i18n = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2" }
 egui = { path = "stubs/egui" }
+rfd = { path = "stubs/rfd" }
 eframe = { path = "stubs/eframe" }
 fastframe_file = { path = "stubs/fastframe_file" }
 

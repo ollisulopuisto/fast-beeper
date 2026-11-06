@@ -2584,14 +2584,6 @@ impl Archive {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    pub(crate) fn set_derived_update_failure(archive: &super::Archive, fail: bool) {
-        archive.connection.execute_batch(if fail {
-            "CREATE TRIGGER reject_derived_update BEFORE UPDATE OF content ON messages BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;"
-        } else {
-            "DROP TRIGGER reject_derived_update"
-        }).unwrap();
-    }
-
     pub(crate) fn set_message_deletion_failure(archive: &super::Archive, fail: bool) {
         archive.connection.execute_batch(if fail {
             "CREATE TRIGGER reject_message_deletion BEFORE DELETE ON messages BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;"

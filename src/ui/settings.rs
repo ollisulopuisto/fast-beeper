@@ -1126,11 +1126,9 @@ fn sections(app: &App) -> Vec<Section> {
         files,
         about_section,
     ];
-    // The launch flag picks the section; a loaded account inventory does
-    // too, so demo and interaction-test setups without the flag still get
-    // the per-account settings their inventory makes meaningful.
-    if crate::backend::beeper::BeeperConfig::from_env().is_some() || !app.beeper_accounts.is_empty()
-    {
+    // Live sessions always offer Beeper settings. Offline demos only show
+    // them when their seeded account inventory makes them meaningful.
+    if !app.backend.is_offline() || !app.beeper_accounts.is_empty() {
         sections.insert(0, beeper);
     }
     sections

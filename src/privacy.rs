@@ -217,15 +217,6 @@ impl Snapshot {
 mod tests {
     use super::*;
 
-    const ALL_CHOICES: [PrivacyChoice; 6] = [
-        PrivacyChoice::Everyone,
-        PrivacyChoice::Contacts,
-        PrivacyChoice::Except,
-        PrivacyChoice::Nobody,
-        PrivacyChoice::SameAsLastSeen,
-        PrivacyChoice::Known,
-    ];
-
     #[test]
     fn a_failed_write_restores_the_confirmed_value() {
         let mut snapshot = Snapshot::demo();
