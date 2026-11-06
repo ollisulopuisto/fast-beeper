@@ -66,7 +66,8 @@ Linux, Windows, Flatpak and the publish job stay tag-only. The DMG is named
 with the Cargo version and the run number
 (`solmu-v0.24.0-manual.7-macos-universal.dmg`) and lands on the rolling
 "macOS manual builds" draft release - release assets cost nothing to store,
-unlike workflow artifacts. Download the DMG from the draft; discard the draft
+unlike workflow artifacts. Manual runs upload directly from the macOS job,
+with no intermediate artifact storage. Download the DMG from the draft; discard the draft
 to clear old builds. Stable multi-platform releases still come from `v*` tags
 only, and the draft never publishes itself.
 
