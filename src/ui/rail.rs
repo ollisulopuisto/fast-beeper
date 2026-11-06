@@ -284,13 +284,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, hidden: bool) {
                     );
                 }
                 if !hidden {
-                    // Quick filters, queues, labels and the favorite/pinned
-                    // chats live here, so the chat-list column keeps only
-                    // its search field and chats.
+                    // Quick filters, queues, labels and the favorite chats
+                    // live here, so the chat-list column keeps only its
+                    // search field and chats.
                     ui.spacing_mut().item_spacing.y = row_gap;
                     super::chats::filter_chips(app, ui);
                     super::chats::favorites_row(app, ui);
-                    super::chats::pinned_row(app, ui);
                     ui.spacing_mut().item_spacing.y = 0.0;
                 }
                 let rest = (ui.available_height() - foot).max(0.0);

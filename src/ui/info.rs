@@ -212,6 +212,7 @@ struct Shown {
     muted_until: Option<i64>,
     muted: bool,
     pinned: bool,
+    favorite: bool,
     archived: bool,
     /// A group's description, when it has one.
     description: Option<String>,
@@ -249,6 +250,7 @@ impl Shown {
             muted_until: chat.muted_until,
             muted: chat.muted(crate::util::now()),
             pinned: chat.pinned,
+            favorite: chat.favorite,
             archived: chat.archived,
             description: chat
                 .group_description
@@ -658,13 +660,18 @@ fn actions(app: &mut App, ui: &mut egui::Ui, shown: &Shown, mine: bool, editable
             )
         });
         buttons.push((
-            if shown.pinned {
-                Icon::PinOff
+            Icon::Heart,
+            if shown.favorite {
+                "Unfavorite"
             } else {
-                Icon::Pin
+                "Favorite"
             },
-            if shown.pinned { "Unpin" } else { "Pin" },
-            vec![Action::SetPinned(id.to_owned(), !shown.pinned)],
+            if shown.pinned {
+                // A pin mirrored into a favorite leaves through the bridge.
+                vec![Action::SetPinned(id.to_owned(), false)]
+            } else {
+                vec![Action::SetFavorite(id.to_owned(), !shown.favorite)]
+            },
         ));
         buttons.push((
             Icon::Archive,

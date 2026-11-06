@@ -63,10 +63,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                     {
                         let mode = if modifiers.matches_exact(Modifiers::COMMAND) {
                             Some(0)
-                        } else if modifiers
-                            .matches_exact(Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT)
-                        {
-                            Some(6)
                         } else if modifiers.matches_exact(Modifiers::COMMAND | Modifiers::ALT) {
                             Some(1)
                         } else if (cfg!(target_os = "macos")
@@ -113,26 +109,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
                             app.actions.push(Action::OpenChat(chat.id.clone()));
                         }
                     }
-                    // Networks move to Command+Alt+digit, pins a Shift higher.
+                    // Networks move to Command+Alt+digit.
                     1 => {
                         if let Some(network) = networks.get(index) {
                             app.select_beeper_scope(Some(network.clone()), None);
                         }
                     }
-                    6 => {
-                        if let Some(chat) = app.beeper_global_pins().get(index) {
-                            app.actions.push(Action::OpenChat(chat.id.clone()));
-                        }
-                    }
                     2 => {
-                        let pins = app.beeper_global_pins();
                         let ids: Vec<_> = app
                             .visible_chats()
                             .into_iter()
-                            .filter(|chat| {
-                                app.chat_filter == crate::model::ChatFilter::ReplyLater
-                                    || !pins.iter().any(|pin| pin.id == chat.id)
-                            })
                             .map(|chat| chat.id.clone())
                             .collect();
                         if let Some(id) = ids.get(index) {
@@ -1340,10 +1326,6 @@ pub static REGISTRY: &[Row] = &[
     Row::Help("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
     Row::Help("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
     Row::Help(
-        "Ctrl+Alt+Shift+1..9",
-        "Open a pinned chat by its place in the sidebar",
-    ),
-    Row::Help(
         "Ctrl+Alt+1..0",
         "Filter to a network by its place in the sidebar",
     ),
@@ -1505,10 +1487,6 @@ mod tests {
             ("Alt+\u{2191} / Alt+\u{2193}", "Previous / next chat"),
             ("Ctrl+Shift+[ / ]", "Previous / next chat, as in WhatsApp"),
             ("Ctrl+1..9", "Open a favorite by its place in the sidebar"),
-            (
-                "Ctrl+Alt+Shift+1..9",
-                "Open a pinned chat by its place in the sidebar",
-            ),
             (
                 "Ctrl+Alt+1..0",
                 "Filter to a network by its place in the sidebar",
@@ -2228,15 +2206,16 @@ mod tests {
         ));
         assert_eq!(app.beeper_network_filter.as_deref(), Some("whatsapp"));
         app.beeper_network_filter = None;
-        // Command+Alt+Shift+1 opens the first global pin.
+        // Command+Alt+Shift+digit no longer opens pins: they are favorites
+        // now, on plain Command+digit.
         app.chats[1].pinned = true;
-        assert!(!press(
+        press(
             &mut app,
             &ctx,
             Key::Num1,
-            Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT
-        ));
-        assert!(app.actions.contains(&Action::OpenChat(ids[1].clone())));
+            Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT,
+        );
+        assert!(!app.actions.contains(&Action::OpenChat(ids[1].clone())));
     }
 
     /// Ctrl+Shift+1 (Cmd on macOS) leads to the rail's Chats by where the

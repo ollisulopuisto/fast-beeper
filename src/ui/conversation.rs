@@ -653,10 +653,10 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                             .set(more_glass, glass_button(&palette, more.rect));
                     }
                     let info_label = crate::i18n::gettext(app.locale, "Info");
-                    let pin_label = if chat.pinned {
-                        crate::i18n::gettext(app.locale, "Unpin")
+                    let favorite_label = if chat.favorite {
+                        crate::i18n::gettext(app.locale, "Remove from favorites")
                     } else {
-                        crate::i18n::gettext(app.locale, "Pin to top")
+                        crate::i18n::gettext(app.locale, "Add to favorites")
                     };
                     let archive_label = if chat.archived {
                         crate::i18n::gettext(app.locale, "Unarchive")
@@ -671,7 +671,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                         &[
                             info_label.as_ref(),
                             select_messages_label.as_ref(),
-                            pin_label.as_ref(),
+                            favorite_label.as_ref(),
                             archive_label.as_ref(),
                             clear_label.as_ref(),
                             leave_label.as_ref(),
@@ -708,11 +708,17 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> Rect {
                             if widgets::menu_item(
                                 ui,
                                 &palette,
-                                Some(if chat.pinned { Icon::PinOff } else { Icon::Pin }),
-                                pin_label.as_ref(),
+                                Some(Icon::Heart),
+                                favorite_label.as_ref(),
                             ) {
-                                app.actions
-                                    .push(Action::SetPinned(chat.id.clone(), !chat.pinned));
+                                if chat.pinned {
+                                    // A pin mirrored into a favorite leaves
+                                    // through the bridge.
+                                    app.actions.push(Action::SetPinned(chat.id.clone(), false));
+                                } else {
+                                    app.actions
+                                        .push(Action::SetFavorite(chat.id.clone(), !chat.favorite));
+                                }
                             }
                             if widgets::menu_item(
                                 ui,

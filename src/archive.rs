@@ -183,6 +183,7 @@ const CHAT_COLUMNS: &str =
 
 /// Adds columns introduced after the initial schema when missing.
 const MIGRATIONS: &[(&str, &str, &str)] = &[
+    ("favorites", "source", "TEXT NOT NULL DEFAULT 'manual'"),
     ("message_removals", "account", "TEXT NOT NULL DEFAULT ''"),
     (
         "pending_message_removals",
