@@ -473,14 +473,14 @@ fn keyboard(app: &mut App, ui: &egui::Ui) -> (Option<usize>, bool) {
 /// beside it clears it.
 fn day_chip(app: &mut App, ui: &mut egui::Ui, palette: &Palette, day: Date) {
     ui.horizontal(|ui| {
-        let label = util::short_date(app.locale, day);
+        let label = util::regional_short_date(app.locale, day);
         let chip = widgets::filter_chip(ui, palette, &label, 0, true);
         let change = crate::i18n::gettext(app.locale, "Filter by date");
         chip.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
                 true,
-                format!("{change}: {}", util::long_date(app.locale, day)),
+                format!("{change}: {}", util::regional_long_date(app.locale, day)),
             )
         });
         if chip
@@ -629,7 +629,7 @@ fn month_grid(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
         // to each day and a screen reader reads the date it picks.
         theme::reveal_focus(&response);
         theme::focus_outline(ui, response.id, cell.shrink(1.0), CELL / 2.0);
-        let label = util::long_date(app.locale, date);
+        let label = util::regional_long_date(app.locale, date);
         response.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::Button, !future, selected, &label)
         });

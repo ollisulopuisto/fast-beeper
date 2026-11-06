@@ -9,6 +9,7 @@ version in Cargo.toml is bumped.
 
 ## Unreleased
 
+- Message timestamps, day separators and date labels follow the OS regional locale independently of the app language: a Finnish region reads "eilen 20:13", "toissa päivänä 20:13" and "tiistai 14. marraskuuta 2023", a US region "Yesterday 10:13 PM" and "11/14/2023". The 12/24-hour clock keeps following the OS clock setting.
 - The Dock/taskbar unread badge and the Unread filter now count the same chats: channels and chats from Beeper accounts hidden from the inbox no longer leave a ghost number on the icon. Muted chats still appear under Unread without raising the badge.
 - Settings: clearer spacing between sections, consistent row rhythm, and each Beeper account's technical details (account ID, backend, bridge status) grouped under an Advanced heading inside the account panel instead of crowding its title.
 - Cmd+D toggles the right-hand info sidebar. Cmd+B still toggles the chat list; Cmd+I still marks Reply later.
