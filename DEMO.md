@@ -170,3 +170,5 @@ The four queue segments remain visible while typing. Filters composes category, 
 `--demo-page day-separators` shows five synthetic calendar days: today, yesterday,
 two days ago, three days ago and the previous year, for checking localized date labels.
 Use `linked-day-separators` for the same dates in a linked-person timeline.
+
+`--demo-page queue-counts` shows 12 available chats, 3 unread, 5 Reply later and 2 Read later. Add `,queue-counts-off` for the original icon-only control, `,light` for light theme, or `,settings-search=queue` for the preference. Counts are local queue items, not message totals.

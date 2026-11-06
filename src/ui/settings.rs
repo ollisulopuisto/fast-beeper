@@ -631,6 +631,11 @@ fn sections(app: &App) -> Vec<Section> {
 
     let mut chats = Section::new(translated(locale, "Chats"));
     chats.toggle(
+        "Show queue counts",
+        "Count chats in All, Unread, Reply later and Read later, within the current search and filters. Linked people count once.",
+        |s| &mut s.beeper.show_queue_counts,
+    );
+    chats.toggle(
         translated(locale, "Enter sends"),
         keyed(translated(locale, "When off, Ctrl+Enter sends.")),
         |settings| &mut settings.enter_sends,
@@ -2565,6 +2570,31 @@ mod tests {
             .insert("http://127.0.0.1:23373".into(), vec![]);
         assert!(!beeper_account_rows(&app).contains_key(&first));
         assert!(app.settings.beeper.accounts.contains_key(&first));
+    }
+
+    #[test]
+    fn queue_count_control_is_searchable_offline_and_changes_only_its_preference() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            Settings::default(),
+        );
+        let filter = Filter::new("queue");
+        let section = sections(&app)
+            .into_iter()
+            .find(|section| section.title.source == "Chats")
+            .unwrap();
+        let (_, rows) = section.visible(&filter);
+        let (_, control) = rows
+            .into_iter()
+            .find(|(row, _)| row.title.source == "Show queue counts")
+            .expect("searchable offline");
+        let Control::Toggle(setting) = control else {
+            panic!("queue counts is a preference toggle")
+        };
+        *setting(&mut app.settings) = false;
+        assert!(!app.settings.beeper.show_queue_counts);
+        assert!(app.settings.beeper.show_unread_counts);
     }
 
     fn titles(section: Section, filter: &Filter) -> Vec<String> {
