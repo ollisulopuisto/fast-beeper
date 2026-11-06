@@ -24482,7 +24482,7 @@ mod tests {
     #[test]
     fn favorite_order_survives_new_messages() {
         let mut app = app();
-        for (id, position, activity) in [("a", 1, 999), ("b", 0, 1), ("c", 0, 0), ("d", 0, 900)] {
+        for (id, position, activity) in [("a", 1, 999), ("b", 0, 1), ("c", 0, 10), ("d", 0, 900)] {
             let mut chat = Chat::new(id.into(), id.into());
             chat.favorite = position > 0 || id == "b";
             chat.favorite_position = position;
