@@ -12090,6 +12090,12 @@ mod reaction_tests {
         own.from_me = true;
         own.timestamp = crate::util::now();
         own.status = Delivery::Delivered;
+        // Exercise the Copy URL item as well as Copy text in the menu's
+        // translation/width coverage fixture.
+        own.content = Content::Text {
+            text: "Named link (https://example.com/path?one=1&two=2)".into(),
+            preview: None,
+        };
         let path = Some(file.to_path_buf());
         let media = |mime: &str, path: Option<PathBuf>, state| Media {
             mime: mime.into(),
