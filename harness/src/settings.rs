@@ -82,6 +82,9 @@ pub struct AccountSettings {
     pub wallpaper_image: Option<std::path::PathBuf>,
     pub history_prefetch: bool,
     pub list_filter: Option<String>,
+    pub chat_category: Option<crate::model::ChatFilter>,
+    pub favorites_only: bool,
+    pub chat_queue: Option<crate::model::ChatFilter>,
     pub call_filter: Option<String>,
 }
 
