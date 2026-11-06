@@ -300,20 +300,6 @@ impl Account {
         ) || (!self.chats.is_empty() && !matches!(self.link, LinkStatus::LoggedOut))
     }
 
-    /// The taskbar count: unarchived, unmuted, unlocked chats that look
-    /// unread. WhatsApp counts chats here, not the messages inside them.
-    pub fn unread_chat_count(&self) -> u32 {
-        let now = crate::util::now();
-        let chats = self
-            .chats
-            .iter()
-            .filter(|chat| {
-                !chat.archived && !chat.locked && !chat.muted(now) && chat.looks_unread()
-            })
-            .count();
-        u32::try_from(chats).unwrap_or(u32::MAX)
-    }
-
     /// The name the switcher shows: the profile name, else the number,
     /// else "Account" and its number here.
     pub fn display_label(&self, locale: crate::i18n::Locale) -> String {

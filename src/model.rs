@@ -220,7 +220,7 @@ impl ChatFilter {
     pub fn matches(self, chat: &Chat) -> bool {
         match self {
             Self::All => !chat.is_channel(),
-            Self::Unread => chat.looks_unread() && !chat.is_channel(),
+            Self::Unread => chat.counts_unread(),
             // Per-chat marks live in settings; App::filter_matches tests
             // them against the saved lists, never this chat-only check.
             Self::ReplyLater | Self::ReadLater => false,
@@ -436,6 +436,16 @@ impl Chat {
     /// Counted unread, or marked unread with nothing pending.
     pub fn looks_unread(&self) -> bool {
         self.unread > 0 || self.marked_unread
+    }
+
+    /// The one unread definition the Unread filter and the app badge share:
+    /// counted or marked unread, and not a channel. Channels keep their own
+    /// chip and stay out of the badge, as in the official apps. Callers
+    /// layer their own scope on top: the badge also skips archived, locked,
+    /// muted and inbox-hidden chats, while the filter keeps muted ones
+    /// listed.
+    pub fn counts_unread(&self) -> bool {
+        self.looks_unread() && !self.is_channel()
     }
 
     /// Whether Leave is offered. `ours` holds every id we may be listed

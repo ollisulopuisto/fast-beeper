@@ -1,5 +1,30 @@
 # Fast-beeper coordination and development checkpoint
 
+## Active unread badge/filter lane - November 6, 2026
+
+Claim: Dock/taskbar badge vs Unread filter agreement. Reported symptom: the
+Dock badge showed 1 unread while the Unread filter said "No unread chats".
+Branch: fix/unread-badge-filter-agreement. Root cause: the badge counted
+every unarchived, unlocked, unmuted chat that looked unread, including
+channels (which have their own chip and never appear under Unread) and chats
+from Beeper accounts hidden from the inbox (BeeperInbox::None) - neither can
+ever appear in the Unread filter, leaving a ghost count. The Unread chip
+count also skipped the inbox-visibility rule the list applies.
+
+Fix: one shared definition, `Chat::counts_unread` (looks unread, not a
+channel), used by `ChatFilter::Unread` and by `Account::unread_chat_count`.
+The badge additionally skips muted chats (they stay listed in Unread without
+raising the badge, as in WhatsApp) and inbox-hidden chats; the chip count
+(`App::unread_chats`) now applies the same inbox-visibility rule as the
+list, except under the Reply later / Read later chips, which still list
+hidden chats. The badge stays app-wide across notification-enabled accounts
+while the filter shows the account on screen; a network/account scope
+selection narrows the list only, by design. Regression test:
+`the_badge_and_the_unread_filter_count_the_same_chats` in src/app.rs.
+
+Human-led merge; no settings, release, or workflow changes. No concurrent
+claim on these files was present in the open PR list at branch time.
+
 ## Active CI/CD efficiency lane - October 29, 2026
 
 Claim: CI trigger/path selection and explicit manual single-target trial/hotfix

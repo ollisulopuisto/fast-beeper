@@ -93,7 +93,7 @@ fn entries(app: &mut App) -> Vec<Entry> {
                 detail,
                 me,
                 picture,
-                unread: account.unread_chat_count(),
+                unread: App::badge_unread_count(&app.settings, account),
                 current: index == active,
                 muted: !account.settings.notifications,
             }
