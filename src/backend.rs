@@ -18,6 +18,7 @@ pub(crate) mod picture_edit;
 // Re-exported so the picker can detect pasted Signal pack links.
 pub mod beeper;
 pub mod local_ai;
+mod local_files;
 pub(crate) mod sticker_import;
 pub(crate) mod sticker_store;
 /// Chats a free account pins; the worker enforces the cap.
@@ -1600,6 +1601,7 @@ pub struct Backend {
     events: std::sync::mpsc::Receiver<Event>,
     thread: Option<std::thread::JoinHandle<()>>,
     offline: bool,
+    local_events: Option<(std::sync::mpsc::Sender<Event>, Waker)>,
     #[cfg(any(test, feature = "demo"))]
     demo_commands: Option<std::sync::Mutex<Vec<Command>>>,
 }
@@ -1610,6 +1612,7 @@ impl Backend {
     pub fn spawn_beeper(dirs: AccountDirs, waker: Waker, cfg: beeper::BeeperConfig) -> Self {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let local_events = Some((event_tx.clone(), waker.clone()));
         let thread = std::thread::Builder::new()
             .name("solmu-beeper-backend".to_string())
             .spawn(move || beeper::run(cfg, dirs, event_tx, command_rx, waker))
@@ -1620,6 +1623,7 @@ impl Backend {
             events: event_rx,
             thread: Some(thread),
             offline: false,
+            local_events,
             #[cfg(any(test, feature = "demo"))]
             demo_commands: None,
         }
@@ -1636,6 +1640,7 @@ impl Backend {
                 events: event_rx,
                 thread: None,
                 offline: true,
+                local_events: None,
                 #[cfg(any(test, feature = "demo"))]
                 demo_commands: None,
             },
@@ -1683,6 +1688,31 @@ impl Backend {
     }
 
     pub fn send(&self, command: Command) {
+        // Copy/save are desktop operations, not API commands. Handle them
+        // even when the network worker is disconnected or has stopped.
+        if local_files::handles(&command)
+            && let Some((events, waker)) = &self.local_events
+        {
+            let events = events.clone();
+            let waker = waker.clone();
+            let failed_events = events.clone();
+            let failed_waker = waker.clone();
+            if let Err(error) = std::thread::Builder::new()
+                .name("solmu-local-file".into())
+                .spawn(move || {
+                    if let Some(event) = local_files::run(command) {
+                        let _ = events.send(event);
+                        waker.wake();
+                    }
+                })
+            {
+                let _ = failed_events.send(Event::Error(format!(
+                    "Could not start attachment action: {error}"
+                )));
+                failed_waker.wake();
+            }
+            return;
+        }
         if self.offline && !matches!(command, Command::Shutdown) {
             #[cfg(any(test, feature = "demo"))]
             if let Some(commands) = &self.demo_commands {
@@ -1727,6 +1757,29 @@ impl Backend {
         self.send(Command::Shutdown);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+    }
+}
+
+#[cfg(test)]
+mod local_file_routing_tests {
+    use super::*;
+
+    #[test]
+    fn local_copy_bypasses_the_network_even_when_offline_or_disconnected() {
+        for offline in [false, true] {
+            let (mut backend, events) = Backend::detached();
+            backend.local_events = Some((events, Waker::default()));
+            backend.set_offline(offline);
+            let missing = tempfile::tempdir().unwrap().path().join("missing-image");
+            backend.send(Command::PrepareClipboardImage(missing));
+            // A real local worker must answer even though the command receiver
+            // is closed. No server or OS clipboard is used in this test.
+            let event = backend
+                .events
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            assert!(matches!(event, Event::ClipboardImage(Err(_))));
         }
     }
 }
