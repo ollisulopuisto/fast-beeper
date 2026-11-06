@@ -3666,11 +3666,9 @@ impl App {
         // order at the top of the list.
         chats.sort_by(|a, b| {
             b.favorite.cmp(&a.favorite).then_with(|| {
-                if a.favorite && b.favorite {
-                    a.favorite_position
-                        .cmp(&b.favorite_position)
-                        .then(a.id.cmp(&b.id))
-                } else if favorites_order {
+                // Reached only when a.favorite == b.favorite, so the first
+                // disjunct means both are favorites.
+                if (a.favorite && b.favorite) || favorites_order {
                     a.favorite_position
                         .cmp(&b.favorite_position)
                         .then(a.id.cmp(&b.id))
