@@ -9,6 +9,9 @@
     <key>CFBundleExecutable</key><string>solmu</string>
     <key>CFBundleIconFile</key><string>solmu</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <!-- Finder starts the tunnel launcher as an agent. Only the GUI client
+         promotes itself to a regular Dock/Cmd-Tab application. -->
+    <key>LSUIElement</key><true/>
     <key>CFBundleShortVersionString</key><string>__VERSION__</string>
     <key>CFBundleVersion</key><string>__VERSION__</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>

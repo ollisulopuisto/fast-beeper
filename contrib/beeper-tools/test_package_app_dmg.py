@@ -81,6 +81,19 @@ class FinderAppTests(unittest.TestCase):
         connection = source.split('struct Connection: Codable {', 1)[1].split('}', 1)[0]
         self.assertNotIn('token', connection)
 
+    def test_launcher_is_agent_and_only_gui_promotes_itself(self):
+        info = plistlib.loads((ROOT / 'packaging/macos/Info.plist').read_bytes())
+        self.assertIs(info.get('LSUIElement'), True)
+        launcher = (ROOT / 'packaging/macos/BeeperLauncher.swift').read_text()
+        self.assertIn('func applicationDidFinishLaunching', launcher)
+        self.assertIn('NSApp.setActivationPolicy(.accessory)', launcher)
+        self.assertNotIn('setActivationPolicy(.regular)', launcher)
+        client = (ROOT / 'src/macos.rs').read_text()
+        attach = client.split('pub fn attach(', 1)[1].split('\n}', 1)[0]
+        self.assertIn('fastframe_dock::set_dock_icon_visible(true)', attach)
+        verify = (ROOT / 'packaging/macos/verify.sh').read_text()
+        self.assertIn('info.get("LSUIElement") is not True', verify)
+
     def test_original_icon_and_non_terminal_bundle_identity(self):
         info = plistlib.loads((ROOT / 'packaging/macos/Info.plist').read_bytes())
         self.assertEqual(info['CFBundlePackageType'], 'APPL')

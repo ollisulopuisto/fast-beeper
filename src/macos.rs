@@ -158,6 +158,9 @@ pub fn attach(ctx: &egui::Context) {
     if objc2::MainThreadMarker::new().is_none() {
         return;
     }
+    // The packaged executable is an agent launcher, so its LSUIElement applies
+    // to this child too. The GUI alone owns the Dock and Cmd-Tab entry.
+    fastframe_dock::set_dock_icon_visible(true);
     *REPAINT.lock().unwrap_or_else(|p| p.into_inner()) = Some(ctx.clone());
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         // The tray's menu shares muda's one handler; its ids are its own.

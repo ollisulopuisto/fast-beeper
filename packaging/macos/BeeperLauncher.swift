@@ -36,6 +36,10 @@ func diag(_ line: String) {
 final class Forwarder: NSObject, NSApplicationDelegate {
     var clientPID: Int32 = 0
     var onClientExit: () -> Void = {}
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // The bundle starts as an agent; keep the tunnel owner out of Cmd-Tab.
+        NSApp.setActivationPolicy(.accessory)
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         activateClient()
         return true

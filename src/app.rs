@@ -3799,10 +3799,13 @@ impl App {
     /// Whether the chat list keeps the phone's favorites order instead of the
     /// latest activity, so a sent message does not move its chat up.
     fn favorites_order(&self) -> bool {
+        // Performance optimization: Check whether the trimmed search input is
+        // empty directly via `str::is_empty()` rather than allocating a normalized
+        // `String` through `crate::util::search_key()`.
         self.label_filter.is_none()
             && (self.chat_filter == ChatFilter::Favorites || self.favorites_only)
             && !self.show_archived
-            && crate::util::search_key(self.search.trim()).is_empty()
+            && self.search.trim().is_empty()
             && !self.locked_folder_open()
     }
 

@@ -175,7 +175,7 @@ pub(super) fn script() -> Vec<Cue> {
 
     // Photos open in the app.
     add(15.4, Key(K::End, command(), "Ctrl + End · Latest messages"));
-    add(16.2, Move(Bubble("ada-photo")));
+    add(16.2, Move(Picture("ada-photo")));
     add(16.6, Click(left));
     add(17.9, Move(Label("Fit")));
     add(18.3, Click(left));
@@ -213,17 +213,36 @@ pub(super) fn script() -> Vec<Cue> {
     add(43.7, Click(left));
     add(46.8, esc("Esc · Close message info"));
 
-    // Favorites and label chips, and a chat's menu.
-    add(47.4, Move(Stop(Control::Favorites)));
-    add(47.8, Click(left));
-    add(49.0, Move(LabelChip("label-work")));
-    add(49.4, Click(left));
-    add(50.6, Move(Stop(Control::All)));
-    add(51.0, Click(left));
-    add(51.6, Move(Label("Katherine Johnson")));
-    add(52.0, Click(right));
-    add(52.8, Move(Label("Labels")));
-    add(55.0, esc("Esc · Close the menu"));
+    // Favorites shortcut and label scope through the real Filters menu.
+    add(
+        47.4,
+        Key(
+            K::Num3,
+            Modifiers {
+                alt: true,
+                ..command()
+            },
+            "Ctrl+Alt+3 · Favorites",
+        ),
+    );
+    add(48.0, Move(Stop(Control::Filters)));
+    add(48.4, Click(left));
+    add(48.8, Move(Label("Labels")));
+    add(49.6, Move(Label("Work")));
+    add(50.0, Click(left));
+    add(50.4, esc("Esc · Close labels"));
+    add(50.6, esc("Esc · Close filters"));
+    add(51.0, Move(Stop(Control::Filters)));
+    add(51.4, Click(left));
+    add(51.8, Move(Label("Reset view")));
+    add(52.2, Click(left));
+    add(52.6, esc("Esc · Close filters"));
+    add(53.0, Move(Label("Katherine Johnson")));
+    add(53.4, Click(right));
+    add(53.8, Move(Label("Labels")));
+    add(54.3, esc("Esc · Close the menu"));
+    add(54.7, Move(Label("Rust Berlin")));
+    add(55.1, Click(left));
 
     // Record a voice message, then pick a playback speed.
     add(55.6, Move(Stop(Control::Send)));
