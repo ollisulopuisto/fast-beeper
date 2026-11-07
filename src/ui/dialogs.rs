@@ -545,25 +545,34 @@ pub(super) fn contact_choices(app: &App, needle: &str) -> Vec<crate::model::Cont
                 });
         }
     }
-    let mut contacts: Vec<_> = contacts
+    let mut contacts: Vec<(String, crate::model::Contact)> = contacts
         .into_values()
-        .filter(|contact| {
-            crate::model::phone_of(&contact.id).is_some()
-                && app.me.as_deref() != Some(contact.id.as_str())
-                && !app.chat(&contact.id).is_some_and(|chat| chat.locked)
-                && (needle.is_empty()
-                    || crate::util::search_key(&app.display_name(&contact.id)).contains(needle)
-                    || crate::model::phone_of(&contact.id)
-                        .is_some_and(|phone| phone.contains(needle)))
+        .filter_map(|contact| {
+            let phone = crate::model::phone_of(&contact.id)?;
+            if app.me.as_deref() == Some(contact.id.as_str())
+                || app.chat(&contact.id).is_some_and(|chat| chat.locked)
+            {
+                return None;
+            }
+            // Performance optimization: compute the normalized search key once
+            // per contact and reuse it for both the filter match and the sort
+            // key. `search_key` runs Unicode NFD normalization and character
+            // property classification (ICU table lookups) and allocates a
+            // String, so evaluating it per contact in the filter *and* again
+            // per contact in the sort doubles the work on every keystroke
+            // while the new-chat/new-group dialog is open.
+            let key = crate::util::search_key(&app.display_name(&contact.id));
+            if needle.is_empty() || key.contains(needle) || phone.contains(needle) {
+                Some((key, contact))
+            } else {
+                None
+            }
         })
         .collect();
-    // Performance optimization: Cache the extracted `search_key` during sort
-    // via `sort_by_cached_key` (Schwartzian transform). `search_key` performs
-    // Unicode NFD normalization and character-property classification, which is
-    // expensive to evaluate repeatedly across O(N log N) comparison steps.
-    // Caching reduces key extractions from O(N log N) to O(N).
-    contacts.sort_by_cached_key(|contact| crate::util::search_key(&app.display_name(&contact.id)));
-    contacts
+    // `sort_by` is stable and compares the precomputed key, so no key is
+    // recomputed during the sort.
+    contacts.sort_by(|a, b| a.0.cmp(&b.0));
+    contacts.into_iter().map(|(_, contact)| contact).collect()
 }
 
 /// Draws recipient selection or, for two or more recipients, their

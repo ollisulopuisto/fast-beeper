@@ -1,5 +1,15 @@
 # Fast-beeper coordination and development checkpoint
 
+## PR217 contact-key cache check repair - November 7, 2026
+
+Instinct updates the Option-returning filter_map to use ? for its missing
+phone early return, as required by strict clippy. This is the sole failing
+quality diagnostic. Preserve the original one-key-per-contact optimization,
+stable ordering and all main changes from merged PR216. No layout, data or
+protocol changes. Format/diff pass locally; full current-head CI is the gate.
+Maintainer approved green merges before the next notarized DMG; later arriving
+Bolt PRs are outside this build cutoff. No main push. Revert PR217 to roll back.
+
 ## PR216 cache repair - November 7, 2026
 
 On bolt/perf-reader-registry-cache, Instinct fixes the missing registry_cache
