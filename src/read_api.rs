@@ -1,8 +1,9 @@
 //! Read-only API for other local apps, without the socket.
 //!
 //! Every client app gets its own named bearer token. Only the SHA-256 of a
-//! token is stored, in a 0600 registry file that is re-read on every
-//! request, so deleting an entry revokes it at once. A client holds scopes
+//! token is stored in a 0600 registry file. File identity, change stamps
+//! and permissions are rechecked on every request; changes reload the
+//! parsed snapshot, so deleting an entry revokes it on the next request. A client holds scopes
 //! (one per endpoint family) and may be limited to an account allowlist.
 //!
 //! The upstream Beeper token never reaches a client and no write endpoint
