@@ -2,10 +2,10 @@
 
 ## Approved wireframe
 
-    Chats    [All 12] [Unread 3] [Reply later 5] [Read later 2]
+    Chats    [All] [Unread 3] [Reply later 5] [Read later 2]
     Filters
 
-Existing icons remain in their cells. Counts are small upper-right badges,
+The All icon has no count badge. The other three icons keep small upper-right badges,
 not text labels replacing the icons. No added row, cell width or height.
 
 Settings > Chats > Show queue counts is On by default. Off restores the
