@@ -168,7 +168,7 @@ jobs:
         run: mbx build --locked --features demo
       - name: macOS window smoke test
         if: runner.os == 'macOS'
-        timeout-minutes: 3
+        timeout-minutes: 8
         run: |
           target/debug/solmu --demo --demo-shot "$RUNNER_TEMP/solmu-content.png" --demo-shot-delay 8000 &
           demo_pid=$!
@@ -176,6 +176,12 @@ jobs:
           screencapture -x "$RUNNER_TEMP/solmu-window.png" || true
           wait "$demo_pid"
           test -s "$RUNNER_TEMP/solmu-content.png"
+          # Synthetic evidence: stamps, receipts, linked loading and shortcuts.
+          for page in history-date message-info-direct linked linked-loading shortcuts; do
+            target/debug/solmu --demo --demo-page "$page" \
+              --demo-shot "$RUNNER_TEMP/solmu-$page.png" --demo-shot-delay 8000
+            test -s "$RUNNER_TEMP/solmu-$page.png"
+          done
       - name: macOS preview
         if: runner.os == 'macOS' && vars.FAST_BEEPER_UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v7
