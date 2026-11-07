@@ -46,54 +46,79 @@ pub struct Shared {
     /// API base URLs this reader serves, as the app records them in a
     /// person's members.
     pub origins: Vec<String>,
-    /// Client registry cached between requests. It is re-read only when the
-    /// file's mtime changes: `Registry::save` rewrites through a temp file
-    /// plus rename, so every add, revoke or expiry bumps the mtime and forces
-    /// a reload, keeping revocation immediate while repeated requests skip
-    /// the disk read, JSON parse and validation pass.
+    /// Parsed registry snapshots; held only while checking/loading the file.
     pub registry_cache: Mutex<RegistryCache>,
 }
 
-/// The client registry cached between reader requests.
-///
-/// Reloads from disk only when the file's modification time changes. Because
-/// `Registry::save` writes a temp file and renames it into place, any write
-/// (add, revoke, expiry) updates the mtime, so revocation takes effect on the
-/// next request while the common case avoids re-reading the file.
+/// Cache only when the platform provides a file identity and change timestamp.
+/// mtime alone misses chmod and replacements that preserve modification time.
+#[derive(PartialEq, Eq)]
+struct RegistryStamp {
+    modified: SystemTime,
+    len: u64,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+fn registry_stamp(path: &Path) -> Result<Option<RegistryStamp>, String> {
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("registry unreadable: {e}")),
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if meta.permissions().mode() & 0o077 != 0 {
+            return Err("registry file must be mode 0600".into());
+        }
+        Ok(meta.modified().ok().map(|modified| RegistryStamp {
+            modified,
+            len: meta.len(),
+            identity: (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec()),
+        }))
+    }
+    // Without a reliable replacement/permission-change signal, load each time.
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        Ok(None)
+    }
+}
+
+/// Shares immutable parsed snapshots, never a lock held over upstream I/O.
 pub struct RegistryCache {
     path: PathBuf,
-    mtime: Option<std::time::SystemTime>,
-    registry: Registry,
+    stamp: Option<RegistryStamp>,
+    registry: Arc<Registry>,
 }
 
 impl RegistryCache {
     pub fn new(path: &Path) -> Result<Self, String> {
-        let registry = Registry::load(path)?;
-        let mtime = std::fs::metadata(path)
-            .ok()
-            .and_then(|metadata| metadata.modified().ok());
-        Ok(Self {
-            path: path.to_path_buf(),
-            mtime,
-            registry,
-        })
+        let mut cache = Self {
+            path: PathBuf::new(),
+            stamp: None,
+            registry: Arc::new(Registry::default()),
+        };
+        cache.registry(path)?;
+        Ok(cache)
     }
 
-    /// The current registry, reloading from disk when the file has changed.
-    pub fn registry(&mut self, path: &Path) -> Result<&Registry, String> {
-        let meta = match std::fs::metadata(path) {
-            Ok(meta) => meta,
-            Err(e) => return Err(format!("registry unreadable: {e}")),
-        };
-        let modified = meta.modified().ok();
-        if modified == self.mtime && self.path == path {
-            return Ok(&self.registry);
+    /// Revalidate file permissions on every request. Missing files load an
+    /// empty registry; unreadable/invalid files never return a stale snapshot.
+    pub fn registry(&mut self, path: &Path) -> Result<Arc<Registry>, String> {
+        let stamp = registry_stamp(path)?;
+        if stamp.is_some() && stamp == self.stamp && self.path == path {
+            return Ok(Arc::clone(&self.registry));
         }
         let registry = Registry::load(path)?;
+        if registry_stamp(path)? != stamp {
+            return Err("registry changed while loading; retry request".into());
+        }
         self.path = path.to_path_buf();
-        self.mtime = modified;
-        self.registry = registry;
-        Ok(&self.registry)
+        self.stamp = stamp;
+        self.registry = Arc::new(registry);
+        Ok(Arc::clone(&self.registry))
     }
 }
 
@@ -170,11 +195,12 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
     let (Some(method), Some(target)) = (parts.next(), parts.next()) else {
         return respond(stream, 400, r#"{"error":"bad request"}"#);
     };
-    let mut cache = shared
+    let registry = match shared
         .registry_cache
         .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let registry = match cache.registry(path) {
+        .unwrap_or_else(|e| e.into_inner())
+        .registry(path)
+    {
         Ok(registry) => registry,
         Err(e) => {
             eprintln!("solmu-reader: client registry unusable, refusing all requests: {e}");
@@ -200,7 +226,7 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
     };
     let mut upstream = shared.source.open();
     let (status, body, client, label) = handle(
-        registry,
+        &registry,
         &mut *upstream,
         &PeopleSource {
             people: people.as_deref(),

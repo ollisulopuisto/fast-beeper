@@ -9,5 +9,5 @@
 **Action:** Always filter tests specifically (e.g., `cargo test --lib -- util`), and hoist ICU lookup map instantiation outside per-character closures in character processing loops.
 
 ## 2026-11-07 - solmu-reader client registry cache
-**Learning:** `serve_connection` in `src/read_http.rs` called `Registry::load` (disk read, JSON parse, and validation of every client entry) on every request, costing ~33-121 µs per request depending on registry size. Caching the parsed registry and reloading only when the file's mtime changes drops warm requests to ~3.8 µs (~15-30x, independent of registry size). `Registry::save` rewrites via temp file plus rename, so every add, revoke, or expiry bumps the mtime and forces a reload, keeping revocation immediate on the next request.
-**Action:** Cache parsed configs keyed by file mtime only where the writer always renames into place (giving an invalidation signal); never cache without one.
+**Learning:** mtime alone is not safe for authorization caching. chmod leaves mtime unchanged; atomic replacements can preserve it. Unix cache hits now check private mode and device/inode/ctime/mtime/length. Other platforms reload rather than infer unchanged authority. Immutable Arc snapshots release the cache mutex before upstream work; otherwise one slow request serializes the server.
+**Action:** Keep auth safety and concurrency regressions at the HTTP boundary, and update every Shared initializer. Benchmark claims from the original optimization are not revalidated after the safety repair.

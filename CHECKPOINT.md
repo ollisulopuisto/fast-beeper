@@ -1,5 +1,26 @@
 # Fast-beeper coordination and development checkpoint
 
+## PR216 cache repair - November 7, 2026
+
+On bolt/perf-reader-registry-cache, Instinct fixes the missing registry_cache
+field in the HTTP test fixture. The branch was already mergeable, but quality
+and Ubuntu tests failed compiling that fixture. Review also found cached auth
+skipped chmod checks and held its mutex over upstream I/O. Cache hits now
+validate private mode and Unix file identity/change stamps, not mtime alone;
+platforms without that identity reload each request. Missing/invalid files
+never serve stale authority. Immutable Arc snapshots free the mutex before
+upstream work. Tests warm the cache before chmod, preserve mtime across a
+revoking replacement, remove/corrupt the registry, and assert the cache is
+unlocked whenever upstream opens. No public API route or UI changes.
+
+16 HTTP integration tests pass in a focused harness using actual reader/API/
+scheduler modules with only unrelated GUI person-model types reduced. Strict
+all-target/all-feature clippy, fmt and diff checks pass. Full native app test
+linking exceeded local resource/time limits; CI still owns the full suite.
+Original performance figures have not been remeasured after the safety repair.
+Maintainer authorized merging this task's open PRs once green, then a new DMG;
+no merge before that live check, and no main pushes. Revert PR216 to roll back.
+
 ## Cmd-Tab with a closed window - November 7, 2026
 
 Branch: fix/macos-headless-activation, owned by Instinct. User reports manual.11
