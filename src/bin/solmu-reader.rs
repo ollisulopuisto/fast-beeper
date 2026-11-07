@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use solmu::read_api::{RateLimiter, Registry, SCOPES, origin_report, parse_people};
-use solmu::read_http::{MAX_CONNECTIONS, Shared, run};
+use solmu::read_http::{MAX_CONNECTIONS, RegistryCache, Shared, run};
 use solmu::scheduler_api::ServerSender;
 
 fn now() -> i64 {
@@ -244,10 +244,13 @@ fn main() {
         std::process::exit(1);
     }
     let path = registry_path();
-    if let Err(e) = Registry::load(&path) {
-        eprintln!("solmu-reader: {e}");
-        std::process::exit(1);
-    }
+    let registry_cache = Mutex::new(match RegistryCache::new(&path) {
+        Ok(cache) => cache,
+        Err(e) => {
+            eprintln!("solmu-reader: {e}");
+            std::process::exit(1);
+        }
+    });
     // The app records the API base URL it read each chat from; people whose
     // members carry other origins stay unreadable here.
     let origins = served_origins(&base_url);
@@ -283,6 +286,7 @@ fn main() {
         limiter: Mutex::new(RateLimiter::default()),
         settings: std::env::var("SOLMU_SETTINGS_FILE").ok().map(PathBuf::from),
         origins,
+        registry_cache,
     });
     run(listener, path, shared, MAX_CONNECTIONS);
 }

@@ -46,6 +46,80 @@ pub struct Shared {
     /// API base URLs this reader serves, as the app records them in a
     /// person's members.
     pub origins: Vec<String>,
+    /// Parsed registry snapshots; held only while checking/loading the file.
+    pub registry_cache: Mutex<RegistryCache>,
+}
+
+/// Cache only when the platform provides a file identity and change timestamp.
+/// mtime alone misses chmod and replacements that preserve modification time.
+#[derive(PartialEq, Eq)]
+struct RegistryStamp {
+    modified: SystemTime,
+    len: u64,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+fn registry_stamp(path: &Path) -> Result<Option<RegistryStamp>, String> {
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("registry unreadable: {e}")),
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if meta.permissions().mode() & 0o077 != 0 {
+            return Err("registry file must be mode 0600".into());
+        }
+        Ok(meta.modified().ok().map(|modified| RegistryStamp {
+            modified,
+            len: meta.len(),
+            identity: (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec()),
+        }))
+    }
+    // Without a reliable replacement/permission-change signal, load each time.
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        Ok(None)
+    }
+}
+
+/// Shares immutable parsed snapshots, never a lock held over upstream I/O.
+pub struct RegistryCache {
+    path: PathBuf,
+    stamp: Option<RegistryStamp>,
+    registry: Arc<Registry>,
+}
+
+impl RegistryCache {
+    pub fn new(path: &Path) -> Result<Self, String> {
+        let mut cache = Self {
+            path: PathBuf::new(),
+            stamp: None,
+            registry: Arc::new(Registry::default()),
+        };
+        cache.registry(path)?;
+        Ok(cache)
+    }
+
+    /// Revalidate file permissions on every request. Missing files load an
+    /// empty registry; unreadable/invalid files never return a stale snapshot.
+    pub fn registry(&mut self, path: &Path) -> Result<Arc<Registry>, String> {
+        let stamp = registry_stamp(path)?;
+        if stamp.is_some() && stamp == self.stamp && self.path == path {
+            return Ok(Arc::clone(&self.registry));
+        }
+        let registry = Registry::load(path)?;
+        if registry_stamp(path)? != stamp {
+            return Err("registry changed while loading; retry request".into());
+        }
+        self.path = path.to_path_buf();
+        self.stamp = stamp;
+        self.registry = Arc::new(registry);
+        Ok(Arc::clone(&self.registry))
+    }
 }
 
 const MAX_SETTINGS_BYTES: u64 = 4 << 20;
@@ -121,9 +195,17 @@ pub fn serve_connection(stream: &mut TcpStream, path: &Path, shared: &Shared) {
     let (Some(method), Some(target)) = (parts.next(), parts.next()) else {
         return respond(stream, 400, r#"{"error":"bad request"}"#);
     };
-    let Ok(registry) = Registry::load(path) else {
-        eprintln!("solmu-reader: client registry unusable, refusing all requests");
-        return respond(stream, 401, r#"{"error":"unauthorized"}"#);
+    let registry = match shared
+        .registry_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .registry(path)
+    {
+        Ok(registry) => registry,
+        Err(e) => {
+            eprintln!("solmu-reader: client registry unusable, refusing all requests: {e}");
+            return respond(stream, 401, r#"{"error":"unauthorized"}"#);
+        }
     };
     let bearer = header(&head, "authorization").and_then(|v| v.strip_prefix("Bearer "));
     let at = now();
