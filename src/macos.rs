@@ -278,6 +278,12 @@ unsafe extern "C-unwind" fn did_become_active(
     };
     let app = NSApplication::sharedApplication(mtm);
     dock_diag(&format!("did_become_active {}", window_counts(&app)));
+    for window in app.windows().iter() {
+        if window.isMiniaturized() {
+            window.deminiaturize(None);
+            window.orderFrontRegardless();
+        }
+    }
     EVENTS
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -343,25 +349,35 @@ fn register_activation_handler(
 
 /// Independently add the two optional handlers, preserving any existing ones.
 fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
+    use objc2::Encode;
     use objc2::runtime::{AnyProtocol, Bool, Imp, Sel};
-    let Some(protocol) = AnyProtocol::get(c"NSApplicationDelegate") else {
-        return false;
-    };
+    use std::ffi::CString;
+
     let sel = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
     // Never override a handler the delegate already implements.
     if class.instance_method(sel).is_none() {
-        // The protocol carries the correct encoding for the architecture.
-        let description = unsafe {
-            objc2::ffi::protocol_getMethodDescription(
-                std::ptr::from_ref(protocol),
-                sel,
-                Bool::new(false),
-                Bool::new(true),
-            )
-        };
-        if description.types.is_null() {
-            return false;
-        }
+        let protocol_types = AnyProtocol::get(c"NSApplicationDelegate").and_then(|p| {
+            let desc = unsafe {
+                objc2::ffi::protocol_getMethodDescription(
+                    std::ptr::from_ref(p),
+                    sel,
+                    Bool::new(false),
+                    Bool::new(true),
+                )
+            };
+            if desc.types.is_null() {
+                None
+            } else {
+                Some(desc.types)
+            }
+        });
+        let fallback = CString::new(format!("{}@:@{}", Bool::ENCODING, Bool::ENCODING)).ok();
+        let types = protocol_types.unwrap_or_else(|| {
+            fallback
+                .as_ref()
+                .map(|s| s.as_ptr())
+                .unwrap_or(c"c@:@c".as_ptr())
+        });
         let added = unsafe {
             objc2::ffi::class_addMethod(
                 std::ptr::from_ref(class).cast_mut(),
@@ -375,7 +391,7 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
                     ) -> Bool,
                     Imp,
                 >(reopen),
-                description.types,
+                types,
             )
         };
         if !added.as_bool() && class.instance_method(sel).is_none() {
@@ -390,17 +406,22 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
     if class.instance_method(active_sel).is_some() {
         return true;
     }
-    let active_description = unsafe {
-        objc2::ffi::protocol_getMethodDescription(
-            std::ptr::from_ref(protocol),
-            active_sel,
-            Bool::new(false),
-            Bool::new(true),
-        )
-    };
-    if active_description.types.is_null() {
-        return false;
-    }
+    let protocol_active_types = AnyProtocol::get(c"NSApplicationDelegate").and_then(|p| {
+        let desc = unsafe {
+            objc2::ffi::protocol_getMethodDescription(
+                std::ptr::from_ref(p),
+                active_sel,
+                Bool::new(false),
+                Bool::new(true),
+            )
+        };
+        if desc.types.is_null() {
+            None
+        } else {
+            Some(desc.types)
+        }
+    });
+    let active_types = protocol_active_types.unwrap_or(c"v@:@".as_ptr());
     let active_added = unsafe {
         objc2::ffi::class_addMethod(
             std::ptr::from_ref(class).cast_mut(),
@@ -413,10 +434,10 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
                 ),
                 Imp,
             >(did_become_active),
-            active_description.types,
+            active_types,
         )
     };
-    active_added.as_bool()
+    active_added.as_bool() || class.instance_method(active_sel).is_some()
 }
 
 /// A native file dialog runs a modal loop, so its text fields must receive
