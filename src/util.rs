@@ -1055,19 +1055,61 @@ pub fn phone(digits: &str) -> String {
 /// Length of the ITU-T E.164 country calling code `digits` starts with.
 ///
 /// The codes are prefix-free: only 1 and 7 have one digit, the two-digit
-/// codes are listed here, and every other code has three.
+/// codes are listed here, and every other code has three. Instead of a
+/// linear `starts_with` scan over all 44 two-digit codes on every call, match
+/// on the first two bytes (O(1), jump-table-friendly). `digits` is ASCII-only
+/// and non-empty by the time `phone` calls this.
 fn country_code_len(digits: &str) -> usize {
-    const TWO_DIGITS: [&str; 44] = [
-        "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46",
-        "47", "48", "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63",
-        "64", "65", "66", "81", "82", "84", "86", "90", "91", "92", "93", "94", "95", "98",
-    ];
-    if digits.starts_with(['1', '7']) {
-        1
-    } else if TWO_DIGITS.iter().any(|code| digits.starts_with(code)) {
-        2
-    } else {
-        3
+    let mut bytes = digits.bytes();
+    match (bytes.next(), bytes.next()) {
+        // One-digit country codes: 1 (NANP) and 7 (Russia/Kazakhstan).
+        (Some(b'1'), _) | (Some(b'7'), _) => 1,
+        // Two-digit country codes, prefix-free with the one-digit codes.
+        (Some(b'2'), Some(b'0'))
+        | (Some(b'2'), Some(b'7'))
+        | (Some(b'3'), Some(b'0'))
+        | (Some(b'3'), Some(b'1'))
+        | (Some(b'3'), Some(b'2'))
+        | (Some(b'3'), Some(b'3'))
+        | (Some(b'3'), Some(b'4'))
+        | (Some(b'3'), Some(b'6'))
+        | (Some(b'3'), Some(b'9'))
+        | (Some(b'4'), Some(b'0'))
+        | (Some(b'4'), Some(b'1'))
+        | (Some(b'4'), Some(b'3'))
+        | (Some(b'4'), Some(b'4'))
+        | (Some(b'4'), Some(b'5'))
+        | (Some(b'4'), Some(b'6'))
+        | (Some(b'4'), Some(b'7'))
+        | (Some(b'4'), Some(b'8'))
+        | (Some(b'4'), Some(b'9'))
+        | (Some(b'5'), Some(b'1'))
+        | (Some(b'5'), Some(b'2'))
+        | (Some(b'5'), Some(b'3'))
+        | (Some(b'5'), Some(b'4'))
+        | (Some(b'5'), Some(b'5'))
+        | (Some(b'5'), Some(b'6'))
+        | (Some(b'5'), Some(b'7'))
+        | (Some(b'5'), Some(b'8'))
+        | (Some(b'6'), Some(b'0'))
+        | (Some(b'6'), Some(b'1'))
+        | (Some(b'6'), Some(b'2'))
+        | (Some(b'6'), Some(b'3'))
+        | (Some(b'6'), Some(b'4'))
+        | (Some(b'6'), Some(b'5'))
+        | (Some(b'6'), Some(b'6'))
+        | (Some(b'8'), Some(b'1'))
+        | (Some(b'8'), Some(b'2'))
+        | (Some(b'8'), Some(b'4'))
+        | (Some(b'8'), Some(b'6'))
+        | (Some(b'9'), Some(b'0'))
+        | (Some(b'9'), Some(b'1'))
+        | (Some(b'9'), Some(b'2'))
+        | (Some(b'9'), Some(b'3'))
+        | (Some(b'9'), Some(b'4'))
+        | (Some(b'9'), Some(b'5'))
+        | (Some(b'9'), Some(b'8')) => 2,
+        _ => 3,
     }
 }
 
