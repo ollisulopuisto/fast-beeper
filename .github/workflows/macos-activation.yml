@@ -1,0 +1,25 @@
+name: macOS activation regression
+on:
+  pull_request:
+    paths:
+      - src/macos.rs
+      - .github/workflows/macos-activation.yml
+permissions:
+  contents: read
+concurrency:
+  group: macos-activation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  activation:
+    name: activation (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Targeted native registration tests (not GUI acceptance)
+        run: cargo test --locked macos::tests:: -- --test-threads=1

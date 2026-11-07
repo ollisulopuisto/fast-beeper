@@ -266,8 +266,8 @@ unsafe extern "C-unwind" fn reopen(
 /// Cmd-Tab activates without sending a Dock/Finder reopen event. Always
 /// forward activation to the app: AppKit's window list also contains the
 /// status item's window, which can outlive the closed chat window.
-/// Only the shell knows whether its window exists. It also knows whether
-/// that window is minimized, without confusing a native panel for it.
+/// The shell knows whether its resident window exists. Native miniaturized
+/// windows are restored here before forwarding activation to that shell.
 unsafe extern "C-unwind" fn did_become_active(
     _this: &objc2::runtime::AnyObject,
     _sel: objc2::runtime::Sel,
@@ -349,14 +349,25 @@ fn register_activation_handler(
 
 /// Independently add the two optional handlers, preserving any existing ones.
 fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
+    install_handlers_with_protocol(
+        class,
+        objc2::runtime::AnyProtocol::get(c"NSApplicationDelegate"),
+    )
+}
+
+/// The optional protocol is explicit so the missing-metadata path is testable.
+fn install_handlers_with_protocol(
+    class: &objc2::runtime::AnyClass,
+    protocol: Option<&objc2::runtime::AnyProtocol>,
+) -> bool {
     use objc2::Encode;
-    use objc2::runtime::{AnyProtocol, Bool, Imp, Sel};
+    use objc2::runtime::{Bool, Imp, Sel};
     use std::ffi::CString;
 
     let sel = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
     // Never override a handler the delegate already implements.
     if class.instance_method(sel).is_none() {
-        let protocol_types = AnyProtocol::get(c"NSApplicationDelegate").and_then(|p| {
+        let protocol_types = protocol.and_then(|p| {
             let desc = unsafe {
                 objc2::ffi::protocol_getMethodDescription(
                     std::ptr::from_ref(p),
@@ -406,7 +417,7 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
     if class.instance_method(active_sel).is_some() {
         return true;
     }
-    let protocol_active_types = AnyProtocol::get(c"NSApplicationDelegate").and_then(|p| {
+    let protocol_active_types = protocol.and_then(|p| {
         let desc = unsafe {
             objc2::ffi::protocol_getMethodDescription(
                 std::ptr::from_ref(p),
@@ -553,6 +564,39 @@ pub fn drain(hidden: bool) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_delegate_protocol_still_installs_both_handlers() {
+        use objc2::ClassType;
+        use objc2::runtime::ClassBuilder;
+        let builder = ClassBuilder::new(
+            c"SolmuMissingDelegateProtocolTest",
+            objc2_foundation::NSObject::class(),
+        )
+        .expect("unique test class");
+        let class = builder.register();
+        let reopen = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
+        let active = objc2::sel!(applicationDidBecomeActive:);
+        assert!(class.instance_method(reopen).is_none());
+        assert!(class.instance_method(active).is_none());
+        assert!(install_handlers_with_protocol(class, None));
+        assert!(class.instance_method(reopen).is_some());
+        assert!(class.instance_method(active).is_some());
+        let reopen_imp = class.instance_method(reopen).unwrap().implementation() as *const ();
+        let active_imp = class.instance_method(active).unwrap().implementation() as *const ();
+        assert!(
+            install_handlers_with_protocol(class, None),
+            "repeat is safe"
+        );
+        assert_eq!(
+            class.instance_method(reopen).unwrap().implementation() as *const (),
+            reopen_imp
+        );
+        assert_eq!(
+            class.instance_method(active).unwrap().implementation() as *const (),
+            active_imp
+        );
+    }
 
     #[test]
     fn activation_registration_delivers_once_after_late_method_installation() {
