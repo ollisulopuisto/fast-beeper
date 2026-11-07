@@ -101,19 +101,33 @@ impl Drop for RegistryLock {
     }
 }
 
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
+/// Lowercase hex of the SHA-256 digest, written straight into a stack buffer
+/// instead of 32 per-byte `format!` allocations. Both sides of
+/// [`Registry::authenticate`] are lowercase hex, so no re-lowercasing is needed
+/// there either.
 pub fn hash_token(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
-    let mut out = String::with_capacity(64);
-    for byte in digest.iter() {
-        out.push_str(&format!("{byte:02x}"));
+    let mut out = [0u8; 64];
+    for (i, byte) in digest.iter().enumerate() {
+        out[i * 2] = HEX[(byte >> 4) as usize];
+        out[i * 2 + 1] = HEX[(byte & 0x0F) as usize];
     }
-    out
+    // Hex digits are always valid UTF-8.
+    String::from_utf8(out.to_vec()).expect("hex digits are valid UTF-8")
 }
 
-/// Compares every byte; the hashes are fixed-length, so a length
-/// difference is not secret.
+/// Compares every byte, ignoring ASCII case; the hashes are fixed-length, so
+/// a length difference is not secret. Both sides are validated ASCII hex, and
+/// folding with `| 0x20` makes upper- and lowercase hex digits compare equal
+/// without allocating a lowered copy.
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .fold(0u8, |acc, (x, y)| acc | ((x | 0x20) ^ (y | 0x20)))
+            == 0
 }
 
 fn valid_name(name: &str) -> bool {
@@ -262,13 +276,14 @@ impl Registry {
     }
 
     /// Constant-time over every entry: no early exit reveals which hash
-    /// was close.
+    /// was close. `hash_token` emits lowercase hex and `ct_eq` ignores ASCII
+    /// case, so stored hashes match whether they are upper- or lowercase, with
+    /// no per-entry allocation or re-lowercasing.
     pub fn authenticate(&self, token: &str, now: i64) -> Option<&ClientEntry> {
         let presented = hash_token(token);
         let mut found = None;
         for client in &self.clients {
-            let stored = client.token_sha256.to_ascii_lowercase();
-            let same = ct_eq(presented.as_bytes(), stored.as_bytes());
+            let same = ct_eq(presented.as_bytes(), client.token_sha256.as_bytes());
             if same {
                 found = Some(client);
             }
