@@ -647,30 +647,25 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
                         .gamma_multiply(if selected { 0.22 } else { 0.10 }),
                 );
             }
+            let badge_count = queue_badge_count(filter, counts.map(|counts| counts[index]));
             theme::focus_outline(ui, response.id, rect, 3.0);
             theme::paint_icon(
                 ui,
                 icon,
-                if counts.is_some_and(|counts| counts[index] > 0) {
+                if badge_count.is_some() {
                     rect.translate(vec2(-3.0, 2.0))
                 } else {
                     rect
                 },
-                if counts.is_some_and(|counts| counts[index] > 0) {
-                    19.0
-                } else {
-                    22.0
-                },
+                if badge_count.is_some() { 19.0 } else { 22.0 },
                 if selected {
                     palette.accent
                 } else {
                     palette.secondary
                 },
             );
-            if let Some(counts) = counts
-                && counts[index] > 0
-            {
-                paint_queue_count(ui, &palette, rect, counts[index]);
+            if let Some(count) = badge_count {
+                paint_queue_count(ui, &palette, rect, count);
             }
             ui.ctx()
                 .data_mut(|data| data.insert_temp(filter_chip_id(filter), rect));
@@ -679,6 +674,11 @@ fn facet_row(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     });
+}
+
+/// All stays icon-only; counts remain available in its tooltip.
+fn queue_badge_count(filter: ChatFilter, count: Option<usize>) -> Option<usize> {
+    count.filter(|count| filter != ChatFilter::All && *count > 0)
 }
 
 /// Small count badge contained by its segment, with the full count in its tooltip.
@@ -3984,6 +3984,20 @@ mod tests {
     }
 
     #[test]
+    fn all_is_icon_only_while_the_other_three_keep_positive_counts() {
+        assert_eq!(queue_badge_count(ChatFilter::All, Some(123)), None);
+        for filter in [
+            ChatFilter::Unread,
+            ChatFilter::ReplyLater,
+            ChatFilter::ReadLater,
+        ] {
+            assert_eq!(queue_badge_count(filter, Some(123)), Some(123));
+            assert_eq!(queue_badge_count(filter, Some(0)), None);
+            assert_eq!(queue_badge_count(filter, None), None);
+        }
+    }
+
+    #[test]
     fn queue_count_badge_caps_large_numbers_inside_narrow_segments() {
         let (_directory, _app, _ids, ctx) = rail_app(0);
         let palette = Palette::dark();
@@ -4034,7 +4048,7 @@ mod tests {
         };
         assert!(draw(false).is_empty());
         let counts = draw(true);
-        assert!(counts.contains(&"2".to_owned()));
+        assert!(!counts.contains(&"2".to_owned()), "All stays icon-only");
         assert!(counts.contains(&"1".to_owned()));
         assert!(!counts.contains(&"0".to_owned()));
     }
