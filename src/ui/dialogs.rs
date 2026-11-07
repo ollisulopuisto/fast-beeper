@@ -548,9 +548,7 @@ pub(super) fn contact_choices(app: &App, needle: &str) -> Vec<crate::model::Cont
     let mut contacts: Vec<(String, crate::model::Contact)> = contacts
         .into_values()
         .filter_map(|contact| {
-            let Some(phone) = crate::model::phone_of(&contact.id) else {
-                return None;
-            };
+            let phone = crate::model::phone_of(&contact.id)?;
             if app.me.as_deref() == Some(contact.id.as_str())
                 || app.chat(&contact.id).is_some_and(|chat| chat.locked)
             {

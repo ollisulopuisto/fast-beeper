@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use solmu::read_api::{RateLimiter, Registry};
-use solmu::read_http::{Shared, run};
+use solmu::read_http::{RegistryCache, Shared, run};
 use solmu::scheduler_api::ServerSender;
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -101,6 +101,31 @@ struct Reader {
     path: PathBuf,
 }
 
+/// Opening upstream work must not hold the cache lock: a slow request
+/// cannot block every other connection from authenticating/revoking.
+struct UnlockedSource {
+    sender: ServerSender,
+    shared: Arc<Mutex<Option<std::sync::Weak<Shared>>>>,
+}
+
+impl solmu::read_http::UpstreamSource for UnlockedSource {
+    fn open(&self) -> Box<dyn solmu::read_api::Upstream> {
+        let shared = self
+            .shared
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .unwrap();
+        assert!(
+            shared.registry_cache.try_lock().is_ok(),
+            "cache held during upstream I/O"
+        );
+        Box::new(self.sender.clone())
+    }
+}
+
 fn start(base: &str, max: usize) -> Reader {
     let path = std::env::temp_dir().join(format!(
         "zf-http-{}-{}.json",
@@ -109,12 +134,18 @@ fn start(base: &str, max: usize) -> Reader {
     ));
     let settings = path.with_extension("settings");
     let sender = ServerSender::new(base.to_string(), "UPSTREAM-SECRET").unwrap();
+    let owner = Arc::new(Mutex::new(None));
     let shared = Arc::new(Shared {
-        source: Box::new(sender),
+        source: Box::new(UnlockedSource {
+            sender,
+            shared: Arc::clone(&owner),
+        }),
         limiter: Mutex::new(RateLimiter::default()),
         settings: Some(settings.clone()),
         origins: vec!["http://127.0.0.1:23374".to_string()],
+        registry_cache: Mutex::new(RegistryCache::new(&path).unwrap()),
     });
+    *owner.lock().unwrap() = Some(Arc::downgrade(&shared));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     let serve_path = path.clone();
@@ -285,6 +316,7 @@ fn loose_registry_permissions_refuse_everything() {
     let (base, _) = mock_server(false);
     let reader = start(&base, 8);
     let token = add_client(&reader, "app", &[]);
+    assert_eq!(get(&reader, &token, "/v1/chats").0, 200);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -468,4 +500,35 @@ fn an_allowlist_matching_the_recorded_accounts_sees_the_realistic_person() {
             .len(),
         0
     );
+}
+
+#[test]
+fn warmed_registry_replacement_with_preserved_mtime_revokes_immediately() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &[]);
+    assert_eq!(get(&reader, &token, "/v1/chats").0, 200);
+    let old_mtime = std::fs::metadata(&reader.path).unwrap().modified().unwrap();
+    let mut registry = Registry::load(&reader.path).unwrap();
+    assert!(registry.revoke("app"));
+    registry.save(&reader.path).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&reader.path)
+        .unwrap()
+        .set_modified(old_mtime)
+        .unwrap();
+    assert_eq!(get(&reader, &token, "/v1/chats").0, 401);
+}
+
+#[test]
+fn warmed_registry_removal_or_corruption_never_serves_stale_authority() {
+    let (base, _) = mock_server(false);
+    let reader = start(&base, 8);
+    let token = add_client(&reader, "app", &[]);
+    assert_eq!(get(&reader, &token, "/v1/chats").0, 200);
+    std::fs::write(&reader.path, "invalid registry").unwrap();
+    assert_eq!(get(&reader, &token, "/v1/chats").0, 401);
+    std::fs::remove_file(&reader.path).unwrap();
+    assert_eq!(get(&reader, &token, "/v1/chats").0, 401);
 }

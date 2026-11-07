@@ -1,5 +1,36 @@
 # Fast-beeper coordination and development checkpoint
 
+## PR217 contact-key cache check repair - November 7, 2026
+
+Instinct updates the Option-returning filter_map to use ? for its missing
+phone early return, as required by strict clippy. This is the sole failing
+quality diagnostic. Preserve the original one-key-per-contact optimization,
+stable ordering and all main changes from merged PR216. No layout, data or
+protocol changes. Format/diff pass locally; full current-head CI is the gate.
+Maintainer approved green merges before the next notarized DMG; later arriving
+Bolt PRs are outside this build cutoff. No main push. Revert PR217 to roll back.
+
+## PR216 cache repair - November 7, 2026
+
+On bolt/perf-reader-registry-cache, Instinct fixes the missing registry_cache
+field in the HTTP test fixture. The branch was already mergeable, but quality
+and Ubuntu tests failed compiling that fixture. Review also found cached auth
+skipped chmod checks and held its mutex over upstream I/O. Cache hits now
+validate private mode and Unix file identity/change stamps, not mtime alone;
+platforms without that identity reload each request. Missing/invalid files
+never serve stale authority. Immutable Arc snapshots free the mutex before
+upstream work. Tests warm the cache before chmod, preserve mtime across a
+revoking replacement, remove/corrupt the registry, and assert the cache is
+unlocked whenever upstream opens. No public API route or UI changes.
+
+16 HTTP integration tests pass in a focused harness using actual reader/API/
+scheduler modules with only unrelated GUI person-model types reduced. Strict
+all-target/all-feature clippy, fmt and diff checks pass. Full native app test
+linking exceeded local resource/time limits; CI still owns the full suite.
+Original performance figures have not been remeasured after the safety repair.
+Maintainer authorized merging this task's open PRs once green, then a new DMG;
+no merge before that live check, and no main pushes. Revert PR216 to roll back.
+
 ## Cmd-Tab with a closed window - November 7, 2026
 
 Branch: fix/macos-headless-activation, owned by Instinct. User reports manual.11
