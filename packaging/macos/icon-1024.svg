@@ -24,9 +24,14 @@
 <path d="M285.4 100 H738.6 A185.4 185.4 0 0 1 924 285.4 V738.6 A185.4 185.4 0 0 1 738.6 924 H285.4 A185.4 185.4 0 0 1 100 738.6 V285.4 A185.4 185.4 0 0 1 285.4 100 Z" fill="url(#bg)"/>
 <path d="M285.4 100 H738.6 A185.4 185.4 0 0 1 924 285.4 V738.6 A185.4 185.4 0 0 1 738.6 924 H285.4 A185.4 185.4 0 0 1 100 738.6 V285.4 A185.4 185.4 0 0 1 285.4 100 Z" fill="url(#gl)"/>
 <path d="M285.4 100 H738.6 A185.4 185.4 0 0 1 924 285.4 V738.6 A185.4 185.4 0 0 1 738.6 924 H285.4 A185.4 185.4 0 0 1 100 738.6 V285.4 A185.4 185.4 0 0 1 285.4 100 Z" fill="none" stroke="url(#ed)" stroke-width="3"/>
-<g filter="url(#sh)">
+<defs><clipPath id="rightInside"><g transform="translate(228 140) scale(.74) translate(1024 0) scale(-1 1)"><path transform="translate(217 198) scale(26.5)" d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></g></clipPath></defs><g clip-path="url(#rightInside)"><g transform="translate(46 140) scale(.74)"><path transform="translate(217 198) scale(26.5)" d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" fill="#fff0bf"/></g></g><g transform="translate(46 140) scale(.74)"><g>
 <g transform="translate(217 198) scale(26.5)" fill="none" stroke="#0b0e0c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
 </g>
 </g>
-</svg>
+</g><g transform="translate(228 140) scale(.74) translate(1024 0) scale(-1 1)"><g>
+<g transform="translate(217 198) scale(26.5)" fill="none" stroke="#0b0e0c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
+</g>
+</g>
+</g></svg>
