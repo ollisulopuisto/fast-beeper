@@ -3854,6 +3854,13 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // Ada's WhatsApp chat linked with her Signal one: one person
             // row in the list, one mixed-source timeline in the chat.
             "linked" => linked_sample(app),
+            // Capture the linked timeline while an older-history request runs.
+            "linked-loading" => {
+                linked_sample(app);
+                if let Some(conversation) = app.conversations.get_mut(SAMPLES[0].id) {
+                    conversation.loading_older = true;
+                }
+            }
             // The linked person with a chosen primary: the composer is live.
             "linked-primary" => {
                 if let Some(person) = app.settings.beeper.people.last_mut() {
@@ -4400,6 +4407,14 @@ fn contacts_by_id(app: &App) -> HashMap<&str, &Contact> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn linked_loading_fixture_marks_a_linked_member_as_fetching() {
+        let mut app = app();
+        apply_flags(&mut app, Some("linked-loading"));
+        assert!(!app.settings.beeper.people.is_empty());
+        assert!(app.conversations.get(SAMPLES[0].id).unwrap().loading_older);
+    }
+
     use super::*;
     use crate::model::Action;
     use crate::paths::AppDirs;
