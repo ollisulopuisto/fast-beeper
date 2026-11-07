@@ -54,6 +54,10 @@ pub fn preview_url(value: &str) -> Option<String> {
         Ok(url) => url,
         Err(_) => reqwest::Url::parse(&format!("https://{value}")).ok()?,
     };
+    // Reject userinfo (credentials) to prevent phishing and spoofing via userinfo authority tricks.
+    if !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
     (matches!(url.scheme(), "http" | "https") && url.host_str().is_some()).then(|| url.to_string())
 }
 
@@ -64,6 +68,10 @@ pub fn external_url(value: &str) -> Option<String> {
     }
     let value = value.trim();
     let url = reqwest::Url::parse(value).ok()?;
+    // Reject userinfo (credentials) to prevent phishing and credential injection.
+    if !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
     match url.scheme() {
         "http" | "https" if url.host_str().is_some() => Some(url.to_string()),
         "mailto" if !url.path().is_empty() => Some(url.to_string()),
@@ -190,6 +198,13 @@ pub fn call_link(value: &str) -> Option<(String, bool)> {
 /// Unknown files, scripts, installers and application bundles can be revealed
 /// in their folder instead. Sender-provided MIME types cannot grant permission.
 pub fn can_open_attachment(path: &Path) -> bool {
+    // Reject filenames with trailing whitespace or periods which can mask extensions or alter execution.
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    if name.ends_with('.') || name.ends_with(' ') {
+        return false;
+    }
     let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
         return false;
     };
@@ -453,6 +468,14 @@ mod tests {
             "library.so",
             "library.dylib",
             "library.dll",
+            "malware.pif",
+            "malware.com",
+            "malware.hta",
+            "malware.cpl",
+            "malware.wsf",
+            "malware.vbe",
+            "document.docx.",
+            "document.pdf ",
         ] {
             assert!(!can_open_attachment(Path::new(name)), "{name}");
         }
@@ -488,6 +511,17 @@ mod tests {
         // Mailto without recipient or with backslash
         assert_eq!(external_url("mailto:"), None);
         assert_eq!(external_url("mailto:\\evil@example.com"), None);
+
+        // URLs with credentials/userinfo are rejected to prevent phishing/credential injection
+        for url_with_userinfo in [
+            "https://user:password@example.com",
+            "https://admin@example.com/login",
+            "http://user:pass@127.0.0.1/",
+            "https://evil.com@legit.example.com",
+        ] {
+            assert_eq!(external_url(url_with_userinfo), None, "{url_with_userinfo}");
+            assert_eq!(preview_url(url_with_userinfo), None, "{url_with_userinfo}");
+        }
 
         // External url accepts valid http, https, and mailto
         assert_eq!(
