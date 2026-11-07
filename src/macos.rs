@@ -266,8 +266,8 @@ unsafe extern "C-unwind" fn reopen(
 /// Cmd-Tab activates without sending a Dock/Finder reopen event. Always
 /// forward activation to the app: AppKit's window list also contains the
 /// status item's window, which can outlive the closed chat window.
-/// Only the shell knows whether its window exists. It also knows whether
-/// that window is minimized, without confusing a native panel for it.
+/// The shell knows whether its resident window exists. Native miniaturized
+/// windows are restored here only with the experimental opt-in enabled.
 unsafe extern "C-unwind" fn did_become_active(
     _this: &objc2::runtime::AnyObject,
     _sel: objc2::runtime::Sel,
@@ -278,6 +278,19 @@ unsafe extern "C-unwind" fn did_become_active(
     };
     let app = NSApplication::sharedApplication(mtm);
     dock_diag(&format!("did_become_active {}", window_counts(&app)));
+    // Experimental native restoration is opt-in until real Cmd-Tab acceptance.
+    if direct_restore_enabled(
+        std::env::var("SOLMU_EXPERIMENTAL_RESTORE_MINIMIZED")
+            .ok()
+            .as_deref(),
+    ) {
+        for window in app.windows().iter() {
+            if window.isMiniaturized() {
+                window.deminiaturize(None);
+                window.orderFrontRegardless();
+            }
+        }
+    }
     EVENTS
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -285,6 +298,11 @@ unsafe extern "C-unwind" fn did_become_active(
     if let Some(ctx) = &*REPAINT.lock().unwrap_or_else(|p| p.into_inner()) {
         ctx.request_repaint();
     }
+}
+
+/// Only an explicit opt-in enables the unaccepted native restoration path.
+fn direct_restore_enabled(value: Option<&str>) -> bool {
+    value == Some("1")
 }
 
 /// Adds `reopen` to the application delegate's class once winit has set its
@@ -343,25 +361,46 @@ fn register_activation_handler(
 
 /// Independently add the two optional handlers, preserving any existing ones.
 fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
-    use objc2::runtime::{AnyProtocol, Bool, Imp, Sel};
-    let Some(protocol) = AnyProtocol::get(c"NSApplicationDelegate") else {
-        return false;
-    };
+    install_handlers_with_protocol(
+        class,
+        objc2::runtime::AnyProtocol::get(c"NSApplicationDelegate"),
+    )
+}
+
+/// The optional protocol is explicit so the missing-metadata path is testable.
+fn install_handlers_with_protocol(
+    class: &objc2::runtime::AnyClass,
+    protocol: Option<&objc2::runtime::AnyProtocol>,
+) -> bool {
+    use objc2::Encode;
+    use objc2::runtime::{Bool, Imp, Sel};
+    use std::ffi::CString;
+
     let sel = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
     // Never override a handler the delegate already implements.
     if class.instance_method(sel).is_none() {
-        // The protocol carries the correct encoding for the architecture.
-        let description = unsafe {
-            objc2::ffi::protocol_getMethodDescription(
-                std::ptr::from_ref(protocol),
-                sel,
-                Bool::new(false),
-                Bool::new(true),
-            )
-        };
-        if description.types.is_null() {
-            return false;
-        }
+        let protocol_types = protocol.and_then(|p| {
+            let desc = unsafe {
+                objc2::ffi::protocol_getMethodDescription(
+                    std::ptr::from_ref(p),
+                    sel,
+                    Bool::new(false),
+                    Bool::new(true),
+                )
+            };
+            if desc.types.is_null() {
+                None
+            } else {
+                Some(desc.types)
+            }
+        });
+        let fallback = CString::new(format!("{}@:@{}", Bool::ENCODING, Bool::ENCODING)).ok();
+        let types = protocol_types.unwrap_or_else(|| {
+            fallback
+                .as_ref()
+                .map(|s| s.as_ptr())
+                .unwrap_or(c"c@:@c".as_ptr())
+        });
         let added = unsafe {
             objc2::ffi::class_addMethod(
                 std::ptr::from_ref(class).cast_mut(),
@@ -375,7 +414,7 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
                     ) -> Bool,
                     Imp,
                 >(reopen),
-                description.types,
+                types,
             )
         };
         if !added.as_bool() && class.instance_method(sel).is_none() {
@@ -390,17 +429,22 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
     if class.instance_method(active_sel).is_some() {
         return true;
     }
-    let active_description = unsafe {
-        objc2::ffi::protocol_getMethodDescription(
-            std::ptr::from_ref(protocol),
-            active_sel,
-            Bool::new(false),
-            Bool::new(true),
-        )
-    };
-    if active_description.types.is_null() {
-        return false;
-    }
+    let protocol_active_types = protocol.and_then(|p| {
+        let desc = unsafe {
+            objc2::ffi::protocol_getMethodDescription(
+                std::ptr::from_ref(p),
+                active_sel,
+                Bool::new(false),
+                Bool::new(true),
+            )
+        };
+        if desc.types.is_null() {
+            None
+        } else {
+            Some(desc.types)
+        }
+    });
+    let active_types = protocol_active_types.unwrap_or(c"v@:@".as_ptr());
     let active_added = unsafe {
         objc2::ffi::class_addMethod(
             std::ptr::from_ref(class).cast_mut(),
@@ -413,10 +457,10 @@ fn install_handlers_on_class(class: &objc2::runtime::AnyClass) -> bool {
                 ),
                 Imp,
             >(did_become_active),
-            active_description.types,
+            active_types,
         )
     };
-    active_added.as_bool()
+    active_added.as_bool() || class.instance_method(active_sel).is_some()
 }
 
 /// A native file dialog runs a modal loop, so its text fields must receive
@@ -532,6 +576,47 @@ pub fn drain(hidden: bool) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_minimized_restoration_is_off_unless_explicitly_enabled() {
+        for value in [None, Some(""), Some("0"), Some("false"), Some("true")] {
+            assert!(!direct_restore_enabled(value));
+        }
+        assert!(direct_restore_enabled(Some("1")));
+    }
+
+    #[test]
+    fn missing_delegate_protocol_still_installs_both_handlers() {
+        use objc2::ClassType;
+        use objc2::runtime::ClassBuilder;
+        let builder = ClassBuilder::new(
+            c"SolmuMissingDelegateProtocolTest",
+            objc2_foundation::NSObject::class(),
+        )
+        .expect("unique test class");
+        let class = builder.register();
+        let reopen = objc2::sel!(applicationShouldHandleReopen:hasVisibleWindows:);
+        let active = objc2::sel!(applicationDidBecomeActive:);
+        assert!(class.instance_method(reopen).is_none());
+        assert!(class.instance_method(active).is_none());
+        assert!(install_handlers_with_protocol(class, None));
+        assert!(class.instance_method(reopen).is_some());
+        assert!(class.instance_method(active).is_some());
+        let reopen_imp = class.instance_method(reopen).unwrap().implementation() as *const ();
+        let active_imp = class.instance_method(active).unwrap().implementation() as *const ();
+        assert!(
+            install_handlers_with_protocol(class, None),
+            "repeat is safe"
+        );
+        assert_eq!(
+            class.instance_method(reopen).unwrap().implementation() as *const (),
+            reopen_imp
+        );
+        assert_eq!(
+            class.instance_method(active).unwrap().implementation() as *const (),
+            active_imp
+        );
+    }
 
     #[test]
     fn activation_registration_delivers_once_after_late_method_installation() {
