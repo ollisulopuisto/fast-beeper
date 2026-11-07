@@ -22,4 +22,5 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Targeted native registration tests (not GUI acceptance)
-        run: cargo test --locked macos::tests:: -- --test-threads=1
+        run: |
+          cargo test --locked macos::tests:: -- --test-threads=1
